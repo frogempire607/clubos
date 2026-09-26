@@ -83,6 +83,11 @@ export type MembershipOption = {
    * minimum-term work).
    */
   requiredDocumentIds: string[] | null;
+  /**
+   * What families read under this option in the portal ("Tue & Thu practices
+   * only — best for a second sport"). Free text, optional, ≤ 600 chars.
+   */
+  description?: string | null;
 };
 
 /**
@@ -176,6 +181,7 @@ export function parseOptions(raw: unknown): MembershipOption[] {
       requiredDocumentIds: Array.isArray(o.requiredDocumentIds)
         ? o.requiredDocumentIds.filter((d): d is string => typeof d === "string" && !!d.trim())
         : null,
+      description: typeof o.description === "string" && o.description.trim() ? o.description.trim().slice(0, 600) : null,
     });
   }
   return out;
@@ -206,6 +212,7 @@ export function makeOption(
     autoRenewDefault: partial.autoRenewDefault ?? null,
     entitlement: partial.entitlement ?? ENTITLEMENT_ALL,
     requiredDocumentIds: partial.requiredDocumentIds ?? null,
+    description: partial.description ?? null,
   };
 }
 
@@ -228,6 +235,7 @@ export function serializeOptions(options: MembershipOption[]): string {
       ...(o.autoRenewDefault != null ? { autoRenewDefault: o.autoRenewDefault } : {}),
       ...(o.entitlement.kind !== "ALL" ? { entitlement: o.entitlement } : {}),
       ...(o.requiredDocumentIds?.length ? { requiredDocumentIds: o.requiredDocumentIds } : {}),
+      ...(o.description?.trim() ? { description: o.description.trim().slice(0, 600) } : {}),
     })),
   );
 }
@@ -631,4 +639,30 @@ export function selectionFromEntitlement(entitlement: Entitlement, offered: numb
 export function entitlementCoversWeekday(entitlement: Entitlement, weekday: number): boolean {
   if (entitlement.kind === "DAYS") return entitlement.days.includes(weekday);
   return true;
+}
+
+/**
+ * The short facts a FAMILY needs under an option on Book → Memberships:
+ * which days, how long they're committing to, and what happens after.
+ * Derived from the structured fields (never typed), so it cannot drift from
+ * what checkout actually does. The owner's free-text `description` is shown
+ * separately, above these.
+ */
+export function optionFacts(option: MembershipOption, plan: PlanDefaults = {}): string[] {
+  const facts: string[] = [];
+  if (option.entitlement.kind === "DAYS") facts.push(`${describeDays(option.entitlement.days)} only`);
+  else if (option.entitlement.kind === "COUNT") facts.push(`${option.entitlement.perWeek}× per week`);
+  if (option.billingPeriod === "ONE_TIME") return facts;
+
+  const terms = resolveTerms(option, plan);
+  const periodMonths: Partial<Record<BillingPeriod, number>> = { MONTHLY: 1, QUARTERLY: 3, QUADRIMESTRAL: 4, SEMI_ANNUAL: 6, ANNUAL: 12 };
+  const pm = periodMonths[option.billingPeriod];
+  if (terms.contractMonths != null) {
+    if (pm != null && terms.contractMonths === pm && pm > 1) facts.push(`Paid up front for ${pm} months`);
+    else facts.push(`${terms.contractMonths}-month commitment`);
+    facts.push(terms.autoRenewDefault ? "Renews automatically after that" : "Ends after that unless you renew");
+  } else {
+    facts.push(terms.autoRenewDefault ? "No minimum — cancel anytime" : "No minimum");
+  }
+  return facts;
 }

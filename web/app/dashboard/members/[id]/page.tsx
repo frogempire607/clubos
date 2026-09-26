@@ -25,6 +25,21 @@ import type { NextAction } from "@/lib/memberTracks";
 import { ArrowLeft, Pencil } from "lucide-react";
 import { feeBreakdown } from "@/lib/fees";
 import { hasPermission } from "@/lib/permissions";
+import {
+  AttendanceSummaryCard,
+  MigrationProgressCard,
+  MoneySummaryCard,
+  PhoneFactGrid,
+  RecentActivityCard,
+  StaffNotesCard as AttributedNotesCard,
+} from "@/components/members/MemberOverviewCards";
+import {
+  attendanceFigures,
+  deriveFactGrid,
+  pnlMonthHref,
+  type ActivityItem,
+  type AttendanceFigures,
+} from "@/lib/memberProfileFacts";
 
 type Sub = {
   id: string;
@@ -39,6 +54,9 @@ type Sub = {
   canceledAt: string | null;
   notes: string | null;
   membership: { name: string } | null;
+  /** End of the current billing period = the next charge date (live subs). */
+  currentPeriodEnd?: string | null;
+  autoRenew?: boolean;
 };
 
 type Relationship = {
@@ -122,6 +140,15 @@ type MemberDetail = {
   birthdayLockedAt?: string | null;
   user?: { id: string; email: string; lastLoginAt: string | null } | null;
   /** Attributed history for an imported member — see the API note. */
+  // B6 — Overview summary figures (see the GET route).
+  balanceOwed?: number | null;
+  attendanceStats?: AttendanceFigures | null;
+  moneySummary?: {
+    lifetimePaid: number;
+    lastPayment: { amount: number; at: string; description: string | null } | null;
+  } | null;
+  recentActivity?: ActivityItem[];
+  accountHolderLastLoginAt?: string | null;
 };
 
 const statusColors: Record<string, { bg: string; fg: string }> = {
@@ -606,8 +633,107 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
     missingDocs > 0 ? "documents" : null,
   ].filter(Boolean) as string[];
 
-  /** Show a card only on Overview and its own tab. */
-  const on = (key: string) => tab === "overview" || tab === key;
+  /**
+   * Show a card on its own tab. Overview is its own curated layout (§1c) —
+   * see the overview block below — so it no longer dumps every tab's cards.
+   */
+  const on = (key: string) => tab === key;
+
+  // ── B6 — Overview summary figures ───────────────────────────────────────
+  // Server counts when present; the capped record list is the fallback.
+  const attFigures: AttendanceFigures =
+    m.attendanceStats ??
+    attendanceFigures(
+      m.attendanceRecords.map((a) => ({ status: a.status, at: a.classSession?.startsAt ?? a.createdAt })),
+    );
+  const requiredDocs = (m.documents ?? []).filter((d) => d.requiredAt.length > 0).length;
+  const facts = deriveFactGrid({
+    balanceOwed: m.balanceOwed ?? null,
+    requiredDocs,
+    missingDocs,
+    lastAttendedAt: attFigures.lastAttendedAt,
+    migrationStatus: m.migrationStatus ?? null,
+    meter: tracks.accountSetup.meter,
+  });
+  // Next charge = the live recurring subscription's current period end. A
+  // subscription set not to renew, or already canceled, has no next charge.
+  const nextCharge =
+    activeSub && activeSub.billingType === "RECURRING" && activeSub.autoRenew !== false && !activeSub.canceledAt && Number(activeSub.price) > 0
+      ? {
+          amount:
+            m.passProcessingFees ? feeBreakdown(Number(activeSub.price), true).total : Number(activeSub.price),
+          date: activeSub.currentPeriodEnd ?? null,
+          label: activeSub.membership?.name ?? null,
+        }
+      : null;
+  const lastPayment =
+    m.moneySummary?.lastPayment ??
+    (() => {
+      const t = m.transactions.find((x) => x.status === "SUCCEEDED" && x.type !== "REFUND");
+      return t ? { amount: Number(t.amount), at: t.createdAt } : null;
+    })();
+  // The membership "Transfer account management" moves — same statuses the
+  // Membership history row offers "Assign to family member" for.
+  const transferableSub = m.subscriptions.find((s) => ["active", "past_due", "pending"].includes(s.status)) ?? null;
+  // Account holder for the Family & access card: the primary confirmed guardian.
+  const holder =
+    m.family?.guardians.find((g) => g.status === "CONFIRMED" && g.isPrimary) ??
+    m.family?.guardians.find((g) => g.status === "CONFIRMED") ??
+    null;
+
+  // Shared between the Personal info tab and the Overview left/right columns.
+  const personalCard = (
+        <Card title="Personal info">
+          <div className="space-y-3">
+            <OwnershipLegend />
+            <dl className="space-y-2 text-[13px]">
+              <InfoRow label="Email" value={m.email} />
+              <InfoRow label="Phone" value={m.phone} />
+              {m.isMinor && (
+                <>
+                  <InfoRow label="Guardian" value={m.guardianName} />
+                  <InfoRow label="Guardian email" value={m.guardianEmail} />
+                  <InfoRow label="Guardian phone" value={m.guardianPhone} />
+                </>
+              )}
+              <InfoRow label="Joined" value={fmtDate(m.joinedAt)} />
+            </dl>
+            <LockedBirthdayRow
+              dateOfBirth={m.dateOfBirth}
+              age={m.dateOfBirth ? Math.floor((Date.now() - new Date(m.dateOfBirth).getTime()) / 31557600000) : null}
+              guardianName={m.family?.guardians[0]?.name ?? m.guardianName ?? null}
+            />
+            {m.tags.trim() && (
+              <div className="flex flex-wrap gap-1">
+                {m.tags.split(",").map((t) => t.trim()).filter(Boolean).map((t) => (
+                  <span key={t} className="rounded-full bg-app-bg px-2 py-0.5 text-xs text-text-primary">{t}</span>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => setEditOpen(true)}
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border px-3 text-sm text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
+            >
+              <Pencil className="h-4 w-4" /> Edit details
+            </button>
+          </div>
+        </Card>
+  );
+  const accountSecurityCard = (
+          <AccountSecurityCard
+            hasLogin={!!m.user}
+            loginEmail={m.user?.email ?? null}
+            lastLoginAt={m.user?.lastLoginAt ?? null}
+            resetTargetEmail={m.user?.email ?? m.family?.guardians[0]?.email ?? null}
+            resetTargetIsGuardian={!m.user && !!m.family?.guardians.length}
+            guardianName={m.family?.guardians[0]?.name ?? null}
+            canReset={canEdit && !!(m.user || m.family?.guardians.length)}
+            onSendReset={openReset}
+            contactEmail={m.email}
+            canChangeLoginEmail={canChangeLoginEmail}
+            onChangeLoginEmail={changeLoginEmail}
+          />
+  );
 
   return (
     <div className="p-4 sm:p-8 pb-36 md:pb-8 max-w-5xl mx-auto">
@@ -726,69 +852,70 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         </div>
       )}
 
+      {/* §1j — phones get the four facts a front desk asks first. */}
+      <div className="mt-4 md:hidden">
+        <PhoneFactGrid facts={facts} />
+      </div>
+
       <div className="mt-5">
         <ProfileTabs active={tab} onSelect={setTab} counts={tabCounts} problems={tabProblems} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      {/* ── Overview (§1c) — two columns at 1.55fr / 1fr ─────────────────
+          Left: where they are in migration, who they are, what happened
+          lately, and their memberships. Right: login, money, attendance,
+          documents, staff notes. Everything else lives on its own tab. */}
+      {tab === "overview" && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.55fr_1fr]">
+          <div className="flex min-w-0 flex-col gap-4">
+            {m.migrationStatus && tracks.accountSetup.meter.applicable && (
+              <MigrationProgressCard
+                meter={tracks.accountSetup.meter}
+                events={m.migrationEvents ?? []}
+                onOpenActivity={() => setTab("migration")}
+              />
+            )}
+            {personalCard}
+            <RecentActivityCard items={m.recentActivity ?? []} />
+            <MembershipPanel
+              memberId={id}
+              canBill={canBill}
+              onChanged={load}
+              onEditSub={(subId) => { const s = m.subscriptions.find((x) => x.id === subId); if (s) setEditingSub(s); }}
+              onTransfer={canTransfer ? (subId) => setTransferringSubId(subId) : undefined}
+            />
+          </div>
+          <div className="flex min-w-0 flex-col gap-4">
+            {accountSecurityCard}
+            <MoneySummaryCard
+              balanceOwed={m.balanceOwed ?? null}
+              nextCharge={nextCharge}
+              lastPayment={lastPayment}
+              lifetimePaid={m.moneySummary?.lifetimePaid ?? null}
+              onSeeAll={() => setTab("payments")}
+            />
+            <AttendanceSummaryCard figures={attFigures} joinedAt={m.joinedAt} onSeeAll={() => setTab("attendance")} />
+            <MemberDocumentsCard memberId={id} />
+            <AttributedNotesCard
+              memberId={id}
+              notes={m.notes}
+              canEdit={canEdit}
+              onSaved={load}
+              onEditAll={() => setEditOpen(true)}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className={`grid grid-cols-1 lg:grid-cols-[1.55fr_1fr] gap-5 ${tab === "overview" ? "hidden" : ""}`}>
         {/* ── Personal info (4.5.3) ──────────────────────────────────────
             Contact facts plus the two cards the handoff singles out: the
             locked birthday (staff kept "fixing" DOBs to unblock signups,
             silently moving age brackets and waiver requirements) and Account
             & security, which is where a password reset actually belongs. */}
-        {on("personal") && (
-        <Card title="Personal info">
-          <div className="space-y-3">
-            <OwnershipLegend />
-            <dl className="space-y-2 text-[13px]">
-              <InfoRow label="Email" value={m.email} />
-              <InfoRow label="Phone" value={m.phone} />
-              {m.isMinor && (
-                <>
-                  <InfoRow label="Guardian" value={m.guardianName} />
-                  <InfoRow label="Guardian email" value={m.guardianEmail} />
-                  <InfoRow label="Guardian phone" value={m.guardianPhone} />
-                </>
-              )}
-              <InfoRow label="Joined" value={fmtDate(m.joinedAt)} />
-            </dl>
-            <LockedBirthdayRow
-              dateOfBirth={m.dateOfBirth}
-              age={m.dateOfBirth ? Math.floor((Date.now() - new Date(m.dateOfBirth).getTime()) / 31557600000) : null}
-              guardianName={m.family?.guardians[0]?.name ?? m.guardianName ?? null}
-            />
-            {m.tags.trim() && (
-              <div className="flex flex-wrap gap-1">
-                {m.tags.split(",").map((t) => t.trim()).filter(Boolean).map((t) => (
-                  <span key={t} className="rounded-full bg-app-bg px-2 py-0.5 text-xs text-text-primary">{t}</span>
-                ))}
-              </div>
-            )}
-            <button
-              onClick={() => setEditOpen(true)}
-              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border px-3 text-sm text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
-            >
-              <Pencil className="h-4 w-4" /> Edit details
-            </button>
-          </div>
-        </Card>
-        )}
+        {on("personal") && personalCard}
 
-        {on("personal") && (
-          <AccountSecurityCard
-            hasLogin={!!m.user}
-            loginEmail={m.user?.email ?? null}
-            lastLoginAt={m.user?.lastLoginAt ?? null}
-            resetTargetEmail={m.user?.email ?? m.family?.guardians[0]?.email ?? null}
-            resetTargetIsGuardian={!m.user && !!m.family?.guardians.length}
-            guardianName={m.family?.guardians[0]?.name ?? null}
-            canReset={canEdit && !!(m.user || m.family?.guardians.length)}
-            onSendReset={openReset}
-            contactEmail={m.email}
-            canChangeLoginEmail={canChangeLoginEmail}
-            onChangeLoginEmail={changeLoginEmail}
-          />
-        )}
+        {on("personal") && accountSecurityCard}
 
         {on("memberships") && (
           // B13 — the Membership panel: every membership action for this
@@ -812,6 +939,30 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           onChanged={load}
           onAssignMembership={(subId) => setTransferringSubId(subId)}
           guardian={{ name: m.guardianName, email: m.guardianEmail, isMinor: m.isMinor }}
+          accountHolderMeta={
+            holder
+              ? {
+                  // The phone on file is the member record's guardian phone —
+                  // only claimed for the holder when the addresses agree.
+                  phone:
+                    m.guardianPhone && holder.email && m.guardianEmail &&
+                    holder.email.toLowerCase() === m.guardianEmail.toLowerCase()
+                      ? m.guardianPhone
+                      : null,
+                  lastLoginAt: m.accountHolderLastLoginAt ?? null,
+                }
+              : null
+          }
+          onTransferManagement={
+            canTransfer && transferableSub ? () => setTransferringSubId(transferableSub.id) : undefined
+          }
+          transferDisabledReason={
+            !canTransfer
+              ? "Needs the Transfer memberships permission."
+              : !transferableSub
+                ? `${m.firstName} has no live membership to transfer.`
+                : null
+          }
         />
         )}
 
@@ -890,7 +1041,11 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         )}
 
         {on("attendance") && (
-        <Card title="Attendance">
+          <AttendanceSummaryCard figures={attFigures} joinedAt={m.joinedAt} />
+        )}
+
+        {on("attendance") && (
+        <Card title="Attendance records">
           {m.attendanceRecords.length === 0 ? (
             <p className="text-sm text-text-muted">No attendance records.</p>
           ) : (
@@ -930,17 +1085,46 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         )}
 
         {on("payments") && (
-        <Card title="Recent transactions">
+        <Card
+          title="Recent transactions"
+          className="lg:col-span-2"
+          action={
+            m.transactions[0] && pnlMonthHref(m.transactions[0].createdAt) ? (
+              <Link
+                href={pnlMonthHref(m.transactions[0].createdAt)!}
+                className="inline-flex min-h-[44px] items-center text-xs text-brand hover:underline md:min-h-0"
+              >
+                View in Reports
+              </Link>
+            ) : undefined
+          }
+        >
           {m.transactions.length === 0 ? (
             <p className="text-sm text-text-muted">No transactions.</p>
           ) : (
-            <ul className="space-y-1.5 max-h-64 overflow-y-auto">
-              {m.transactions.map((t) => (
-                <li key={t.id} className="flex items-center justify-between text-sm">
-                  <span className="text-text-primary">{t.description || t.type}</span>
-                  <span className="text-xs text-text-muted">{fmtMoney(t.amount)} · {fmtDate(t.createdAt)}</span>
-                </li>
-              ))}
+            <ul className="flex flex-col divide-y" style={{ borderColor: "var(--color-hairline)" }}>
+              {m.transactions.map((t) => {
+                // 2.5.4 drill-through: every row opens the P&L for its month,
+                // where the income line drills to the transactions behind it.
+                const href = pnlMonthHref(t.createdAt);
+                return (
+                  <li key={t.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 py-2 text-sm">
+                    <span className="min-w-0 flex-1 truncate text-text-primary">{t.description || t.type}</span>
+                    <span className="flex shrink-0 items-center gap-2 text-xs tabular-nums text-text-muted">
+                      {fmtMoney(t.amount)} · {t.status.toLowerCase()} · {fmtDate(t.createdAt)}
+                      {href && (
+                        <Link
+                          href={href}
+                          className="inline-flex min-h-[44px] items-center text-brand hover:underline md:min-h-0"
+                          title={`Open the P&L for ${new Date(t.createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })}`}
+                        >
+                          P&amp;L
+                        </Link>
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Card>
@@ -994,19 +1178,14 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
         )}
 
         {on("notes") && (
-          <Card title="Staff notes" className="lg:col-span-2">
-            {m.notes?.trim() ? (
-              // Staff-authored plain text — rendered as text, never as HTML.
-              <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-text-primary">{m.notes}</p>
-            ) : (
-              <p className="text-sm text-text-muted">
-                No notes yet. Add them from <button onClick={() => setEditOpen(true)} className="text-brand underline">Edit member</button>.
-              </p>
-            )}
-            <p className="mt-3 text-[11.5px] text-text-muted">
-              Visible to club staff only — members never see these.
-            </p>
-          </Card>
+          <AttributedNotesCard
+            memberId={id}
+            notes={m.notes}
+            canEdit={canEdit}
+            onSaved={load}
+            onEditAll={() => setEditOpen(true)}
+            className="lg:col-span-2"
+          />
         )}
       </div>
 
@@ -1290,77 +1469,6 @@ function MigrationActivityCard({ events, sourceLabel }: { events?: MigrationEven
             </li>
           ))}
         </ol>
-      )}
-    </Card>
-  );
-}
-
-/**
- * Staff notes (§1c right column) — staff-only, attributed.
- *
- * `Member.notes` already existed and was writable through PATCH; nothing on
- * the profile ever showed it, so a note typed in the old member modal became
- * invisible the moment the roster cut over.
- */
-function StaffNotesCard({
-  memberId, notes, canEdit, onSaved,
-}: { memberId: string; notes: string | null; canEdit: boolean; onSaved: () => void }) {
-  const [draft, setDraft] = useState(notes ?? "");
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const dirty = draft !== (notes ?? "");
-
-  // A reload (e.g. after saving) must not strand a stale draft on screen.
-  useEffect(() => { setDraft(notes ?? ""); }, [notes]);
-
-  const save = async () => {
-    setSaving(true);
-    setErr(null);
-    try {
-      const res = await fetch(`/api/members/${memberId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notes: draft }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Could not save");
-      onSaved();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Card title="Staff notes" className="lg:col-span-2">
-      <p className="mb-2 text-[11.5px] text-text-muted">
-        Only staff can see this. Members and guardians never do.
-      </p>
-      {canEdit ? (
-        <>
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={5}
-            placeholder="Anything the next person at the desk should know."
-            className="w-full rounded-lg border border-app-border bg-surface px-3 py-2 text-[14px] text-text-primary focus:outline-none focus:ring-2 focus:ring-brand"
-          />
-          {err && <p className="mt-1.5 text-[12px] text-red-600">{err}</p>}
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              onClick={save}
-              disabled={!dirty || saving}
-              className="inline-flex min-h-[44px] items-center rounded-lg bg-brand px-3 text-sm text-white transition-colors hover:bg-brand-hover disabled:opacity-50 md:min-h-[38px]"
-            >
-              {saving ? "Saving…" : "Save notes"}
-            </button>
-            {dirty && !saving && <span className="text-[12px] text-text-muted">Unsaved changes</span>}
-          </div>
-        </>
-      ) : notes?.trim() ? (
-        <p className="whitespace-pre-wrap text-[14px] text-text-primary">{notes}</p>
-      ) : (
-        <p className="text-sm text-text-muted">No notes. You need Members · edit to add one.</p>
       )}
     </Card>
   );

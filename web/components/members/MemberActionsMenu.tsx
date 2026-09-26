@@ -99,6 +99,23 @@ export function MemberActionsMenu({
   // that clipping context entirely. It also lets the menu flip above the button
   // when there isn't room below, which matters on the last row of every page.
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  // B6 §1j — below md the menu is a bottom sheet. Decided when it opens, so a
+  // rotate mid-menu keeps whatever the staffer is already looking at.
+  const [sheet, setSheet] = useState(false);
+  const toggle = useCallback(() => {
+    setSheet(typeof window !== "undefined" && window.matchMedia?.("(max-width: 767px)").matches === true);
+    setOpen((o) => !o);
+  }, []);
+
+  // The sheet covers the page, so the page must not scroll underneath it.
+  useEffect(() => {
+    if (!open || !sheet) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open, sheet]);
   const place = useCallback(() => {
     const b = btnRef.current?.getBoundingClientRect();
     if (!b) return;
@@ -112,8 +129,8 @@ export function MemberActionsMenu({
   }, []);
 
   useLayoutEffect(() => {
-    if (open) place();
-  }, [open, place]);
+    if (open && !sheet) place();
+  }, [open, sheet, place]);
 
   useEffect(() => {
     if (!open) return;
@@ -148,11 +165,57 @@ export function MemberActionsMenu({
     return canEdit;
   }
 
+  function renderItem(it: Item, i: number, inSheet: boolean) {
+    if (it.kind === "divider") {
+      return <div key={`d${i}`} className="my-1 h-px" style={{ background: "var(--color-hairline)" }} />;
+    }
+    const ok = allowed(it.requires);
+    return (
+      <button
+        key={it.key}
+        role="menuitem"
+        disabled={!ok}
+        title={ok ? undefined : `Requires ${ROLE_BADGE[it.requires as string]} permission`}
+        onClick={() => {
+          if (!ok) return;
+          setOpen(false);
+          if (it.href) router.push(it.href(member));
+          else onAction?.(it.key, member);
+        }}
+        className={`flex w-full items-center rounded-md text-left transition-colors ${
+          inSheet ? "min-h-[48px] gap-3 px-3 text-[15px]" : "gap-[9px] px-2 py-[7px] text-[13px]"
+        } ${
+          !ok
+            ? "cursor-not-allowed text-[#9CA3AF]"
+            : it.destructive
+              ? "hover:bg-app-bg"
+              : "text-text-primary hover:bg-app-bg"
+        }`}
+        style={ok && it.destructive ? { color: "var(--color-danger-text)" } : undefined}
+      >
+        {ok ? (
+          <it.Icon className={inSheet ? "h-[18px] w-[18px] shrink-0" : "h-3.5 w-3.5 shrink-0"} />
+        ) : (
+          <Lock className={inSheet ? "h-[18px] w-[18px] shrink-0" : "h-3.5 w-3.5 shrink-0"} />
+        )}
+        <span className="flex-1 truncate">{it.label}</span>
+        {!ok && it.requires && (
+          <span
+            className="rounded-[4px] px-1 text-[10px] font-semibold uppercase"
+            style={{ background: "var(--color-chip-surface)", color: "var(--color-chip-text)" }}
+          >
+            {ROLE_BADGE[it.requires]}
+          </span>
+        )}
+      </button>
+    );
+  }
+
   return (
     <div ref={ref} className="relative">
       <button
         ref={btnRef}
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         aria-label={`Actions for ${member.fullName}`}
         aria-expanded={open}
         style={{ width: size, height: size }}
@@ -162,6 +225,32 @@ export function MemberActionsMenu({
       </button>
 
       {open && typeof document !== "undefined" && createPortal(
+        sheet ? (
+          // B6 §1j — phones get a bottom sheet with 48px rows. Same ITEMS, same
+          // order, same locked-row treatment; only the container changes.
+          <div className="fixed inset-0 z-[70]" role="presentation">
+            <div
+              className="absolute inset-0 bg-black/40"
+              aria-hidden
+              onClick={() => setOpen(false)}
+            />
+            <div
+              ref={menuRef}
+              role="menu"
+              aria-label={`Actions for ${member.fullName}`}
+              className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-[22px] bg-surface px-2 pt-2"
+              style={{
+                paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
+                boxShadow: "var(--shadow-overlay)",
+                borderTop: "1px solid var(--color-border)",
+              }}
+            >
+              <div aria-hidden className="mx-auto mb-2 h-1 w-[38px] rounded-full" style={{ background: "var(--color-border)" }} />
+              <div className="px-3 pb-2 text-[15px] font-semibold text-text-primary truncate">{member.fullName}</div>
+              {ITEMS.map((it, i) => renderItem(it, i, true))}
+            </div>
+          </div>
+        ) : (
         <div
           ref={menuRef}
           role="menu"
@@ -176,46 +265,9 @@ export function MemberActionsMenu({
             border: "1px solid var(--color-border)",
           }}
         >
-          {ITEMS.map((it, i) => {
-            if (it.kind === "divider") {
-              return <div key={`d${i}`} className="my-1 h-px" style={{ background: "var(--color-hairline)" }} />;
-            }
-            const ok = allowed(it.requires);
-            return (
-              <button
-                key={it.key}
-                role="menuitem"
-                disabled={!ok}
-                title={ok ? undefined : `Requires ${ROLE_BADGE[it.requires as string]} permission`}
-                onClick={() => {
-                  if (!ok) return;
-                  setOpen(false);
-                  if (it.href) router.push(it.href(member));
-                  else onAction?.(it.key, member);
-                }}
-                className={`flex w-full items-center gap-[9px] rounded-md px-2 py-[7px] text-left text-[13px] transition-colors ${
-                  !ok
-                    ? "cursor-not-allowed text-[#9CA3AF]"
-                    : it.destructive
-                      ? "hover:bg-app-bg"
-                      : "text-text-primary hover:bg-app-bg"
-                }`}
-                style={ok && it.destructive ? { color: "var(--color-danger-text)" } : undefined}
-              >
-                {ok ? <it.Icon className="h-3.5 w-3.5 shrink-0" /> : <Lock className="h-3.5 w-3.5 shrink-0" />}
-                <span className="flex-1 truncate">{it.label}</span>
-                {!ok && it.requires && (
-                  <span
-                    className="rounded-[4px] px-1 text-[10px] font-semibold uppercase"
-                    style={{ background: "var(--color-chip-surface)", color: "var(--color-chip-text)" }}
-                  >
-                    {ROLE_BADGE[it.requires]}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>,
+          {ITEMS.map((it, i) => renderItem(it, i, false))}
+        </div>
+        ),
         document.body,
       )}
     </div>

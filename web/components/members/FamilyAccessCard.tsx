@@ -24,8 +24,9 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   UserPlus, ShieldCheck, Clock, Search, X, Check, Star, AlertTriangle,
-  ExternalLink, CalendarPlus, CreditCard, Pencil, UserMinus,
+  ExternalLink, CalendarPlus, CreditCard, Pencil, UserMinus, Mail, ArrowRightLeft,
 } from "lucide-react";
+import { accountHolderRoles } from "@/lib/memberProfileFacts";
 
 export type FamilyGuardian = {
   linkId: string;
@@ -278,6 +279,75 @@ function StatusChip({ status }: { status: string }) {
   );
 }
 
+function fmtLastLogin(d: string | null): string {
+  if (!d) return "never signed in";
+  return `last login ${fmtDate(d)}`;
+}
+
+/**
+ * §1g account-holder card header — 46px avatar, name, charcoal ACCOUNT HOLDER
+ * chip + relationship chip, what they can do ("Pays · Books · Signs"), a meta
+ * line, and View profile / Message. The row's management controls (Edit,
+ * Remove, the permission switches) still render beneath it.
+ */
+function AccountHolderHeader({
+  g,
+  meta,
+}: {
+  g: FamilyGuardian;
+  meta: { phone: string | null; lastLoginAt: string | null } | null;
+}) {
+  const initials = g.name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase();
+  const roles = accountHolderRoles(g);
+  const metaLine = [g.email, meta?.phone ?? null, meta ? fmtLastLogin(meta.lastLoginAt) : null].filter(Boolean).join(" · ");
+  return (
+    <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
+        <div className="flex h-[46px] w-[46px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-app-border text-[14px] font-semibold text-text-primary">
+          {g.profileImageUrl ? <img src={g.profileImageUrl} alt="" className="h-full w-full object-cover" /> : initials || "?"}
+        </div>
+        <div className="min-w-0">
+          <p className="text-[15px] font-semibold text-text-primary">{g.name}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-1">
+            <span className="rounded bg-charcoal px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+              Account holder
+            </span>
+            {g.relationship && (
+              <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-medium text-text-primary border border-app-border">
+                {g.relationship}
+              </span>
+            )}
+            {roles.length > 0 && (
+              <span className="rounded bg-lime-accent/25 px-1.5 py-0.5 text-[10px] font-medium text-charcoal">
+                {roles.join(" · ")}
+              </span>
+            )}
+          </div>
+          {metaLine && <p className="mt-1 break-words text-xs text-text-muted">{metaLine}</p>}
+        </div>
+      </div>
+      <div className="flex shrink-0 gap-2">
+        {g.memberId && (
+          <Link
+            href={`/dashboard/members/${g.memberId}`}
+            className="inline-flex min-h-[44px] items-center gap-1 rounded-lg border border-app-border bg-surface px-3 text-xs text-text-primary hover:bg-app-bg md:min-h-[34px]"
+          >
+            <ExternalLink className="h-3.5 w-3.5" strokeWidth={2} /> View profile
+          </Link>
+        )}
+        {g.email && (
+          <a
+            href={`mailto:${g.email}`}
+            className="inline-flex min-h-[44px] items-center gap-1 rounded-lg border border-app-border bg-surface px-3 text-xs text-text-primary hover:bg-app-bg md:min-h-[34px]"
+          >
+            <Mail className="h-3.5 w-3.5" strokeWidth={2} /> Message
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function FamilyAccessCard({
   memberId,
   memberName,
@@ -285,6 +355,9 @@ export default function FamilyAccessCard({
   onChanged,
   onAssignMembership,
   guardian,
+  accountHolderMeta,
+  onTransferManagement,
+  transferDisabledReason,
 }: {
   memberId: string;
   memberName: string;
@@ -298,6 +371,14 @@ export default function FamilyAccessCard({
    * change). Shown only while no guardian holds access.
    */
   guardian?: { name: string | null; email: string | null; isMinor: boolean } | null;
+  /** B6 — meta line on the account-holder card (phone on file, last login). */
+  accountHolderMeta?: { phone: string | null; lastLoginAt: string | null } | null;
+  /**
+   * B6 — opens the Phase 4A transfer flow for this member's live membership.
+   * Undefined renders the button disabled with `transferDisabledReason`.
+   */
+  onTransferManagement?: () => void;
+  transferDisabledReason?: string | null;
 }) {
   const [caps, setCaps] = useState<FamilyCapabilities | null>(null);
   const [inviteBusy, setInviteBusy] = useState(false);
@@ -375,6 +456,10 @@ export default function FamilyAccessCard({
 
   const confirmedGuardians = guardians.filter((g) => g.status === "CONFIRMED");
   const pendingGuardians = guardians.filter((g) => g.status === "PENDING");
+  // §1g — the account holder (primary confirmed guardian, else the first
+  // confirmed one) renders as its own card, not as one row among many.
+  const holderLinkId =
+    (confirmedGuardians.find((g) => g.isPrimary) ?? confirmedGuardians[0])?.linkId ?? null;
   const countLine = [
     `${confirmedGuardians.length} account ${confirmedGuardians.length === 1 ? "holder" : "holders"}`,
     `${managed.length} ${managed.length === 1 ? "athlete" : "athletes"}`,
@@ -555,9 +640,12 @@ export default function FamilyAccessCard({
           {guardians.map((g) => {
             const pending = g.status === "PENDING";
             return (
-              <li key={g.linkId} className={`rounded-lg border px-3 py-2.5 ${pending ? "border-orange-accent/40 bg-orange-accent/5" : "border-app-border"}`}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-2.5 min-w-0">
+              <li key={g.linkId} className={`rounded-lg border px-3 py-2.5 ${pending ? "border-orange-accent/40 bg-orange-accent/5" : "border-app-border"} ${g.linkId === holderLinkId ? "bg-app-bg" : ""}`}>
+                {g.linkId === holderLinkId && (
+                  <AccountHolderHeader g={g} meta={accountHolderMeta ?? null} />
+                )}
+                <div className={`flex items-start justify-between gap-3 ${g.linkId === holderLinkId ? "mt-2" : ""}`}>
+                  <div className={`flex items-start gap-2.5 min-w-0 ${g.linkId === holderLinkId ? "hidden" : ""}`}>
                     <Avatar src={g.profileImageUrl} name={g.name} />
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-text-primary flex items-center gap-1.5 flex-wrap">
@@ -576,7 +664,7 @@ export default function FamilyAccessCard({
                     </div>
                   </div>
                   <div className="shrink-0 flex flex-wrap justify-end gap-x-2.5 gap-y-1">
-                    {g.memberId && (
+                    {g.memberId && g.linkId !== holderLinkId && (
                       <Link href={`/dashboard/members/${g.memberId}`} className="inline-flex min-h-[44px] items-center gap-1 text-xs text-text-muted hover:text-text-primary md:min-h-0">
                         <ExternalLink className="h-3 w-3" strokeWidth={2} /> View profile
                       </Link>
@@ -636,6 +724,40 @@ export default function FamilyAccessCard({
           })}
         </ul>
       )}
+
+      {/* ── §1g Transfer account management ─────────────────────────────────
+          The explanatory card the handoff draws. The button opens the Phase 4A
+          transfer flow; the safeguards listed are the ones that flow enforces
+          (transfer route + lib/membershipTransfer), not aspirations. */}
+      <div className="mb-4 rounded-lg border border-app-border p-3">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-text-primary">
+          <ArrowRightLeft className="h-4 w-4 text-text-muted" strokeWidth={2} /> Transfer account management
+        </p>
+        <p className="mt-1 text-xs text-text-muted">
+          Moves {memberName}&apos;s membership to another athlete in this family. The payer, the card and the billing
+          schedule stay exactly as they are — only who the membership is for changes.
+        </p>
+        <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-text-primary">
+          <li>Needs the <strong>Transfer memberships</strong> billing permission — owners have it by default.</li>
+          <li>You see a preview first: who it moves to, who keeps paying, and any classes, bookings or payments already used under it, which you must acknowledge.</li>
+          <li>A parent can only ask. Their request waits in Approvals and nothing changes until staff approve it.</li>
+          <li>Past payments stay on the record they were made on — nothing is refunded or charged again.</li>
+          <li>Every transfer is logged with who did it and the reason given.</li>
+        </ul>
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={onTransferManagement}
+            disabled={!onTransferManagement}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border bg-surface px-3 text-xs font-medium text-text-primary transition-colors hover:bg-app-bg disabled:cursor-not-allowed disabled:opacity-50 md:min-h-[34px]"
+          >
+            <ArrowRightLeft className="h-3.5 w-3.5" strokeWidth={2} /> Transfer membership…
+          </button>
+          {!onTransferManagement && transferDisabledReason && (
+            <span className="text-[11px] text-text-muted">{transferDisabledReason}</span>
+          )}
+        </div>
+      </div>
 
       {/* ── Reciprocal direction ─────────────────────────────────────────── */}
       {family?.hasOwnLogin && (

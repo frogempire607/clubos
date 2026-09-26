@@ -631,7 +631,7 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
 
           <div>
             <label className="block text-sm font-medium text-text-primary mb-1">Description</label>
-            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short description (optional)" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="What families see on Book → Memberships — who it's for, what's included (optional)" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
 
           {/* Purchase access */}
@@ -740,6 +740,14 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
                       <option value="ONE_TIME">One-time payment</option>
                     </select>
                   </div>
+                  <textarea
+                    value={opt.description ?? ""}
+                    onChange={(e) => updateOption(i, "description", e.target.value)}
+                    rows={2}
+                    maxLength={600}
+                    placeholder="What families see under this option in the portal (optional) — e.g. Tue & Thu practices only"
+                    className="mt-2 w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+                  />
 
                   {/* Per-option terms. `null` on either field means "inherit
                       the plan", which is NOT the same as 0 or false — a plain

@@ -27,6 +27,7 @@ import {
 } from "@/lib/emailPersonalization";
 import { enqueueEmailSendRows, INLINE_DISPATCH_MAX, type EnqueueRow } from "@/lib/enqueueEmailSend";
 import { startPhaseTimer } from "@/lib/phaseTimer";
+import { mergeTag } from "@/lib/membersListB6";
 
 // The email path can enqueue up to MAX_IDS EmailSend rows in one request
 // (each is a single insert). Actual dispatch runs inline for now (Resend
@@ -39,9 +40,11 @@ const EMAIL_ACTION_LIMIT = 2000;
 export const maxDuration = 60;
 
 const schema = z.object({
-  action: z.enum(["delete", "message", "send_registration_link", "email"]),
+  action: z.enum(["delete", "message", "send_registration_link", "email", "add_tag"]),
   memberIds: z.array(z.string().min(1)).min(1).max(MAX_IDS),
   body: z.string().min(1).max(4000).optional(),
+  // action=add_tag — one tag, appended to Member.tags without duplicating.
+  tag: z.string().trim().min(1).max(60).optional(),
   // action=email fields
   email: z
     .object({
@@ -88,6 +91,7 @@ const schema = z.object({
 //   { action: "message", memberIds, body }              → DM each
 //   { action: "send_registration_link", memberIds }     → invite each
 //   { action: "email", memberIds, email: {…} }          → bulk email (Phase 3A)
+//   { action: "add_tag", memberIds, tag }               → append a tag (B6)
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
@@ -125,6 +129,38 @@ export async function POST(req: Request) {
       { error: `You can only email up to ${EMAIL_ACTION_LIMIT} members at once. Select fewer and try again.` },
       { status: 400 },
     );
+  }
+
+  // B6 — bulk "Add tag". The roster resolves "Select all N matching this
+  // filter" through /api/members/selection first, so memberIds here is already
+  // the query-scoped set; it is re-scoped to the club above like every action.
+  if (data.action === "add_tag") {
+    const denied = requirePermission(session, "members", "edit");
+    if (denied) return denied;
+    const tag = data.tag?.trim();
+    if (!tag) return NextResponse.json({ error: "Tag is required." }, { status: 400 });
+    const rows = await prisma.member.findMany({
+      where: { id: { in: ids }, clubId: session.user.clubId },
+      select: { id: true, tags: true },
+    });
+    let tagged = 0;
+    let already = 0;
+    // Per-row writes: each member's tag string is different, so this cannot be
+    // one updateMany. Only rows that actually change are written.
+    const writes = [];
+    for (const r of rows) {
+      const next = mergeTag(r.tags, tag);
+      if (!next.changed) {
+        already++;
+        continue;
+      }
+      tagged++;
+      writes.push(prisma.member.update({ where: { id: r.id }, data: { tags: next.tags } }));
+    }
+    for (let i = 0; i < writes.length; i += 100) {
+      await prisma.$transaction(writes.slice(i, i + 100));
+    }
+    return NextResponse.json({ ok: true, tagged, already, tag });
   }
 
   if (data.action === "delete") {

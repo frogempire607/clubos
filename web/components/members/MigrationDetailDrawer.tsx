@@ -230,14 +230,14 @@ export function MigrationDetailDrawer({
                               className="mt-1 h-[11px] w-[11px] shrink-0 rounded-full"
                               style={
                                 s.done
-                                  ? { background: "var(--color-charcoal)" }
+                                  ? { background: "var(--color-text-primary)" }
                                   : s.current
                                     ? {
-                                        background: "#fff",
+                                        background: "var(--color-surface)",
                                         border: "2px solid var(--color-orange-accent)",
                                         boxShadow: "0 0 0 3px rgba(255,106,0,.18)",
                                       }
-                                    : { background: "#fff", border: "2px solid var(--color-app-border)" }
+                                    : { background: "var(--color-surface)", border: "2px solid var(--color-app-border)" }
                               }
                             />
                             {i < meter.steps.length - 1 && (

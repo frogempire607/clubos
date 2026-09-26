@@ -15,7 +15,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3.
 - **Deploy rhythm (Netlify credits):** each merge to `main` = 1 production deploy (15 credits). Branch pushes are free.
   Work a phase on ONE branch, push freely, merge to main once per phase. Docs-only merges skip the build (netlify.toml).
-- **Next Claude session (after 09-25):** B3 slices 1–2, B10, B13, B16 all built/shipped. B5 and B7 done 09-25. Remaining: B2 (waits on A3), B6 (native shell). Julian: A8 worksheet, duplicates review, A3 guardians.
+- **Next Claude session (after 09-25):** B3 slices 1–2, B10, B13, B16 all built/shipped. B5 and B7 done 09-25. Remaining: B2 (waits on A3); B6 built 09-26 (device regression pass left). Julian: A8 worksheet, duplicates review, A3 guardians.
 - **Julian, after that merge:** Finger Lakes → Edit → Roster & entries → "Match rosters to position names" → check the chips → Save.
 - **Julian, after shipping B13 slice 3:** try Change plan on one cash member (look at the preview, cancel) and one Stripe
   member picking a different billing cycle (preview only — the switch is real Stripe when confirmed).
@@ -190,7 +190,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   for logged-out buyers via `/api/public/media/{product|event}/{ownerId}/{fileId}` (only files that owner uses; IMAGE
   only; club logo on /p now uses the public logo route). Tests `npm run test:product-bulk-pricing` (39).
 
-- [ ] **B6 · Phase 4.5 backlog: 13 partial, 16 missing** · needs Capacitor shell
+- [x] **B6 · Phase 4.5 backlog: 13 partial, 16 missing** · BUILT 2026-09-26 (groups 2–4 on `claude/b6-complete`, no migration) — only the on-device Capacitor regression is left (Julian)
   **Group 1 (front desk on a phone) BUILT 2026-09-25** on `claude/front-desk-app` (no migration):
   `/dashboard/front-desk` (today's class auto-picked → search / New walk-in → door rule → Check in · Start free
   trial · drop-in by card on file / cash / check / emailed link / collect later); sticky "Check in · Billing" bar on
@@ -202,8 +202,22 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   **App store prep:** Universal Links / App Links (door QR opens the app), `/.well-known` routes, iOS entitlements,
   Android intent filter, `@capacitor/app` deep-link router, camera/photo permission strings, store badges on /c/.
   Julian's steps: `docs/APP-STORE-LAUNCH.md`. Tests `test:app-links` (14).
-  Still open in B6: quick-action bottom sheet, profile 2×2 fact grid, groups 2–4.
-  Mostly the mobile-native layer.
+  **Groups 2–4 BUILT 2026-09-26** on `claude/b6-complete` (no migration):
+  Members list — Filters panel now holds tag / gender / age / custom field (+ chips); family rows collapse (chevron,
+  indent, spine; "N more in family" chip on phones); A–Z jump (`?letter=`); bulk "Add tag" (`add_tag`); work-queue
+  cards arm the matching bulk action; phone "Needs you" 2-card scroller. Tests `test:members-list-b6` (81).
+  Profile — `⋯` menu is a bottom sheet on phones; phone 2×2 facts (Balance · Waiver · Last seen · Migration);
+  migration progress card; recent activity; money summary; attendance 3 figures; staff notes stamped with the
+  staffer's name (PATCH `appendNote`); 1.55fr/1fr layout; Payments rows → P&L month; account-holder card +
+  transfer card on Family & access. Tests `test:member-profile-b6` (54).
+  Migration — whose-turn segments, 4 "Needs you" cards, Waiting-on pill, bulk Mark reviewed
+  (`/api/members/migration/review`), send result "N sent · M skipped" with reasons + "Fix these N" for undelivered,
+  non-blocking Stripe banner, empty-search names the filters + "Did you mean". Fixes select-all/exports ignoring the
+  funnel step filter. Tests `test:migration-b6` (56).
+  Group 4 — topbar/search/bell/user menu 44px on phones; dark-mode fixes on the step dots.
+  Member portal — membership options can carry a description (set per option in Memberships) shown under
+  Book now with auto facts (days/visits, commitment, renewal). Tests `test:option-facts` (10).
+  Still open: on-device Capacitor regression pass (Julian).
 
 - [x] **B7 · Phase 8 Steps 6–9 — collapse the commitment plans** · DONE 2026-09-25 — steps 6/7/8 applied, step 9 ✓ fully collapsed for both plans (Maximus, Blake → MS/HS; chase → Jr Frogs; both commitment plans active=false, off every class). Code shipped fc15c75 on `claude/b7-option-acceptance`
   (no migration); DATA STEPS are Julian's (dry run → review → --apply, one step per run).

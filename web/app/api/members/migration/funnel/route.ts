@@ -30,6 +30,7 @@ import {
   WAITING_ON,
   migrationMeterFor,
 } from "@/lib/memberTracks";
+import { needOf, type NeedCounts } from "@/lib/migrationQueueModel";
 
 /** Cap mirrors the roster's — past this we say so rather than guess. */
 const FUNNEL_CAP = 20_000;
@@ -64,6 +65,9 @@ export async function GET() {
   // number of completed steps, so someone imported-and-reviewed sits at 2.
   const atStep = new Array(MIGRATION_STEP_COUNT + 1).fill(0) as number[];
   const queue = { needsYou: 0, waitingOnMember: 0, inSetup: 0, done: 0, blocked: 0 };
+  // B6 — what "Needs you" is made of, for the 4-up cards. Same meter, same
+  // rule the list route filters `?need=` with (lib/migrationQueueModel.ts).
+  const needs: NeedCounts = { review: 0, invite: 0, approve: 0, blocked: 0 };
 
   // The sub-lines under each segment: the specific reason people are stuck
   // THERE, which is what makes a segment worth clicking.
@@ -84,6 +88,9 @@ export async function GET() {
     } else if (meter.waitingOn === WAITING_ON.STAFF) queue.needsYou++;
     else if (meter.waitingOn === WAITING_ON.MEMBER) queue.waitingOnMember++;
     else queue.inSetup++;
+
+    const need = needOf(meter);
+    if (need) needs[need]++;
 
     if (meter.step === 1) unreviewed++;
     if (meter.step === 2) neverInvited++;
@@ -140,8 +147,25 @@ export async function GET() {
           : `${notYetConfirmed} ${notYetConfirmed === 1 ? "person still has" : "people still have"} no confirmed membership in AthletixOS. Keep your previous system billing until that reaches zero.`,
   };
 
+  // B6 — the non-blocking payments banner. Read from the club row (kept fresh
+  // by /api/stripe/status and the Connect webhook) rather than calling Stripe
+  // on every page load.
+  const club = await prisma.club.findUnique({
+    where: { id: clubId },
+    select: { stripeAccountId: true, stripeChargesEnabled: true },
+  });
+  const payments = {
+    connected: !!club?.stripeAccountId,
+    chargesEnabled: !!club?.stripeChargesEnabled,
+    // People who will reach "save a card" before billing can be confirmed:
+    // everyone not yet at step 6. That is who a missing Stripe account holds up.
+    heldUp: notYetConfirmed,
+  };
+
   return NextResponse.json({
     capped: false,
+    needs,
+    payments,
     total,
     segments,
     progress: { complete, inSetup, invitedNoResponse, notInvited },
