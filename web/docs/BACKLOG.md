@@ -15,8 +15,8 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3.
 - **Deploy rhythm (Netlify credits):** each merge to `main` = 1 production deploy (15 credits). Branch pushes are free.
   Work a phase on ONE branch, push freely, merge to main once per phase. Docs-only merges skip the build (netlify.toml).
-- **Check-in order (filed 09-26 from the staff dashboard audit):** B17, B18, B19 MERGED 09-26 → B24 build-chain
-  follow-up commit (unblocked) → B25 audit which tests really gate the build → B20 IA renames → B21 staff profiles → B22 App Store 4.2 (own project,
+- **Check-in order (filed 09-26 from the staff dashboard audit):** B17, B18, B19 MERGED 09-26 → B24 + B20 built 09-26 on
+  `claude/b20-renames` → B25 audit which tests really gate the build → B21 staff profiles / B23 mockups → B21 staff profiles → B22 App Store 4.2 (own project,
   gates submission) → B23 Claude Design mockups after B20. Section D below.
 - **Next Claude session (after 09-25):** B3 slices 1–2, B10, B13, B16 all built/shipped. B5 and B7 done 09-25. Remaining: B2 (waits on A3); B6 built 09-26 (device regression pass left). Julian: A8 worksheet, duplicates review, A3 guardians.
 - **Julian, after that merge:** Finger Lakes → Edit → Roster & entries → "Match rosters to position names" → check the chips → Save.
@@ -359,7 +359,9 @@ live, not future; App Store 4.2 is a configuration problem, not a design one (B2
   path → sidebar shows no active item. Pick one path, redirect the other (next.config), repoint the links;
   products children (`/dashboard/products/inventory|bookings`) must sit under the same parent.
 
-- [ ] **B24 · Build-chain follow-up: wire the new checks into `npm run build`** · one commit · UNBLOCKED (all three
+- [x] **B24 · Build-chain follow-up: wire the new checks into `npm run build`** · BUILT 09-26 on `claude/b20-renames`:
+  test:staff-comp-draft + test:dashboard-nav added; report:staff-save-damage deliberately left out (DB read).
+  Was: · one commit · UNBLOCKED (all three
   branches merged 09-26) · kept out of the three branches on purpose so they didn't each edit the same build line.
   Add `test:staff-comp-draft` (B18) and `test:dashboard-nav` (B19). Decide on `report:staff-save-damage` separately:
   it queries the production database and exits 1 when it finds something, so in the build it would make every deploy
@@ -374,7 +376,14 @@ live, not future; App Store 4.2 is a configuration problem, not a design one (B2
   import `lib/prisma` rely on `postinstall` having generated the client (members-list-b6 exits 1 without it).
   Output: a list, then one commit to the build line. Grep the docs for "gates the build" claims and correct them.
 
-- [ ] **B20 · IA renames** · after B17 (audit §1.2, §3.1, §3.2(2))
+- [x] **B20 · IA renames** · BUILT 09-26 on `claude/b20-renames` (labels only, URLs unchanged; Julian's names):
+  "Stripe"/"Payments"/"Payments & billing" → **Member payments**; "Plan & Billing" → **AthletixOS plan** (lives ONLY in
+  Settings now — the duplicate plan block on /settings/billing is gone, Stripe checkout/portal return to
+  /dashboard/settings?section=plan); App Design / Branded App / Branded mobile app / Branded app editor → **Mobile app**
+  (duplicate sidebar link removed; the section links to the editor); diagnostics cards renamed, last "ClubOS" gone;
+  /dashboard/schedule → redirect to Staff → Availability; Payroll h1 "Payroll", "Total pay", link to Payouts.
+  Full §3.3 menu restructure NOT done — waits for the B23 mockups.
+  Was: after B17 (audit §1.2, §3.1, §3.2(2))
   - Plan & Billing (club → AthletixOS) vs "Stripe"/"Payments"/"Payments & billing" (members → club) vs diagnostics'
     "ClubOS billing": two money flows, name each by the job, drop the vendor name; kill the last rendered "ClubOS".
   - App Design / Branded App / Branded mobile app / Branded app editor → one name for `/settings/branded-app`.

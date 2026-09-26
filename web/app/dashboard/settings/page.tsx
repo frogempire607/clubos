@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { MapPin } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
 import PageHeader from "@/components/PageHeader";
@@ -124,6 +125,16 @@ export default function SettingsPage() {
   // social links, etc.). The nav item below is a Link, not an in-hub
   // section, so we default the in-hub section to "identity" instead.
   const [section, setSection] = useState<"identity" | "plan" | "app" | "memberPortal" | "locations" | "notifications" | "security" | "legal" | "danger">("identity");
+  // ?section=plan is where Stripe sends the owner back after an AthletixOS plan
+  // checkout or the billing portal (B20: the plan lives here only).
+  const params = useSearchParams();
+  const upgradedTier = params.get("upgraded");
+  const upgradeCanceled = params.get("canceled") === "true";
+  useEffect(() => {
+    const wanted = params.get("section");
+    const valid = ["identity", "plan", "app", "memberPortal", "locations", "notifications", "security", "legal", "danger"] as const;
+    if (wanted && (valid as readonly string[]).includes(wanted)) setSection(wanted as (typeof valid)[number]);
+  }, [params]);
   const [club, setClub] = useState<Club | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
@@ -147,8 +158,8 @@ export default function SettingsPage() {
   // contact/address/branding fields owners need in one place.
   const NAV = [
     { id: "identity", label: "Club Identity" },
-    { id: "plan", label: "Plan & Billing" },
-    { id: "app", label: "Branded App" },
+    { id: "plan", label: "AthletixOS plan" },
+    { id: "app", label: "Mobile app" },
     { id: "memberPortal", label: "Member Portal" },
     { id: "locations", label: "Locations" },
     { id: "notifications", label: "Notifications" },
@@ -205,13 +216,8 @@ export default function SettingsPage() {
             <div className="pt-3 border-t border-app-border mt-3 space-y-0.5">
               <Link href="/dashboard/settings/billing"
                 className="w-full text-left px-3 py-2 rounded-lg text-sm text-text-muted hover:bg-app-bg flex items-center gap-1.5">
-                <span className="w-4 h-4 rounded text-[10px] flex items-center justify-center font-bold" style={{ background: "var(--color-primary)", color: "#fff" }}>S</span>
-                Stripe
-              </Link>
-              <Link href="/dashboard/settings/branded-app"
-                className="w-full text-left px-3 py-2 rounded-lg text-sm text-text-muted hover:bg-app-bg flex items-center gap-1.5">
-                <span className="w-4 h-4 rounded text-[10px] flex items-center justify-center font-bold" style={{ background: "var(--color-warning)", color: "#fff" }}>A</span>
-                App Design
+                <span className="w-4 h-4 rounded text-[10px] flex items-center justify-center font-bold" style={{ background: "var(--color-primary)", color: "#fff" }}>$</span>
+                Member payments
               </Link>
               <Link href="/dashboard/settings/email"
                 className="w-full text-left px-3 py-2 rounded-lg text-sm text-text-muted hover:bg-app-bg flex items-center gap-1.5">
@@ -233,6 +239,16 @@ export default function SettingsPage() {
         {/* Content */}
         <div className="flex-1 min-w-0">
           {section === "identity" && <IdentitySection />}
+          {section === "plan" && upgradedTier && (
+            <div className="mb-4 px-4 py-3 rounded-lg bg-lime-accent border border-lime-accent/40 text-sm text-text-primary">
+              ✓ Upgraded to {upgradedTier.charAt(0).toUpperCase() + upgradedTier.slice(1)}. It may take a moment to reflect.
+            </div>
+          )}
+          {section === "plan" && upgradeCanceled && (
+            <div className="mb-4 px-4 py-3 rounded-lg bg-app-bg border border-app-border text-sm text-text-muted">
+              Checkout canceled — no charge was made.
+            </div>
+          )}
           {section === "plan" && club && <PlanSection club={club} onSaved={loadClub} />}
           {section === "app" && club && <BrandedAppSection club={club} onSaved={loadClub} />}
           {section === "memberPortal" && club && <MemberPortalSection club={club} onSaved={loadClub} />}
@@ -324,9 +340,9 @@ function PlanSection({ club, onSaved }: { club: Club; onSaved: () => void }) {
             </div>
             <p className="text-xs text-text-muted mt-0.5">{currentTier.fee}</p>
             <p className="text-xs text-text-muted mt-1">
-              Billing is managed in Stripe — changes here and on the{" "}
-              <Link href="/dashboard/settings/billing" className="underline">Payments &amp; billing</Link>{" "}
-              page always reflect your live Stripe subscription.
+              Billing is managed in Stripe — this always reflects your live Stripe subscription.
+              What your members pay you is set up separately, under{" "}
+              <Link href="/dashboard/settings/billing" className="underline">Member payments</Link>.
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
@@ -526,7 +542,7 @@ function MemberPortalSection({ club, onSaved }: { club: Club; onSaved: () => voi
         Looking for more portal controls? <Link href="/dashboard/settings/club" className="underline text-text-primary">
           Full club profile (banner, hours, contact, about)
         </Link> · <Link href="/dashboard/settings/branded-app" className="underline text-text-primary">
-          Branded app appearance
+          Mobile app appearance
         </Link>
       </div>
 
@@ -934,7 +950,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
             href="/dashboard/settings/branded-app"
             className="text-xs px-3 py-2 rounded-lg bg-brand text-white font-medium hover:bg-brand-hover whitespace-nowrap flex-shrink-0"
           >
-            Open App Design editor →
+            Open the Mobile app editor →
           </a>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1146,7 +1162,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
               body: (
                 <>
                   Set your icon, splash screen, colors, and screens in the{" "}
-                  <a href="/dashboard/settings/branded-app" className="text-brand hover:underline">App Design editor</a>.
+                  <a href="/dashboard/settings/branded-app" className="text-brand hover:underline">Mobile app editor</a>.
                   This is what members see when they open the app.
                 </>
               ),

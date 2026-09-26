@@ -150,9 +150,11 @@ export default function StaffPayrollPage() {
     <div className="p-8 max-w-7xl mx-auto">
       <div className="mb-6 flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Payroll &amp; Payouts</h1>
+          <h1 className="text-2xl font-semibold text-text-primary">Payroll</h1>
           <p className="text-sm text-text-muted mt-1">
             Calculated from each staff member&apos;s compensation plan (base + bonuses) over the selected period.
+            This page only calculates — to record what you actually paid, use{" "}
+            <a href="/dashboard/staff/payouts" className="text-brand hover:underline">Payouts</a>.
           </p>
         </div>
         <button
@@ -211,7 +213,7 @@ export default function StaffPayrollPage() {
           <div className="grid grid-cols-3 gap-3 mb-4">
             <Total label="Base pay" value={formatMoney(data.totals.base)} />
             <Total label="Bonus pay" value={formatMoney(data.totals.bonus)} />
-            <Total label="Total payout" value={formatMoney(data.totals.total)} accent />
+            <Total label="Total pay" value={formatMoney(data.totals.total)} accent />
           </div>
 
           {/* Table */}
