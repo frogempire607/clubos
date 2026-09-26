@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3000",
-    "build": "npm run test:sport-terms && npm run test:subscription-truth && npm run test:permission-boundary && npm run test:attendance-billing && prisma generate && next build",
+    "build": "npm run test:sport-terms && npm run test:subscription-truth && npm run test:permission-boundary && npm run test:attendance-billing && npm run test:staff-comp-draft && npm run test:dashboard-nav && prisma generate && next build",
     "postinstall": "prisma generate",
     "start": "next start",
     "cap:sync": "node scripts/native-shell-config.mjs && cap sync",

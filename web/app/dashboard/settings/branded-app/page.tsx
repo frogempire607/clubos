@@ -133,10 +133,10 @@ export default function BrandedAppPage() {
           </Link>
         </div>
         <div className="rounded-2xl border border-app-border bg-app-surface p-10 text-center">
-          <h1 className="text-2xl font-semibold text-text-primary">Branded mobile app</h1>
+          <h1 className="text-2xl font-semibold text-text-primary">Mobile app</h1>
           <p className="mt-3 text-sm text-text-muted max-w-md mx-auto">
             Ship your own iOS and Android app with your club&apos;s name, icon, and colors.
-            The branded app editor is available on Pro and Enterprise plans.
+            The Mobile app editor is available on Pro and Enterprise plans.
           </p>
           <Link
             href="/dashboard/settings"
@@ -161,7 +161,7 @@ export default function BrandedAppPage() {
 
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Branded app editor</h1>
+          <h1 className="text-2xl font-semibold text-text-primary">Mobile app</h1>
           <p className="text-sm text-text-muted mt-1 max-w-2xl">
             Customize the installable member portal experience with a live phone preview.
             These settings are scoped to {clubInfo?.name || "this club"}.

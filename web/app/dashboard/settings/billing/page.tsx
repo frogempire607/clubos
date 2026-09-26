@@ -5,7 +5,6 @@ import SiblingDiscountCard from "@/components/settings/SiblingDiscountCard";
 import GroupRatesCard from "@/components/settings/GroupRatesCard";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
-import { getTierName, TIER_PRICES, TIER_FEATURES, type Tier } from "@/lib/tier";
 
 type Status = {
   connected: boolean;
@@ -14,78 +13,25 @@ type Status = {
   stripePayoutsEnabled: boolean;
 };
 
-const TIER_ORDER: Tier[] = ["growth", "pro", "enterprise"];
-
 export default function BillingSettingsPage() {
   const { data: session } = useSession();
   void session;
   const params = useSearchParams();
   const [status, setStatus] = useState<Status | null>(null);
-  const [clubTier, setClubTier] = useState<Tier>("growth");
-  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState("");
-  const currentTier: Tier = clubTier;
 
   const justConnected = params.get("connected") === "true";
-  const upgradedTier = params.get("upgraded");
-  const upgradeCanceled = params.get("canceled") === "true";
-  const [upgradingTo, setUpgradingTo] = useState<string | null>(null);
-  const [openingPortal, setOpeningPortal] = useState(false);
 
   async function load() {
     setLoading(true);
-    const [statusRes, infoRes] = await Promise.all([
-      fetch("/api/stripe/status"),
-      fetch("/api/club/info"),
-    ]);
+    const statusRes = await fetch("/api/stripe/status");
     if (statusRes.ok) setStatus(await statusRes.json());
-    if (infoRes.ok) {
-      const info = await infoRes.json();
-      const tier = (info?.tier ?? "growth") as Tier;
-      setClubTier(["growth", "pro", "enterprise"].includes(tier) ? tier : "growth");
-      setSubscriptionStatus(info?.subscriptionStatus ?? null);
-    }
     setLoading(false);
   }
 
   useEffect(() => { load(); }, []);
-
-  async function startUpgrade(tier: Tier) {
-    setUpgradingTo(tier);
-    setError("");
-    try {
-      const res = await fetch("/api/club/subscription/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tier }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.url) {
-        setError(typeof data.error === "string" ? data.error : "Could not start checkout");
-        setUpgradingTo(null);
-        return;
-      }
-      window.location.href = data.url;
-    } catch (err) {
-      setError(String(err));
-      setUpgradingTo(null);
-    }
-  }
-
-  async function openManageBilling() {
-    setOpeningPortal(true);
-    setError("");
-    const res = await fetch("/api/club/subscription/portal", { method: "POST" });
-    const data = await res.json().catch(() => ({}));
-    setOpeningPortal(false);
-    if (!res.ok || !data.url) {
-      setError(typeof data.error === "string" ? data.error : "Could not open billing portal");
-      return;
-    }
-    window.location.href = data.url;
-  }
 
   async function handleConnect() {
     setError("");
@@ -111,7 +57,7 @@ export default function BillingSettingsPage() {
   return (
     <div className="p-8 max-w-3xl">
       <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-text-primary mb-1">Payments</h1>
+        <h1 className="text-3xl font-semibold text-text-primary mb-1">Member payments</h1>
         <p className="text-sm text-text-muted">Connect Stripe to accept payments from your members.</p>
       </div>
 
@@ -121,16 +67,6 @@ export default function BillingSettingsPage() {
         </div>
       )}
 
-      {upgradedTier && (
-        <div className="mb-4 px-4 py-3 rounded-lg bg-lime-accent border border-lime-accent/40 text-sm text-text-primary">
-          ✓ Upgraded to {upgradedTier.charAt(0).toUpperCase() + upgradedTier.slice(1)}. It may take a moment to reflect.
-        </div>
-      )}
-      {upgradeCanceled && (
-        <div className="mb-4 px-4 py-3 rounded-lg bg-app-bg border border-app-border text-sm text-text-muted">
-          Checkout canceled — no charge was made.
-        </div>
-      )}
 
       {loading ? (
         <div className="bg-white rounded-xl border border-app-border p-6 text-center text-sm text-text-muted">Loading…</div>
@@ -206,95 +142,12 @@ export default function BillingSettingsPage() {
       <SiblingDiscountCard />
       <GroupRatesCard />
 
-      {/* ── AthletixOS Subscription Plan ── */}
-      <div className="mt-8">
-        <h2 className="text-xl font-semibold text-text-primary mb-1">AthletixOS Plan</h2>
-        <p className="text-sm text-text-muted mb-4">Your current AthletixOS subscription tier.</p>
-
-        {/* Current tier */}
-        <div className="bg-white rounded-xl border border-app-border p-5 mb-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm text-text-muted mb-1">Current plan</div>
-              <div className="text-xl font-semibold text-text-primary">{getTierName(currentTier)}</div>
-              <div className="text-sm text-text-muted mt-0.5">
-                ${TIER_PRICES[currentTier as Tier]?.monthly}/month · 0% platform fee
-              </div>
-            </div>
-            <span
-              className="text-xs px-3 py-1 rounded-full font-medium"
-              style={{ background: "var(--color-success)", color: "#1F1F23" }}
-            >
-              Active
-            </span>
-          </div>
-        </div>
-
-        {/* Upgrade options */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {TIER_ORDER.map((tier) => {
-            const price = TIER_PRICES[tier];
-            const isCurrent = tier === currentTier;
-            const isHigher = TIER_ORDER.indexOf(tier) > TIER_ORDER.indexOf(currentTier as Tier);
-            return (
-              <div
-                key={tier}
-                className="rounded-xl border p-4"
-                style={{
-                  background: isCurrent ? "var(--color-primary)" : "#fff",
-                  borderColor: isCurrent ? "var(--color-primary)" : "var(--color-border)",
-                  color: isCurrent ? "#fff" : "var(--color-text)",
-                }}
-              >
-                <div className="text-xs font-medium mb-1" style={{ color: isCurrent ? "rgba(255,255,255,0.6)" : "var(--color-muted)" }}>
-                  {price.label}
-                </div>
-                <div className="text-lg font-bold mb-0.5">${price.monthly}/mo</div>
-                <div className="text-xs mb-3" style={{ color: isCurrent ? "rgba(255,255,255,0.55)" : "var(--color-muted)" }}>
-                  {TIER_FEATURES[tier].maxLocations === null
-                    ? "Unlimited locations"
-                    : `${TIER_FEATURES[tier].maxLocations} location${TIER_FEATURES[tier].maxLocations === 1 ? "" : "s"}`}
-                </div>
-                {isCurrent ? (
-                  <div className="text-xs font-medium text-center py-1.5 rounded-lg" style={{ background: "rgba(255,255,255,0.15)" }}>
-                    Current
-                  </div>
-                ) : isHigher ? (
-                  <button
-                    onClick={() => startUpgrade(tier)}
-                    disabled={upgradingTo === tier}
-                    className="w-full text-xs font-medium py-1.5 rounded-lg transition-colors disabled:opacity-50"
-                    style={{ background: "var(--color-primary)", color: "#fff" }}
-                  >
-                    {upgradingTo === tier ? "Opening Stripe…" : "Upgrade"}
-                  </button>
-                ) : (
-                  <div className="text-xs text-center py-1.5 rounded-lg" style={{ color: "var(--color-muted)" }}>
-                    Manage in portal
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            onClick={openManageBilling}
-            disabled={openingPortal}
-            className="text-sm px-4 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
-          >
-            {openingPortal ? "Opening…" : "Manage billing"}
-          </button>
-          <a
-            href="/dashboard/settings/diagnostics"
-            className="text-sm px-4 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
-          >
-            Stripe diagnostics →
-          </a>
-        </div>
-        <p className="text-[11px] text-text-muted mt-3">
-          Use Manage billing to update your card, view invoices, switch plans, or cancel.
-        </p>
+      {/* The AthletixOS plan (what your club pays us) lives in Settings → AthletixOS plan (B20). */}
+      <div className="mt-8 rounded-xl border border-app-border bg-surface p-4 text-sm text-text-muted">
+        This page is what your members pay you. What your club pays for AthletixOS is under{" "}
+        <a href="/dashboard/settings?section=plan" className="text-brand hover:underline">Settings → AthletixOS plan</a>
+        {" · "}
+        <a href="/dashboard/settings/diagnostics" className="text-brand hover:underline">Stripe diagnostics</a>
       </div>
     </div>
   );

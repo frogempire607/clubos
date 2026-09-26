@@ -105,8 +105,8 @@ export async function POST(req: Request) {
         ? { customer: club.stripeCustomerId }
         : { customer_email: ownerEmail }),
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${baseUrl}/dashboard/settings/billing?upgraded=${tier}`,
-      cancel_url:  `${baseUrl}/dashboard/settings/billing?canceled=true`,
+      success_url: `${baseUrl}/dashboard/settings?section=plan&upgraded=${tier}`,
+      cancel_url:  `${baseUrl}/dashboard/settings?section=plan&canceled=true`,
       // 14-day free trial (must match /pricing and all marketing copy). A card
       // IS collected up front and is charged automatically when the trial ends
       // unless the owner cancels first.

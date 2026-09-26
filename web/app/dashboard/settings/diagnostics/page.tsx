@@ -109,14 +109,14 @@ export default function StripeDiagnosticsPage() {
           </ul>
         </Card>
 
-        <Card title="Connect status (member payments)">
+        <Card title="Member payments (Stripe Connect)">
           <KeyVal label="Account ID" value={club.stripeAccountId ?? "Not connected"} mono />
           <KeyVal label="Onboarding" value={club.stripeOnboardingComplete ? "Complete" : "Incomplete"} />
           <KeyVal label="Charges" value={club.stripeChargesEnabled ? "Enabled" : "Disabled"} />
           <KeyVal label="Payouts" value={club.stripePayoutsEnabled ? "Enabled" : "Disabled"} />
         </Card>
 
-        <Card title="Platform subscription (ClubOS billing)">
+        <Card title="AthletixOS plan (your subscription)">
           <KeyVal label="Customer ID" value={club.stripeCustomerId ?? "—"} mono />
           <KeyVal label="Subscription ID" value={club.stripeSubscriptionId ?? "—"} mono />
           <KeyVal label="Status" value={club.subscriptionStatus ?? "—"} />
