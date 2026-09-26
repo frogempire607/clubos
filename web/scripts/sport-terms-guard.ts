@@ -37,8 +37,13 @@
 //
 //   · lib/eventCategories.ts — the preset catalogue. Those strings are choices
 //     OFFERED TO AN OWNER ("Weight Class · wrestling, judo, boxing, MMA"), not
-//     copy shown to a family. Only app/ and components/ are scanned, so the
-//     catalogue is out of scope by construction rather than by exception.
+//     copy shown to a family. This used to be out of scope by construction,
+//     because only app/ and components/ were scanned. lib/ is scanned now (see
+//     SCAN_DIRS), so the catalogue needs the one named entry in EXCLUDE_FILES
+//     below. That is a FILE exclusion for a catalogue of owner-facing choices,
+//     not a word added to an allowlist — which is the thing the note at
+//     BASELINE forbids. A second preset catalogue would join it. A sport term
+//     anywhere else in lib/ would not.
 //   · scripts/ and prisma/ — fixtures, seeds and migrations. A local test club
 //     called "Frog Empire Wrestling" is data, not UI.
 //   · comments — an explanation of a past incident is documentation, and
@@ -46,13 +51,36 @@
 //     understand later. Stripped before scanning, same as the vendor guard.
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 
 const ROOT = join(__dirname, "..");
 // In-product surfaces only — what a club sees after they've signed up. The
 // marketing pages (app/page.tsx, app/pricing), the auth pages and onboarding
 // legitimately name sports, and are deliberately not scanned.
-const SCAN_DIRS = ["app/dashboard", "app/member", "app/e", "components"];
+//
+// lib/ was added 2026-09-25. The guard protected the screens but not the
+// words that navigate to them: every sidebar and bottom-nav label lives in
+// lib/dashboardNav.ts, and the payee, permission and revenue-row labels live
+// in lib/payouts.ts, lib/permissions.ts and lib/reportsRevenue.ts. A rendered
+// string does not stop being rendered because it is declared one directory
+// over, and an IA rename lands in exactly the file the guard could not see.
+//
+// Scanning the whole directory rather than an include-list of copy-bearing
+// files is deliberate: the two failure modes are not symmetric. A file wrongly
+// IN scope produces a hit somebody has to look at. A file wrongly OUT of scope
+// produces silence, which is the failure this guard exists to prevent. Noise
+// is recoverable; a miss is the thing that shipped in August.
+const SCAN_DIRS = ["app/dashboard", "app/member", "app/e", "components", "lib"];
+
+// Paths (relative to ROOT, posix separators) that are in a scanned directory
+// but are not rendered copy. See WHERE THE WORDS LEGITIMATELY LIVE above.
+// This is a list of FILES, never of words — read the BASELINE note before
+// adding to it, and add a reason on the same line.
+const EXCLUDE_FILES = new Set<string>([
+  // The preset entry-category catalogue: labels and hints an OWNER picks from
+  // when configuring an event type, not copy any family is shown.
+  "lib/eventCategories.ts",
+]);
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -94,7 +122,9 @@ const SPORT_PATTERNS: [string, RegExp][] = [
   ["bout/mat as a field", /\b(bout|mat)\s*(number|assignment|side)\b/i],
 ];
 
-const files = SCAN_DIRS.flatMap((d) => walk(join(ROOT, d)));
+const files = SCAN_DIRS.flatMap((d) => walk(join(ROOT, d))).filter(
+  (f) => !EXCLUDE_FILES.has(relative(ROOT, f).split(sep).join("/")),
+);
 const hits: string[] = [];
 
 for (const file of files) {
@@ -121,7 +151,7 @@ const BASELINE = 0;
 
 console.log("\nGUARD — sport-specific terms in rendered UI");
 if (hits.length > BASELINE) {
-  console.log(`  ✗ ${hits.length} sport literal(s) in ${SCAN_DIRS.join("/")} (comments excluded):`);
+  console.log(`  ✗ ${hits.length} sport literal(s) in ${SCAN_DIRS.join(", ")} (comments excluded):`);
   hits.forEach((h) => console.log(h));
   console.log("");
   console.log("  Entry categories are the club's own words: a label plus an optional");

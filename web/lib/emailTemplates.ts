@@ -238,7 +238,11 @@ export const STOCK_TEMPLATES: StockTemplate[] = [
       { type: "list", style: "bulleted", items: [
         [{ kind: "text", text: "Arrive by: (fill in)" }],
         [{ kind: "text", text: "Bring: (fill in)" }],
-        [{ kind: "text", text: "Weigh-in / check-in: (fill in)" }],
+        // "Weigh-in / check-in" until 2026-09-25. A weigh-in is a
+        // weight-class-sport step, and this template seeds into every club —
+        // a swim or soccer club has no weigh-in to report. The club fills the
+        // line in with whatever their own pre-event step is.
+        [{ kind: "text", text: "Check-in: (fill in)" }],
         [{ kind: "text", text: "Team meeting: (fill in)" }],
       ] },
       para("Coach on-site: {{coach_name}}. Text with questions."),
