@@ -2,11 +2,20 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Shield } from "lucide-react";
+import { Shield, X } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
 import PageHeader from "@/components/PageHeader";
 import EmptyState from "@/components/EmptyState";
 import { SkeletonList } from "@/components/LoadingSkeleton";
+import {
+  compDraftFromPlan,
+  compIsDirty,
+  compPayload,
+  type BonusDraft,
+  type CompDraft,
+  type Scope,
+  type ScopeType,
+} from "@/lib/staffCompensationDraft";
 import {
   PERMISSION_CATALOG,
   DEFAULT_PERMISSIONS,
@@ -38,6 +47,16 @@ type StaffProfile = {
   salary: string | null;
   appointmentPrice: string | null;
   permissions: Record<string, PermissionLevel>;
+  // The member-portal fields. /api/staff has always returned these and the
+  // modal has always edited them; the type just did not say so, so every read
+  // went through `(staff.staffProfile as any)`. Declaring them removes ten
+  // casts and means a renamed field fails the typecheck instead of silently
+  // reading undefined and saving a blank over real data.
+  bio: string | null;
+  publicEmail: string | null;
+  publicPhone: string | null;
+  photoUrl: string | null;
+  showOnPortal: boolean;
 };
 
 type StaffUser = {
@@ -498,11 +517,11 @@ function EditStaffModal({
   const [title, setTitle] = useState(staff.staffProfile?.title || "");
   // Preserved (no longer edited here — pricing now lives on lesson types).
   const appointmentPrice = staff.staffProfile?.appointmentPrice || "";
-  const [bio, setBio] = useState((staff.staffProfile as any)?.bio || "");
-  const [publicEmail, setPublicEmail] = useState((staff.staffProfile as any)?.publicEmail || "");
-  const [publicPhone, setPublicPhone] = useState((staff.staffProfile as any)?.publicPhone || "");
-  const [photoUrl, setPhotoUrl] = useState<string>((staff.staffProfile as any)?.photoUrl || "");
-  const [showOnPortal, setShowOnPortal] = useState<boolean>(!!(staff.staffProfile as any)?.showOnPortal);
+  const [bio, setBio] = useState(staff.staffProfile?.bio || "");
+  const [publicEmail, setPublicEmail] = useState(staff.staffProfile?.publicEmail || "");
+  const [publicPhone, setPublicPhone] = useState(staff.staffProfile?.publicPhone || "");
+  const [photoUrl, setPhotoUrl] = useState<string>(staff.staffProfile?.photoUrl || "");
+  const [showOnPortal, setShowOnPortal] = useState<boolean>(!!staff.staffProfile?.showOnPortal);
   const [permissions, setPermissions] = useState<Record<string, PermissionLevel>>({ ...existing });
   // 3L — sub-scope map lives alongside `permissions` under the
   // messages_subScopes key. Split into its own state slot so the UI
@@ -516,6 +535,136 @@ function EditStaffModal({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // When a save gets part way, this names what DID land, so the message can say
+  // so rather than implying nothing happened. Reset at the start of each save.
+  const [savedSoFar, setSavedSoFar] = useState<string[]>([]);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  // ── One save means one save ────────────────────────────────────────────────
+  // Until 2026-09-25 this modal had four write boundaries in one scroll:
+  //
+  //   · identity / portal / permissions → the footer "Save changes" button
+  //   · the compensation plan           → its own "Save compensation plan"
+  //   · private lesson types            → written IMMEDIATELY, on every toggle
+  //   · staff documents                 → immediately, on upload
+  //
+  // Two of those were bugs the owner could not see. Toggling a lesson type and
+  // then pressing Cancel KEPT the toggle, because it had already been PATCHed.
+  // Filling in a compensation plan and pressing "Save changes" THREW THE PLAN
+  // AWAY, because the footer button does not know the plan exists. Both fail
+  // silently — the modal closes cleanly either way.
+  //
+  // Now the lesson-type selection and the compensation plan are drafts held
+  // here. Nothing is written until submit, submit writes all three, and Cancel
+  // discards all three. Documents stay immediate because they are file
+  // uploads, and the panel says so out loud.
+  //
+  // The three writes still hit three endpoints, so a real cross-endpoint
+  // transaction is not available from the client. Order is therefore
+  // most-likely-to-fail first (the profile PATCH, where a duplicate email or a
+  // validation error lands); a failure stops the sequence and names what
+  // already saved. All three writes are idempotent, so pressing Save changes
+  // again after a partial failure is safe and simply re-runs them.
+
+  // Private lesson types. `null` while loading.
+  const [lessonTypes, setLessonTypes] = useState<CoachLT[] | null>(null);
+  const [ltInitial, setLtInitial] = useState<string[]>([]);
+  const [ltSelected, setLtSelected] = useState<string[]>([]);
+  const [ltLoadError, setLtLoadError] = useState("");
+
+  // Compensation plan. `null` while loading.
+  const [comp, setComp] = useState<CompDraft | null>(null);
+  const [compInitial, setCompInitial] = useState<string>("");
+  const [compOptions, setCompOptions] = useState<CompOptions>({ classes: [], events: [], memberships: [], lessonTypes: [] });
+  const [compLoadError, setCompLoadError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    // A non-ok response has to be distinguished from "no lesson types". Both
+    // used to render as an empty list, so a staff member without the permission
+    // saw a blank section that looked like the club had none.
+    fetch("/api/private-lessons/types")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d) => {
+        if (!alive) return;
+        const list: CoachLT[] = Array.isArray(d) ? d : [];
+        // The checkbox controls eligibleCoachIds and nothing else, so the
+        // initial selection is read from that field alone. A coach named only
+        // inside a price option is labelled as such by CoachLessonTypes rather
+        // than shown as a ticked box the owner cannot untick.
+        const eligible = list.filter((lt) => (lt.eligibleCoachIds ?? []).includes(staff.id)).map((lt) => lt.id);
+        setLessonTypes(list);
+        setLtInitial(eligible);
+        setLtSelected(eligible);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setLessonTypes([]);
+        setLtLoadError("Could not load lesson types — saving will leave them unchanged.");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [staff.id]);
+
+  useEffect(() => {
+    let alive = true;
+    // Same reasoning as the lesson-type load above, and it matters more here:
+    // this endpoint is gated on finances:view, so a 403 used to render an empty
+    // plan that was indistinguishable from "no plan set". The dirty check keeps
+    // that from being SAVED as empty, but the owner should still be told.
+    fetch(`/api/staff/${staff.id}/compensation`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d) => {
+        if (!alive) return;
+        if (d?.options) setCompOptions(d.options);
+        const draft = compDraftFromPlan(d?.plan ?? null);
+        setComp(draft);
+        setCompInitial(JSON.stringify(draft));
+      })
+      .catch(() => {
+        if (!alive) return;
+        const draft = compDraftFromPlan(null);
+        setComp(draft);
+        setCompInitial(JSON.stringify(draft));
+        setCompLoadError("Could not load the compensation plan — saving will leave it unchanged.");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [staff.id]);
+
+  const profileDirty =
+    firstName !== (staff.firstName || "") ||
+    lastName !== (staff.lastName || "") ||
+    email !== (staff.email || "") ||
+    title !== (staff.staffProfile?.title || "") ||
+    bio !== (staff.staffProfile?.bio || "") ||
+    publicEmail !== (staff.staffProfile?.publicEmail || "") ||
+    publicPhone !== (staff.staffProfile?.publicPhone || "") ||
+    photoUrl !== (staff.staffProfile?.photoUrl || "") ||
+    showOnPortal !== !!staff.staffProfile?.showOnPortal ||
+    JSON.stringify(permissions) !== JSON.stringify(existing) ||
+    JSON.stringify(subScopes) !== JSON.stringify(resolveMessagesSubScopes(staff.staffProfile?.permissions ?? null)) ||
+    JSON.stringify(billingSubScopes) !== JSON.stringify(resolveBillingSubScopes(staff.staffProfile?.permissions ?? null));
+
+  // Only lesson types whose membership for THIS coach changed get a PATCH, so
+  // a staff save never rewrites a lesson type the owner did not touch.
+  const ltChanged = (lessonTypes ?? []).filter(
+    (lt) => ltSelected.includes(lt.id) !== ltInitial.includes(lt.id),
+  );
+  const compDirty = compIsDirty(compInitial, comp);
+  const dirty = profileDirty || ltChanged.length > 0 || compDirty;
+  const stillLoading = lessonTypes === null || comp === null;
+
+  function requestClose() {
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  }
+
+  function toggleLessonType(id: string) {
+    setLtSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
 
   function setLevel(key: string, val: PermissionLevel) {
     setPermissions((p) => ({ ...p, [key]: val }));
@@ -530,6 +679,13 @@ function EditStaffModal({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    setError("");
+    setSavedSoFar([]);
+    const landed: string[] = [];
+
+    // Step 1 — identity, portal profile, permissions. First because this is
+    // where a duplicate email or a validation error surfaces, and a failure
+    // here should leave the other two untouched.
     const res = await fetch(`/api/staff/${staff.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -554,12 +710,62 @@ function EditStaffModal({
         },
       }),
     });
-    setSaving(false);
     if (!res.ok) {
-      const data = await res.json();
-      setError(data.error?.toString() || "Save failed");
+      const data = await res.json().catch(() => ({}));
+      setSaving(false);
+      setError(data.error?.toString() || "Save failed. Nothing was changed.");
       return;
     }
+    landed.push("name, contact and permissions");
+
+    // Step 2 — the compensation plan, only when it actually changed and only
+    // when we managed to read the existing one. Writing a plan we never
+    // successfully loaded would replace the real one with an empty draft, which
+    // is the same class of silent loss this whole change exists to remove.
+    if (compDirty && comp && !compLoadError) {
+      const r2 = await fetch(`/api/staff/${staff.id}/compensation`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(compPayload(comp)),
+      });
+      if (!r2.ok) {
+        const d = await r2.json().catch(() => ({}));
+        setSaving(false);
+        setSavedSoFar(landed);
+        setError(
+          `The compensation plan did not save: ${
+            typeof d.error === "string" ? d.error : "the server rejected it"
+          }. Your edits are still here — press Save changes to try again.`,
+        );
+        return;
+      }
+      landed.push("compensation plan");
+    }
+
+    // Step 3 — lesson-type eligibility, only the rows that changed.
+    for (const lt of ltChanged) {
+      const nowOn = ltSelected.includes(lt.id);
+      const current = lt.eligibleCoachIds ?? [];
+      const next = nowOn ? [...current, staff.id] : current.filter((c) => c !== staff.id);
+      const r3 = await fetch(`/api/private-lessons/types/${lt.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eligibleCoachIds: Array.from(new Set(next)) }),
+      });
+      if (!r3.ok) {
+        const d = await r3.json().catch(() => ({}));
+        setSaving(false);
+        setSavedSoFar(landed);
+        setError(
+          `"${lt.title}" did not save: ${
+            typeof d.error === "string" ? d.error : "the server rejected it"
+          }. Your edits are still here — press Save changes to try again.`,
+        );
+        return;
+      }
+    }
+
+    setSaving(false);
     onSaved();
   }
 
@@ -570,8 +776,65 @@ function EditStaffModal({
           <h2 className="text-lg font-semibold text-text-primary">
             Edit — {staff.firstName} {staff.lastName}
           </h2>
-          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
+          <button
+            type="button"
+            onClick={requestClose}
+            aria-label="Close without saving"
+            className="w-11 h-11 -mr-2 shrink-0 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-app-bg"
+          >
+            <X size={18} strokeWidth={2} aria-hidden />
+          </button>
         </div>
+
+        {/* Unsaved-changes guard. Cancel and the close button both route here
+            when something is dirty, because both used to discard silently —
+            and, worse, used to discard only SOME of it. Rendered inline rather
+            than through window.confirm: a WKWebView renders confirm() as a
+            system dialog titled with the app's hostname, which is the single
+            most obvious "this is a website" tell in the native shell. */}
+        {confirmDiscard && (
+          <div
+            role="alertdialog"
+            aria-label="Discard unsaved changes"
+            className="mx-6 mt-4 rounded-lg border px-3 py-2.5"
+            style={{
+              background: "var(--color-warn-surface, #FFF7ED)",
+              borderColor: "var(--color-warn-border, #FED7AA)",
+            }}
+          >
+            <p className="text-[13px] font-medium" style={{ color: "var(--color-warn-text, #B45309)" }}>
+              Close without saving?
+            </p>
+            <p className="text-[12px] mt-0.5" style={{ color: "var(--color-warn-text, #B45309)" }}>
+              {[
+                profileDirty && "name, contact or permissions",
+                compDirty && "the compensation plan",
+                ltChanged.length > 0 &&
+                  `${ltChanged.length} lesson type${ltChanged.length === 1 ? "" : "s"}`,
+              ]
+                .filter(Boolean)
+                .join(", ")}{" "}
+              will be discarded. Uploaded documents are already saved and are not affected.
+            </p>
+            <div className="flex gap-2 mt-2.5">
+              <button
+                type="button"
+                onClick={() => setConfirmDiscard(false)}
+                className="px-3 py-1.5 text-[13px] font-medium rounded-md bg-white border border-app-border text-text-primary hover:bg-app-bg"
+              >
+                Keep editing
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-3 py-1.5 text-[13px] font-medium rounded-md text-white"
+                style={{ background: "var(--color-danger, #A32D2D)" }}
+              >
+                Discard changes
+              </button>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {/* Account — owner-editable. Password is intentionally NOT here; it
@@ -613,12 +876,23 @@ function EditStaffModal({
               Pick which lesson types this coach offers. Prices live on the lesson
               type (and its purchase options) under Purchase Options → Privates.
             </p>
-            <CoachLessonTypes coachId={staff.id} />
+            <CoachLessonTypes
+              coachId={staff.id}
+              types={lessonTypes}
+              selected={ltSelected}
+              onToggle={toggleLessonType}
+              loadError={ltLoadError}
+            />
           </div>
 
           <div className="pt-2 border-t border-app-border">
             <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">Compensation plan</p>
-            <CompensationBuilder staffId={staff.id} />
+            <CompensationBuilder
+              value={comp}
+              opts={compOptions}
+              onChange={setComp}
+              loadError={compLoadError}
+            />
           </div>
 
           <div className="pt-2 border-t border-app-border">
@@ -740,23 +1014,39 @@ function EditStaffModal({
             </div>
           )}
 
-          {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
+          {error && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {savedSoFar.length > 0 && (
+                <span className="block font-medium mb-0.5">Partly saved: {savedSoFar.join(", ")}.</span>
+              )}
+              {error}
+            </div>
+          )}
 
           <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose}
+            <button type="button" onClick={requestClose}
               className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">
               Cancel
             </button>
-            <button type="submit" disabled={saving}
+            {/* Disabled until the lesson-type list and the compensation plan have
+                loaded. Saving before then would compare the draft against an
+                empty baseline and look like the owner cleared both. */}
+            <button type="submit" disabled={saving || stillLoading}
               className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
-              {saving ? "Saving…" : "Save changes"}
+              {saving ? "Saving…" : stillLoading ? "Loading…" : "Save changes"}
             </button>
           </div>
+          <p className="text-[11px] text-text-muted">
+            Save changes writes everything above it: name and contact, lesson types,
+            the compensation plan, the portal profile and permissions. Cancel discards
+            all of it. Documents below save on upload.
+          </p>
         </form>
 
-        {/* Staff documents (tax docs, contracts, agreements, etc.). Lives
-            outside the main form so uploads/visibility toggles save
-            independently of the rest of the staff profile. */}
+        {/* Staff documents (tax docs, contracts, agreements, etc.). Lives outside
+            the main form because these are file uploads — they cannot be held as
+            a draft and replayed on submit the way the rest of the modal now is.
+            The heading says so, so "Save changes" is not read as covering them. */}
         <div className="px-6 pb-6">
           <StaffDocsPanel staffUserId={staff.id} />
         </div>
@@ -767,17 +1057,9 @@ function EditStaffModal({
 
 /* ── Modular compensation builder ─────────────────────────────────────────── */
 
-type ScopeType = "CLASS" | "EVENT" | "MEMBERSHIP" | "PRIVATE_LESSON_TYPE";
-type Scope = { scopeType: ScopeType; scopeId: string };
-type BonusDraft = {
-  bonusType: "ATTENDANCE" | "SIGNUP" | "REVENUE_SHARE";
-  amount: string;
-  scopes: Scope[];
-  minThreshold: string;
-  maxThreshold: string;
-};
 type Opt = { id: string; name: string };
 type CompOptions = { classes: Opt[]; events: Opt[]; memberships: Opt[]; lessonTypes: Opt[] };
+
 
 const BONUS_LABEL: Record<BonusDraft["bonusType"], string> = {
   ATTENDANCE: "Class growth incentive ($ per kid / per class)",
@@ -851,83 +1133,45 @@ function ScopePicker({
   );
 }
 
-function CompensationBuilder({ staffId }: { staffId: string }) {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState("");
-  const [opts, setOpts] = useState<CompOptions>({ classes: [], events: [], memberships: [], lessonTypes: [] });
-  const [baseType, setBaseType] = useState<"SALARY" | "PER_CLASS" | "HOURLY">("HOURLY");
-  const [baseAmount, setBaseAmount] = useState("");
-  const [baseScopes, setBaseScopes] = useState<Scope[]>([]);
-  const [bonuses, setBonuses] = useState<BonusDraft[]>([]);
+// Controlled. The draft and the write both live in EditStaffModal — this
+// component renders the plan and reports edits, and deliberately has no save
+// button of its own. It used to own both, which is how "Save changes" at the
+// bottom of the modal could discard a compensation edit without saying so.
+function CompensationBuilder({
+  value,
+  opts,
+  onChange,
+  loadError,
+}: {
+  value: CompDraft | null;
+  opts: CompOptions;
+  onChange: (next: CompDraft) => void;
+  loadError?: string;
+}) {
+  // A failed load renders the reason instead of the form. Showing editable
+  // fields seeded from nothing would invite the owner to "fix" a plan that is
+  // actually fine, and saving that draft would replace it with the blank.
+  if (loadError) return <p className="text-xs text-red-600">{loadError}</p>;
+  if (value === null) return <p className="text-sm text-text-muted">Loading plan…</p>;
 
-  useEffect(() => {
-    fetch(`/api/staff/${staffId}/compensation`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.options) setOpts(d.options);
-        if (d?.plan) {
-          setBaseType(d.plan.baseType);
-          setBaseAmount(String(d.plan.baseAmount ?? ""));
-          setBaseScopes(d.plan.baseScopes ?? []);
-          setBonuses(
-            (d.plan.bonuses ?? []).map((b: { bonusType: BonusDraft["bonusType"]; amount: number; scopes: Scope[]; minThreshold?: number | null; maxThreshold?: number | null }) => ({
-              bonusType: b.bonusType,
-              amount: String(b.amount),
-              scopes: b.scopes ?? [],
-              minThreshold: b.minThreshold != null ? String(b.minThreshold) : "",
-              maxThreshold: b.maxThreshold != null ? String(b.maxThreshold) : "",
-            }))
-          );
-        }
-        setLoading(false);
-      });
-  }, [staffId]);
+  const { baseType, baseAmount, baseScopes, bonuses } = value;
+  const setBaseType = (t: CompDraft["baseType"]) => onChange({ ...value, baseType: t });
+  const setBaseAmount = (a: string) => onChange({ ...value, baseAmount: a });
+  const setBaseScopes = (s: Scope[]) => onChange({ ...value, baseScopes: s });
 
   function addBonus() {
-    setBonuses((b) => [...b, { bonusType: "ATTENDANCE", amount: "", scopes: [], minThreshold: "", maxThreshold: "" }]);
+    onChange({
+      ...value!,
+      bonuses: [...bonuses, { bonusType: "ATTENDANCE", amount: "", scopes: [], minThreshold: "", maxThreshold: "" }],
+    });
   }
   function updateBonus(i: number, patch: Partial<BonusDraft>) {
-    setBonuses((b) => b.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
+    onChange({ ...value!, bonuses: bonuses.map((x, idx) => (idx === i ? { ...x, ...patch } : x)) });
   }
   function removeBonus(i: number) {
-    setBonuses((b) => b.filter((_, idx) => idx !== i));
+    onChange({ ...value!, bonuses: bonuses.filter((_, idx) => idx !== i) });
   }
 
-  async function save() {
-    setSaving(true);
-    setError("");
-    setSaved(false);
-    const res = await fetch(`/api/staff/${staffId}/compensation`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        baseType,
-        baseAmount: parseFloat(baseAmount) || 0,
-        baseScopes: baseType === "PER_CLASS" || baseType === "HOURLY" ? baseScopes : [],
-        bonuses: bonuses
-          .filter((b) => b.amount.trim() !== "")
-          .map((b) => ({
-            bonusType: b.bonusType,
-            amount: parseFloat(b.amount) || 0,
-            scopes: b.scopes,
-            minThreshold: b.minThreshold.trim() === "" ? null : Math.max(0, parseInt(b.minThreshold) || 0),
-            maxThreshold: b.maxThreshold.trim() === "" ? null : Math.max(0, parseInt(b.maxThreshold) || 0),
-          })),
-      }),
-    });
-    setSaving(false);
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
-      setError(typeof d.error === "string" ? d.error : "Save failed");
-      return;
-    }
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
-  }
-
-  if (loading) return <p className="text-sm text-text-muted">Loading plan…</p>;
 
   return (
     <div className="space-y-4">
@@ -1053,18 +1297,11 @@ function CompensationBuilder({ staffId }: { staffId: string }) {
         </div>
       </div>
 
-      {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving}
-          className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
-        >
-          {saving ? "Saving…" : "Save compensation plan"}
-        </button>
-        {saved && <span className="text-sm text-green-600">Saved</span>}
-      </div>
+      {/* No save button and no error slot here on purpose. The plan is saved by
+          "Save changes" at the bottom of the modal along with everything else,
+          and a save failure is reported there. A second Save button 200px above
+          the first one, with a different scope and no way to tell which was
+          which, is what made the compensation edit vanish. */}
     </div>
   );
 }
@@ -1081,51 +1318,34 @@ type CoachLT = {
   priceOptions?: { id: string; label: string; price: number; coachIds: string[] }[];
 };
 
-function CoachLessonTypes({ coachId }: { coachId: string }) {
-  const [types, setTypes] = useState<CoachLT[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    fetch("/api/private-lessons/types")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((d) => {
-        setTypes(Array.isArray(d) ? d : []);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, []);
-
-  function isEligible(lt: CoachLT) {
-    if (lt.eligibleCoachIds?.includes(coachId)) return true;
+// Controlled. This component used to PATCH the lesson type on every toggle,
+// which is exactly why Cancel did not cancel: by the time the owner pressed it,
+// every box they had clicked was already saved. It now reports the toggle
+// upward and EditStaffModal writes the changed rows on submit.
+function CoachLessonTypes({
+  coachId,
+  types,
+  selected,
+  onToggle,
+  loadError,
+}: {
+  coachId: string;
+  types: CoachLT[] | null;
+  selected: string[];
+  onToggle: (lessonTypeId: string) => void;
+  loadError?: string;
+}) {
+  // The checkbox writes eligibleCoachIds, so that is what it reflects. A coach
+  // named only inside a price option used to render as ticked, and unticking
+  // did nothing visible because the toggle only ever edited eligibleCoachIds
+  // while the price option kept granting the lesson. Say so instead of showing
+  // a box that will not move.
+  function viaPriceOption(lt: CoachLT) {
     return (lt.priceOptions || []).some((o) => o.coachIds?.includes(coachId));
   }
 
-  async function toggle(lt: CoachLT) {
-    setBusyId(lt.id);
-    setError("");
-    const has = lt.eligibleCoachIds?.includes(coachId);
-    const next = has
-      ? lt.eligibleCoachIds.filter((c) => c !== coachId)
-      : [...(lt.eligibleCoachIds || []), coachId];
-    const res = await fetch(`/api/private-lessons/types/${lt.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ eligibleCoachIds: next }),
-    });
-    setBusyId(null);
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
-      setError(d.error || "Could not update");
-      return;
-    }
-    setTypes((prev) =>
-      prev.map((t) => (t.id === lt.id ? { ...t, eligibleCoachIds: next } : t)),
-    );
-  }
-
-  if (loading) return <p className="text-xs text-text-muted">Loading lesson types…</p>;
+  if (loadError) return <p className="text-xs text-red-600">{loadError}</p>;
+  if (types === null) return <p className="text-xs text-text-muted">Loading lesson types…</p>;
   if (types.length === 0)
     return (
       <p className="text-xs text-text-muted">
@@ -1135,9 +1355,9 @@ function CoachLessonTypes({ coachId }: { coachId: string }) {
 
   return (
     <div className="space-y-1.5">
-      {error && <p className="text-xs text-red-600">{error}</p>}
       {types.map((lt) => {
-        const on = isEligible(lt);
+        const on = selected.includes(lt.id);
+        const alsoViaOption = !on && viaPriceOption(lt);
         return (
           <label
             key={lt.id}
@@ -1147,11 +1367,18 @@ function CoachLessonTypes({ coachId }: { coachId: string }) {
               <input
                 type="checkbox"
                 checked={on}
-                disabled={busyId === lt.id}
-                onChange={() => toggle(lt)}
+                onChange={() => onToggle(lt.id)}
                 className="rounded"
               />
-              {lt.title}
+              <span>
+                {lt.title}
+                {alsoViaOption && (
+                  <span className="block text-[11px] text-text-muted">
+                    Already offered through one of this lesson&apos;s price options. Change that
+                    option under Purchase Options → Privates.
+                  </span>
+                )}
+              </span>
             </span>
             <span className="text-xs text-text-muted">
               {lt.durationMin}min · ${Number(lt.basePrice).toFixed(2)}
@@ -1277,8 +1504,12 @@ function StaffDocsPanel({ staffUserId }: { staffUserId: string }) {
 
   return (
     <div className="border-t border-app-border pt-5">
-      <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">
+      <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-1">
         Documents (tax docs, contracts, agreements)
+      </p>
+      <p className="text-[11px] text-text-muted mb-3">
+        Saved as you upload. These are files, so they are not covered by Save changes
+        above and Cancel does not undo them.
       </p>
 
       {/* Upload */}
