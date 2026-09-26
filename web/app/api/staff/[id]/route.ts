@@ -93,38 +93,48 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       ...(data.permissions && { permissions: foldPermissions(data.permissions) as unknown as object }),
     };
 
-    if (user.staffProfile) {
-      await prisma.staffProfile.update({ where: { userId: user.id }, data: profileData });
-      // The guards cache resolved permissions for 20s; a grant or revocation
-      // the owner just made should take effect on their very next click.
-      invalidatePermissionCache(user.id);
-    } else {
-      await prisma.staffProfile.create({
-        data: {
-          userId: user.id,
-          ...profileData,
-          permissions: foldPermissions(data.permissions ?? null) as unknown as object,
-        },
-      });
-      invalidatePermissionCache(user.id);
-    }
-
     // User-level fields owners can edit (anything except password).
     const userPatch: Record<string, unknown> = {};
     if (data.firstName !== undefined) userPatch.firstName = data.firstName;
     if (data.lastName !== undefined) userPatch.lastName = data.lastName;
     if (data.email !== undefined) userPatch.email = data.email.toLowerCase();
-    if (Object.keys(userPatch).length > 0) {
-      try {
-        await prisma.user.update({ where: { id: user.id }, data: userPatch });
-      } catch (err) {
-        // Most common cause: the chosen email is already in use in this club.
-        return NextResponse.json(
-          { error: "That email is already in use for another account in this club." },
-          { status: 409 },
-        );
-      }
+
+    // One save means one save, on the server too. This used to write the
+    // StaffProfile first and the User second, so an owner who changed a
+    // permission AND mistyped the email into one already in use got a 409 with
+    // the permission change already applied: the modal showed an error, stayed
+    // open, and the grant was live. Both writes now share a transaction, so a
+    // rejected email leaves the permissions exactly as they were.
+    try {
+      await prisma.$transaction(async (tx) => {
+        if (user.staffProfile) {
+          await tx.staffProfile.update({ where: { userId: user.id }, data: profileData });
+        } else {
+          await tx.staffProfile.create({
+            data: {
+              userId: user.id,
+              ...profileData,
+              permissions: foldPermissions(data.permissions ?? null) as unknown as object,
+            },
+          });
+        }
+        if (Object.keys(userPatch).length > 0) {
+          await tx.user.update({ where: { id: user.id }, data: userPatch });
+        }
+      });
+    } catch {
+      // Most common cause: the chosen email is already in use in this club.
+      // Nothing was written — the transaction rolled back.
+      return NextResponse.json(
+        { error: "That email is already in use for another account in this club." },
+        { status: 409 },
+      );
     }
+
+    // After the commit, never before: the guards cache resolved permissions for
+    // 20s, and busting the cache for a change that then rolled back would serve
+    // a re-read of the OLD row as if it were new.
+    invalidatePermissionCache(user.id);
 
     const updated = await prisma.user.findUnique({ where: { id: user.id }, include: { staffProfile: true } });
     return NextResponse.json(updated);
