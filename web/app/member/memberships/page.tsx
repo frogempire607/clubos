@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { parseOptions } from "@/lib/membershipOptions";
+import { parseOptions, optionFacts, type MembershipOption } from "@/lib/membershipOptions";
 import Link from "next/link";
 import { Ticket, Sparkles } from "lucide-react";
 import ProfileSwitcher, { type AccessibleProfile } from "@/components/ProfileSwitcher";
@@ -256,9 +256,6 @@ export default function MemberMembershipsPage() {
                   </div>
                 )}
 
-                {m.contractMonths && (
-                  <p className="text-xs text-stone-500 mb-3">{m.contractMonths}-month minimum commitment</p>
-                )}
 
                 {activeForThis ? (
                   // Already on this membership. Say so — then still offer every
@@ -291,6 +288,7 @@ export default function MemberMembershipsPage() {
                             <p className="text-xs text-stone-500">
                               ${o.price.toFixed(2)}{periodLabel[o.billingPeriod] ?? ""}
                             </p>
+                            <OptionDetails option={o} plan={m} />
                           </div>
                           {isCurrent ? (
                             <span className="text-xs text-stone-400 flex-shrink-0">Current option</span>
@@ -333,6 +331,7 @@ export default function MemberMembershipsPage() {
                                   </p>
                                 );
                               })()}
+                              <OptionDetails option={o} plan={m} />
                             </div>
                             <button
                               disabled={!hasMemberProfile || submitting === key}
@@ -392,5 +391,23 @@ export default function MemberMembershipsPage() {
         </div>
       )}
     </>
+  );
+}
+
+/** Under each option: the owner's words, then the derived facts (days, term, renewal). */
+function OptionDetails({ option, plan }: { option: MembershipOption; plan: { contractMonths: number | null; autoRenewDefault: boolean } }) {
+  const facts = optionFacts(option, plan);
+  if (!option.description && facts.length === 0) return null;
+  return (
+    <div className="mt-1">
+      {option.description && <p className="text-xs text-stone-600 whitespace-pre-wrap">{option.description}</p>}
+      {facts.length > 0 && (
+        <ul className="mt-1 flex flex-wrap gap-1">
+          {facts.map((f) => (
+            <li key={f} className="text-[10.5px] text-stone-600 bg-stone-100 rounded-full px-2 py-0.5">{f}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

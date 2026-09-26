@@ -53,6 +53,16 @@ import {
 } from "@/components/members/MemberModals";
 import { DEFAULT_MEMBER_FORM_CONFIG, type MemberFormConfig } from "@/lib/memberForm";
 import type { NextAction } from "@/lib/memberTracks";
+import { SendResultPanel } from "@/components/members/SendResultPanel";
+import { accumulateSendResult, emptySendResult, type SendResult } from "@/lib/migrationQueueModel";
+import {
+  AGE_BRACKETS,
+  AZ_LETTERS,
+  ageLabel,
+  armedBulkAction,
+  groupFamilies,
+  type RosterBulkKind,
+} from "@/lib/membersListB6";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Wire shape — mirrors SerializedMember from lib/memberDisplay.ts
@@ -89,6 +99,8 @@ export type RosterMember = {
     };
   };
   nextAction: NextAction;
+  /** B6 — household key from lib/membersListB6.familyKeyFor; null = stands alone. */
+  familyKey?: string | null;
 };
 
 type Counts = {
@@ -130,6 +142,8 @@ type Payload = {
   /** Rows the roster deliberately never shows — see MemberListResult. */
   excluded?: { archived: number; historical: number };
   queueCounts?: QueueCounts | null;
+  /** B6 — tag / gender values in use, for the Filters panel. */
+  facets?: { tags: string[]; genders: string[] };
 };
 
 const PERSON_TYPES: { key: string; label: string; countKey: keyof Counts }[] = [
@@ -231,6 +245,7 @@ export default function MembersRoster({
   }, [params]);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [sendResult, setSendResult] = useState<SendResult | null>(null);
   const [reset, setReset] = useState<{
     member: RosterMember;
     state: ResetState;
@@ -269,6 +284,12 @@ export default function MembersRoster({
       plan: params.get("plan") ?? "",
       tag: params.get("tag") ?? "",
       gender: params.get("gender") ?? "",
+      // B6 — age range, custom field (`cf` id + `cfv` value), A–Z letter.
+      ageMin: params.get("ageMin") ?? "",
+      ageMax: params.get("ageMax") ?? "",
+      cf: params.get("cf") ?? "",
+      cfv: params.get("cfv") ?? "",
+      letter: params.get("letter") ?? "",
       setupState: params.get("setupState") ?? "",
       queue: params.get("queue") ?? "",
       sort: params.get("sort") ?? "lastSeen",
@@ -523,8 +544,15 @@ export default function MembersRoster({
 
   /** Bulk bar. Resolves the selection server-side first, always. */
   const onBulk = useCallback(
-    async (kind: "invite" | "resend" | "assign" | "message" | "email" | "tag") => {
+    async (kind: RosterBulkKind) => {
       try {
+        // Ask for the tag BEFORE resolving the selection — cancelling the
+        // prompt should cost nothing.
+        let tagName: string | null = null;
+        if (kind === "tag") {
+          tagName = window.prompt("Tag to add to the selected people")?.trim() || null;
+          if (!tagName) return;
+        }
         setBusy(`bulk:${kind}`);
         const ids = await resolveIds();
         if (ids.length === 0) {
@@ -560,8 +588,26 @@ export default function MembersRoster({
           return;
         }
         if (kind === "tag") {
-          setBulkEmailing(null);
-          setToast({ kind: "err", text: "Bulk tagging isn't built yet." });
+          // B6 — real bulk tag. Appends without duplicating; people who already
+          // carry the tag are reported, not rewritten.
+          const r = await fetch("/api/members/bulk", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ action: "add_tag", memberIds: ids, tag: tagName }),
+          });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(d.error || "Could not add the tag");
+          const tagged = Number(d.tagged ?? 0);
+          const already = Number(d.already ?? 0);
+          setToast({
+            kind: "ok",
+            text: `Tagged ${tagged} ${tagged === 1 ? "person" : "people"} “${tagName}”${
+              already ? ` · ${already} already had it` : ""
+            }.`,
+          });
+          setSelected(new Set());
+          setSelectAllMatching(false);
+          reload();
           return;
         }
         // invite | resend — both go through the existing bulk sender, which
@@ -573,10 +619,7 @@ export default function MembersRoster({
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error || "Could not send");
-        setToast({
-          kind: "ok",
-          text: `${d.sent ?? ids.length} ${kind === "resend" ? "reminder" : "invitation"}${(d.sent ?? ids.length) === 1 ? "" : "s"} sent${d.remaining ? ` · ${d.remaining} queued` : ""}.`,
-        });
+        setSendResult(accumulateSendResult(emptySendResult(kind === "resend"), d));
         setSelected(new Set());
         setSelectAllMatching(false);
         reload();
@@ -590,7 +633,8 @@ export default function MembersRoster({
   );
 
   const activeFilterChips = useMemo(() => {
-    const chips: { key: string; label: string }[] = [];
+    // `clear` lets one chip remove several params (age is ageMin + ageMax).
+    const chips: { key: string; label: string; clear?: Record<string, null> }[] = [];
     if (q.search) chips.push({ key: "search", label: `“${q.search}”` });
     if (q.personType !== "everyone") {
       chips.push({ key: "personType", label: PERSON_TYPES.find((p) => p.key === q.personType)?.label ?? q.personType });
@@ -602,8 +646,42 @@ export default function MembersRoster({
       chips.push({ key: "setupState", label: SETUP_FILTERS.find((s) => s.key === q.setupState)?.label ?? q.setupState });
     }
     if (q.queue) chips.push({ key: "queue", label: QUEUE_LABELS[q.queue] ?? q.queue });
+    // B6 — the rest of the Filters panel, each with its own removable chip.
+    if (q.tag) chips.push({ key: "tag", label: `Tag: ${q.tag}` });
+    if (q.gender) chips.push({ key: "gender", label: `Gender: ${q.gender}` });
+    if (q.plan) chips.push({ key: "plan", label: "On a plan" });
+    const aMin = q.ageMin ? Number(q.ageMin) : null;
+    const aMax = q.ageMax ? Number(q.ageMax) : null;
+    const al = ageLabel(Number.isFinite(aMin) ? aMin : null, Number.isFinite(aMax) ? aMax : null);
+    if (al) chips.push({ key: "age", label: al, clear: { ageMin: null, ageMax: null } });
+    if (q.cf) {
+      const field = customFields.find((f) => f.id === q.cf);
+      chips.push({
+        key: "cf",
+        label: `${field?.label ?? "Custom field"}${q.cfv ? `: ${q.cfv}` : " answered"}`,
+        clear: { cf: null, cfv: null },
+      });
+    }
+    if (q.letter) chips.push({ key: "letter", label: `Last name ${q.letter.toUpperCase()}…` });
     return chips;
-  }, [q]);
+  }, [q, customFields]);
+
+  // B6 — a work-queue card (or the Not invited / Invited setup filter) arms the
+  // matching bulk action: it becomes the bar's primary button.
+  const armed = armedBulkAction(q.queue, q.setupState);
+
+  // B6 — family collapse, within the loaded page. Pagination is untouched.
+  const groups = useMemo(() => groupFamilies(members), [members]);
+  const hasFamilies = groups.some((g) => g.others.length > 0);
+  const [expandedFamilies, setExpandedFamilies] = useState<Set<string>>(new Set());
+  const toggleFamily = useCallback((key: string) => {
+    setExpandedFamilies((prev) => {
+      const n = new Set(prev);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+  }, []);
 
   const filterCount = activeFilterChips.length;
   const selectedCount = selectAllMatching ? total : selected.size;
@@ -619,6 +697,142 @@ export default function MembersRoster({
   }
 
   const allOnPageSelected = members.length > 0 && members.every((m) => selected.has(m.id));
+
+  type FamilyToggle = { count: number; expanded: boolean; onToggle: () => void };
+
+  /** One table row. `child` rows sit under an expanded family head: 25px indent, 2px spine. */
+  function renderTableRow(m: RosterMember, opts: { family?: FamilyToggle; child?: boolean } = {}) {
+    return (
+      <tr
+        key={m.id}
+        className="border-t transition-colors hover:bg-app-bg"
+        style={{ borderColor: "var(--color-hairline)" }}
+      >
+        <td className="px-4">
+          <input
+            type="checkbox"
+            aria-label={`Select ${m.fullName}`}
+            checked={selectAllMatching || selected.has(m.id)}
+            onChange={() => toggleRow(m.id)}
+          />
+        </td>
+        <td className={density === "compact" ? "py-2 pr-3" : "py-3 pr-3"}>
+          <div className="flex min-w-0 items-center">
+            {hasFamilies && !opts.child && (
+              opts.family ? (
+                <button
+                  onClick={opts.family.onToggle}
+                  aria-expanded={opts.family.expanded}
+                  aria-label={`${opts.family.expanded ? "Collapse" : "Expand"} family — ${opts.family.count} more`}
+                  className="mr-1 inline-flex h-11 w-7 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-app-bg hover:text-text-primary lg:h-7"
+                >
+                  <ChevronDown className={`h-4 w-4 transition-transform ${opts.family.expanded ? "" : "-rotate-90"}`} />
+                </button>
+              ) : (
+                <span className="mr-1 inline-block w-7 shrink-0" aria-hidden />
+              )
+            )}
+            {opts.child ? (
+              <div
+                className="ml-[45px] min-w-0 border-l-2 pl-[10px]"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <PersonCell m={m} avatarSize={30} />
+              </div>
+            ) : (
+              <div className="min-w-0">
+                <PersonCell m={m} />
+                {opts.family && !opts.family.expanded && (
+                  <div className="ml-[44px] text-[11.5px] text-text-muted">
+                    +{opts.family.count} more in family
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </td>
+        <td className="py-3 pr-3">
+          <MembershipPill {...m.tracks.membership} />
+        </td>
+        <td className="py-3 pr-3">
+          <AccountSetupCell {...m.tracks.accountSetup} />
+        </td>
+        <td className="py-3 pr-3 text-right">
+          {m.balanceOwed ? (
+            <span className="text-[13px] font-semibold" style={{ color: "var(--color-warn-text)" }}>
+              ${m.balanceOwed.toFixed(2)}
+            </span>
+          ) : (
+            <span className="text-text-muted">—</span>
+          )}
+        </td>
+        <td className="py-3 pr-3 text-[12.5px] text-text-muted">{fmtDate(m.lastSeenAt)}</td>
+        <td className="py-3 pr-4">
+          <div className="flex items-center justify-end gap-1.5">
+            <NextActionButton
+              action={m.nextAction}
+              allowed={permitted(m.nextAction, canEdit, canBill)}
+              requiredRoleLabel={roleLabelFor(m.nextAction)}
+            />
+            <MemberActionsMenu member={m} canEdit={canEdit} canBill={canBill} isOwner={isOwner} onAction={onMenuAction} />
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  /** One phone card. A family head carries the "N more in family" chip (§1j). */
+  function renderCard(m: RosterMember, opts: { family?: FamilyToggle; child?: boolean } = {}) {
+    return (
+      <li key={m.id} className={opts.child ? "py-2 pl-[25px] pr-3.5" : "p-3.5"}>
+        <div
+          className={`flex gap-3 ${opts.child ? "border-l-2 pl-3" : ""}`}
+          style={opts.child ? { borderColor: "var(--color-border)" } : undefined}
+        >
+          <input
+            type="checkbox"
+            aria-label={`Select ${m.fullName}`}
+            checked={selectAllMatching || selected.has(m.id)}
+            onChange={() => toggleRow(m.id)}
+            className="mt-1 h-4 w-4 shrink-0"
+          />
+          <MemberAvatar initials={m.initials} imageUrl={m.profileImageUrl} size={opts.child ? 36 : 44} />
+          <div className="min-w-0 flex-1">
+            <Link href={`/dashboard/members/${m.id}`} className="block truncate text-[14.5px] font-semibold text-text-primary">
+              {m.fullName}
+            </Link>
+            <div className="mt-0.5">
+              <RoleChips roles={m.tracks.role} max={2} />
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <MembershipPill {...m.tracks.membership} />
+              <AccountSetupCell {...m.tracks.accountSetup} showMeter={false} />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <NextActionButton
+                action={m.nextAction}
+                allowed={permitted(m.nextAction, canEdit, canBill)}
+                requiredRoleLabel={roleLabelFor(m.nextAction)}
+                className="min-h-[44px]"
+              />
+              {opts.family && (
+                <button
+                  onClick={opts.family.onToggle}
+                  aria-expanded={opts.family.expanded}
+                  className="inline-flex min-h-[44px] items-center gap-1 rounded-full px-3 text-[12.5px] text-text-primary"
+                  style={{ background: "var(--color-chip-surface)" }}
+                >
+                  {opts.family.expanded ? "Hide family" : `${opts.family.count} more in family`}
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${opts.family.expanded ? "rotate-180" : ""}`} />
+                </button>
+              )}
+            </div>
+          </div>
+          <MemberActionsMenu member={m} canEdit={canEdit} canBill={canBill} isOwner={isOwner} onAction={onMenuAction} size={44} />
+        </div>
+      </li>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-[18px] px-4 pb-28 md:pb-10 pt-4 sm:px-6 lg:px-8">
@@ -738,7 +952,14 @@ export default function MembersRoster({
       <WorkQueueStrip
         queueCounts={queueCounts}
         active={q.queue}
-        onPick={(k) => setQuery({ queue: k === q.queue ? null : k })}
+        onPick={(k) => {
+          const turningOn = k !== q.queue;
+          setQuery({ queue: turningOn ? k : null });
+          // B6 — the card arms its bulk action: select everyone the card
+          // counted (query-scoped, never the page) so the armed button is one
+          // deliberate click away. Nothing is sent until that click.
+          if (turningOn && armedBulkAction(k)) setSelectAllMatching(true);
+        }}
       />
 
       {/* Saved views. Hidden entirely until the staffer has saved one — an
@@ -852,8 +1073,8 @@ export default function MembersRoster({
             {activeFilterChips.map((c) => (
               <button
                 key={c.key}
-                onClick={() => setQuery({ [c.key]: null })}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-text-primary transition-colors hover:opacity-80"
+                onClick={() => setQuery(c.clear ?? { [c.key]: null })}
+                className="inline-flex min-h-[44px] items-center gap-1 rounded-md px-2 py-1 text-[12px] md:min-h-0 text-text-primary transition-colors hover:opacity-80"
                 style={{ background: "var(--color-chip-surface)" }}
               >
                 {c.label}
@@ -900,14 +1121,35 @@ export default function MembersRoster({
               )}
             </div>
             <div className="flex flex-wrap gap-2">
-              <BulkButton primary disabled={!canEdit} busy={busy === "bulk:invite"} label="Send invitations" onClick={() => onBulk("invite")} />
-              <BulkButton disabled={!canEdit} busy={busy === "bulk:resend"} label="Resend" onClick={() => onBulk("resend")} />
-              <BulkButton disabled={!canBill} busy={busy === "bulk:assign"} label="Assign membership" onClick={() => onBulk("assign")} />
-              <BulkButton disabled={!canEdit} busy={busy === "bulk:message"} label="Message" onClick={() => onBulk("message")} />
-              <BulkButton disabled={!canEdit} busy={busy === "bulk:email"} label="Email selected" onClick={() => onBulk("email")} />
+              {/* B6 — whichever action a work-queue card armed is the primary;
+                  with nothing armed, Send invitations stays primary as before. */}
+              {(
+                [
+                  { kind: "invite", label: "Send invitations", allowed: canEdit },
+                  { kind: "resend", label: "Resend", allowed: canEdit },
+                  { kind: "assign", label: "Assign membership", allowed: canBill },
+                  { kind: "message", label: "Message", allowed: canEdit },
+                  { kind: "email", label: "Email selected", allowed: canEdit },
+                  { kind: "tag", label: "Add tag", allowed: canEdit },
+                ] as { kind: RosterBulkKind; label: string; allowed: boolean }[]
+              ).map((b) => (
+                <BulkButton
+                  key={b.kind}
+                  primary={(armed ?? "invite") === b.kind}
+                  armed={armed === b.kind}
+                  disabled={!b.allowed}
+                  busy={busy === `bulk:${b.kind}`}
+                  label={b.label}
+                  onClick={() => onBulk(b.kind)}
+                />
+              ))}
             </div>
           </div>
         )}
+
+        {/* ── A–Z jump (B6) ───────────────────────────────────────────── */}
+        {sendResult && <SendResultPanel result={sendResult} onDismiss={() => setSendResult(null)} />}
+        <AZJump active={q.letter.toUpperCase()} onPick={(l) => setQuery({ letter: l })} />
 
         {/* ── Table (md+) ─────────────────────────────────────────────── */}
         {loading ? (
@@ -948,90 +1190,32 @@ export default function MembersRoster({
                   </tr>
                 </thead>
                 <tbody>
-                  {members.map((m) => (
-                    <tr
-                      key={m.id}
-                      className="border-t transition-colors hover:bg-app-bg"
-                      style={{ borderColor: "var(--color-hairline)" }}
-                    >
-                      <td className="px-4">
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${m.fullName}`}
-                          checked={selectAllMatching || selected.has(m.id)}
-                          onChange={() => toggleRow(m.id)}
-                        />
-                      </td>
-                      <td className={density === "compact" ? "py-2 pr-3" : "py-3 pr-3"}>
-                        <PersonCell m={m} />
-                      </td>
-                      <td className="py-3 pr-3">
-                        <MembershipPill {...m.tracks.membership} />
-                      </td>
-                      <td className="py-3 pr-3">
-                        <AccountSetupCell {...m.tracks.accountSetup} />
-                      </td>
-                      <td className="py-3 pr-3 text-right">
-                        {m.balanceOwed ? (
-                          <span className="text-[13px] font-semibold" style={{ color: "var(--color-warn-text)" }}>
-                            ${m.balanceOwed.toFixed(2)}
-                          </span>
-                        ) : (
-                          <span className="text-text-muted">—</span>
-                        )}
-                      </td>
-                      <td className="py-3 pr-3 text-[12.5px] text-text-muted">{fmtDate(m.lastSeenAt)}</td>
-                      <td className="py-3 pr-4">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <NextActionButton
-                            action={m.nextAction}
-                            allowed={permitted(m.nextAction, canEdit, canBill)}
-                            requiredRoleLabel={roleLabelFor(m.nextAction)}
-                          />
-                          <MemberActionsMenu member={m} canEdit={canEdit} canBill={canBill} isOwner={isOwner} onAction={onMenuAction} />
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {groups.flatMap((g) => {
+                    const expanded = !!g.key && expandedFamilies.has(g.key);
+                    const head = renderTableRow(g.head, {
+                      family:
+                        g.key && g.others.length
+                          ? { count: g.others.length, expanded, onToggle: () => toggleFamily(g.key as string) }
+                          : undefined,
+                    });
+                    return expanded ? [head, ...g.others.map((o) => renderTableRow(o, { child: true }))] : [head];
+                  })}
                 </tbody>
               </table>
             </div>
 
             {/* ── Card list (<md) ──────────────────────────────────────── */}
             <ul className="divide-y md:hidden" style={{ borderColor: "var(--color-hairline)" }}>
-              {members.map((m) => (
-                <li key={m.id} className="flex gap-3 p-3.5">
-                  <input
-                    type="checkbox"
-                    aria-label={`Select ${m.fullName}`}
-                    checked={selectAllMatching || selected.has(m.id)}
-                    onChange={() => toggleRow(m.id)}
-                    className="mt-1 h-4 w-4 shrink-0"
-                  />
-                  <MemberAvatar initials={m.initials} imageUrl={m.profileImageUrl} size={44} />
-                  <div className="min-w-0 flex-1">
-                    <Link href={`/dashboard/members/${m.id}`} className="block truncate text-[14.5px] font-semibold text-text-primary">
-                      {m.fullName}
-                    </Link>
-                    <div className="mt-0.5">
-                      <RoleChips roles={m.tracks.role} max={2} />
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <MembershipPill {...m.tracks.membership} />
-                      <AccountSetupCell {...m.tracks.accountSetup} showMeter={false} />
-                    </div>
-                    <div className="mt-2">
-                      <NextActionButton
-                        action={m.nextAction}
-                        allowed={permitted(m.nextAction, canEdit, canBill)}
-                        requiredRoleLabel={roleLabelFor(m.nextAction)}
-                        className="min-h-[44px]"
-                      />
-                    </div>
-                  </div>
-                  <MemberActionsMenu member={m} canEdit={canEdit} canBill={canBill} isOwner={isOwner} onAction={onMenuAction} size={44} />
-                </li>
-              ))}
+              {groups.flatMap((g) => {
+                const expanded = !!g.key && expandedFamilies.has(g.key);
+                const head = renderCard(g.head, {
+                  family:
+                    g.key && g.others.length
+                      ? { count: g.others.length, expanded, onToggle: () => toggleFamily(g.key as string) }
+                      : undefined,
+                });
+                return expanded ? [head, ...g.others.map((o) => renderCard(o, { child: true }))] : [head];
+              })}
             </ul>
           </>
         )}
@@ -1066,6 +1250,8 @@ export default function MembersRoster({
       {filtersOpen && (
         <FiltersSheet
           q={q}
+          facets={data?.facets ?? { tags: [], genders: [] }}
+          customFields={customFields}
           onClose={() => setFiltersOpen(false)}
           onApply={(patch) => {
             setQuery(patch);
@@ -1236,7 +1422,7 @@ function Th({
   );
 }
 
-function PersonCell({ m }: { m: RosterMember }) {
+function PersonCell({ m, avatarSize = 34 }: { m: RosterMember; avatarSize?: number }) {
   const meta = [
     m.tracks.role.map((r) => r.label).join(" · ") || null,
     m.importedAt ? (m.sourceLabel ? `imported from ${m.sourceLabel}` : `imported ${fmtDate(m.importedAt)}`) : null,
@@ -1246,7 +1432,7 @@ function PersonCell({ m }: { m: RosterMember }) {
 
   return (
     <div className="flex min-w-0 items-center gap-2.5">
-      <MemberAvatar initials={m.initials} imageUrl={m.profileImageUrl} size={34} />
+      <MemberAvatar initials={m.initials} imageUrl={m.profileImageUrl} size={avatarSize} />
       <div className="min-w-0">
         <Link href={`/dashboard/members/${m.id}`} className="block truncate text-sm font-medium text-text-primary hover:text-brand">
           {m.fullName}
@@ -1293,7 +1479,12 @@ function WorkQueueStrip({
   ] as const;
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    // §1j — below md the strip is a 2-card horizontal snap scroller ("Needs
+    // you"), not a stacked grid that pushes the roster off the first screen.
+    <div
+      aria-label="Needs you"
+      className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6 md:mx-0 md:grid md:snap-none md:grid-cols-3 md:overflow-visible md:px-0 md:pb-0 lg:grid-cols-6"
+    >
       {cards.map((c) => {
         const isActive = active === c.key;
         const href = c.key === "duplicates" ? "/dashboard/members/duplicates" : null;
@@ -1313,7 +1504,7 @@ function WorkQueueStrip({
             </div>
           </>
         );
-        const cls = `rounded-[10px] border bg-surface px-[15px] py-[13px] text-left transition-colors hover:bg-app-bg ${
+        const cls = `min-h-[44px] w-[calc(50%-6px)] shrink-0 snap-start rounded-[10px] border bg-surface px-[15px] py-[13px] text-left transition-colors hover:bg-app-bg md:w-auto ${
           isActive ? "ring-2 ring-brand" : ""
         }`;
         const style = { borderColor: "var(--color-border)", borderLeft: `3px solid ${c.accent}` };
@@ -1334,12 +1525,15 @@ function WorkQueueStrip({
 function BulkButton({
   label,
   primary,
+  armed,
   disabled,
   busy,
   onClick,
 }: {
   label: string;
   primary?: boolean;
+  /** B6 — armed by the active work-queue card; gets a ring so the link is visible. */
+  armed?: boolean;
   disabled?: boolean;
   busy?: boolean;
   onClick?: () => void;
@@ -1348,8 +1542,11 @@ function BulkButton({
     <button
       disabled={disabled || busy}
       onClick={onClick}
-      title={disabled ? "You do not have permission for this action" : undefined}
+      aria-pressed={armed || undefined}
+      title={disabled ? "You do not have permission for this action" : armed ? "Armed by the work-queue card you picked" : undefined}
       className={`inline-flex min-h-[44px] items-center rounded-lg px-2.5 text-[12.5px] font-medium transition-colors lg:min-h-[34px] ${
+        armed && !disabled ? "ring-2 ring-brand ring-offset-1 " : ""
+      }${
         disabled
           ? "cursor-not-allowed border border-app-border bg-surface text-[#9CA3AF]"
           : primary
@@ -1359,6 +1556,49 @@ function BulkButton({
     >
       {busy ? "Working…" : label}
     </button>
+  );
+}
+
+/**
+ * B6 — A–Z jump. Filters to last names starting with the letter (server-side,
+ * `?letter=`). One horizontal strip at every width: on phones it scrolls
+ * inside itself (44px targets), on desktop it fits in one line.
+ */
+function AZJump({ active, onPick }: { active: string; onPick: (letter: string | null) => void }) {
+  const base =
+    "inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-md text-[12px] font-medium tabular-nums transition-colors md:min-h-[26px] md:min-w-[24px]";
+  return (
+    <div
+      className="flex items-center gap-1 border-b border-app-border px-4 py-1.5"
+      style={{ background: "var(--color-table-chrome)" }}
+    >
+      <span className="hidden shrink-0 pr-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted sm:inline">
+        Jump
+      </span>
+      <div role="toolbar" aria-label="Jump to last name" className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
+        <button
+          onClick={() => onPick(null)}
+          aria-pressed={!active}
+          className={`${base} px-2 ${!active ? "bg-brand text-white" : "text-text-muted hover:bg-app-bg hover:text-text-primary"}`}
+        >
+          All
+        </button>
+        {AZ_LETTERS.map((l) => {
+          const on = active === l;
+          return (
+            <button
+              key={l}
+              onClick={() => onPick(on ? null : l)}
+              aria-pressed={on}
+              aria-label={`Last names starting with ${l}`}
+              className={`${base} ${on ? "bg-brand text-white" : "text-text-muted hover:bg-app-bg hover:text-text-primary"}`}
+            >
+              {l}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -1427,18 +1667,40 @@ function EmptyResult({ hasFilters, total, onClear }: { hasFilters: boolean; tota
   );
 }
 
-/** Full-screen sheet below md, panel above. All six legacy selects live here. */
+/**
+ * Full-screen sheet below md, panel above. All six legacy selects live here:
+ * membership, account setup, and (B6) tag, gender, age and custom field.
+ */
 function FiltersSheet({
   q,
+  facets,
+  customFields,
   onClose,
   onApply,
 }: {
-  q: { membership: string; setupState: string };
+  q: {
+    membership: string;
+    setupState: string;
+    tag: string;
+    gender: string;
+    ageMin: string;
+    ageMax: string;
+    cf: string;
+    cfv: string;
+  };
+  facets: { tags: string[]; genders: string[] };
+  customFields: CustomField[];
   onClose: () => void;
   onApply: (patch: Record<string, string | null>) => void;
 }) {
   const [membership, setMembership] = useState(q.membership);
   const [setupState, setSetupState] = useState(q.setupState);
+  const [tag, setTag] = useState(q.tag);
+  const [gender, setGender] = useState(q.gender);
+  const [ageMin, setAgeMin] = useState(q.ageMin);
+  const [ageMax, setAgeMax] = useState(q.ageMax);
+  const [cf, setCf] = useState(q.cf);
+  const [cfv, setCfv] = useState(q.cfv);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1448,6 +1710,34 @@ function FiltersSheet({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  const bracketKey =
+    AGE_BRACKETS.find(
+      (b) => String(b.min ?? "") === ageMin && String(b.max ?? "") === ageMax,
+    )?.key ?? "";
+  const field = customFields.find((f) => f.id === cf) ?? null;
+  const fieldOptions: string[] = (() => {
+    if (!field) return [];
+    try {
+      const o = JSON.parse(field.options || "[]");
+      return Array.isArray(o) ? o.map((x) => String(typeof x === "object" && x && "label" in x ? (x as { label: unknown }).label : x)) : [];
+    } catch {
+      return [];
+    }
+  })();
+  const inputCls =
+    "h-11 w-full rounded-lg border border-app-border bg-surface px-3 text-[13px] text-text-primary focus:outline-none focus:ring-2 focus:ring-brand md:h-9";
+
+  const clearAll = {
+    membership: null,
+    setupState: null,
+    tag: null,
+    gender: null,
+    ageMin: null,
+    ageMax: null,
+    cf: null,
+    cfv: null,
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClick={onClose}>
       <div
@@ -1456,7 +1746,7 @@ function FiltersSheet({
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-[15px] font-semibold text-text-primary">Filters</h2>
-          <button onClick={onClose} aria-label="Close" className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-app-bg">
+          <button onClick={onClose} aria-label="Close" className="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-app-bg">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -1464,9 +1754,149 @@ function FiltersSheet({
         <FilterGroup label="Membership" value={membership} onChange={setMembership} options={MEMBERSHIP_FILTERS} />
         <FilterGroup label="Account setup" value={setupState} onChange={setSetupState} options={SETUP_FILTERS} />
 
+        <div className="mb-4">
+          <label htmlFor="filter-tag" className="mb-1.5 block text-[12px] font-medium text-text-primary">
+            Tag
+          </label>
+          <input
+            id="filter-tag"
+            list="filter-tag-options"
+            value={tag}
+            onChange={(e) => setTag(e.target.value)}
+            placeholder={facets.tags.length ? `e.g. ${facets.tags.slice(0, 2).join(", ")}` : "Any tag"}
+            className={inputCls}
+          />
+          <datalist id="filter-tag-options">
+            {facets.tags.map((t) => (
+              <option key={t} value={t} />
+            ))}
+          </datalist>
+          {facets.tags.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {facets.tags.slice(0, 12).map((t) => (
+                <FilterChip key={t} active={tag.toLowerCase() === t.toLowerCase()} onClick={() => setTag(tag === t ? "" : t)}>
+                  {t}
+                </FilterChip>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {facets.genders.length > 0 && (
+          <FilterGroup
+            label="Gender"
+            value={gender}
+            onChange={setGender}
+            options={facets.genders.map((g) => ({ key: g, label: g }))}
+          />
+        )}
+
+        <div className="mb-4">
+          <div className="mb-1.5 text-[12px] font-medium text-text-primary">Age</div>
+          <div className="flex flex-wrap gap-1.5">
+            {AGE_BRACKETS.map((b) => (
+              <FilterChip
+                key={b.key}
+                active={bracketKey === b.key}
+                onClick={() => {
+                  if (bracketKey === b.key) {
+                    setAgeMin("");
+                    setAgeMax("");
+                  } else {
+                    setAgeMin(b.min == null ? "" : String(b.min));
+                    setAgeMax(b.max == null ? "" : String(b.max));
+                  }
+                }}
+              >
+                {b.label}
+              </FilterChip>
+            ))}
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={130}
+              value={ageMin}
+              onChange={(e) => setAgeMin(e.target.value)}
+              placeholder="Min"
+              aria-label="Minimum age"
+              className={inputCls}
+            />
+            <span className="text-[12px] text-text-muted">to</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={130}
+              value={ageMax}
+              onChange={(e) => setAgeMax(e.target.value)}
+              placeholder="Max"
+              aria-label="Maximum age"
+              className={inputCls}
+            />
+          </div>
+          <p className="mt-1 text-[11.5px] text-text-muted">People with no date of birth are left out of an age filter.</p>
+        </div>
+
+        {customFields.length > 0 && (
+          <div className="mb-4">
+            <label htmlFor="filter-cf" className="mb-1.5 block text-[12px] font-medium text-text-primary">
+              Custom field
+            </label>
+            <select
+              id="filter-cf"
+              value={cf}
+              onChange={(e) => {
+                setCf(e.target.value);
+                setCfv("");
+              }}
+              className={inputCls}
+            >
+              <option value="">Any</option>
+              {customFields.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+            {field &&
+              (fieldOptions.length > 0 ? (
+                <select value={cfv} onChange={(e) => setCfv(e.target.value)} aria-label={`${field.label} value`} className={`${inputCls} mt-2`}>
+                  <option value="">Any answer</option>
+                  {fieldOptions.map((o) => (
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={cfv}
+                  onChange={(e) => setCfv(e.target.value)}
+                  placeholder="Any answer (starts with…)"
+                  aria-label={`${field.label} value`}
+                  className={`${inputCls} mt-2`}
+                />
+              ))}
+          </div>
+        )}
+
         <div className="mt-5 flex gap-2">
           <button
-            onClick={() => onApply({ membership: membership || null, setupState: setupState || null })}
+            onClick={() =>
+              onApply({
+                membership: membership || null,
+                setupState: setupState || null,
+                tag: tag.trim() || null,
+                gender: gender || null,
+                ageMin: ageMin.trim() || null,
+                ageMax: ageMax.trim() || null,
+                cf: cf || null,
+                cfv: cf && cfv.trim() ? cfv.trim() : null,
+              })
+            }
             className="min-h-[44px] flex-1 rounded-lg bg-brand text-sm font-medium text-white"
           >
             Apply
@@ -1475,7 +1905,13 @@ function FiltersSheet({
             onClick={() => {
               setMembership("");
               setSetupState("");
-              onApply({ membership: null, setupState: null });
+              setTag("");
+              setGender("");
+              setAgeMin("");
+              setAgeMax("");
+              setCf("");
+              setCfv("");
+              onApply(clearAll);
             }}
             className="min-h-[44px] rounded-lg border border-app-border px-4 text-sm text-text-primary"
           >
@@ -1484,6 +1920,20 @@ function FiltersSheet({
         </div>
       </div>
     </div>
+  );
+}
+
+function FilterChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={`min-h-[44px] rounded-lg border px-2.5 text-[12.5px] transition-colors md:min-h-[36px] ${
+        active ? "border-brand bg-brand text-white" : "border-app-border text-text-primary hover:bg-app-bg"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -1508,7 +1958,7 @@ function FilterGroup({
             <button
               key={o.key}
               onClick={() => onChange(active ? "" : o.key)}
-              className={`min-h-[36px] rounded-lg border px-2.5 text-[12.5px] transition-colors ${
+              className={`min-h-[44px] rounded-lg border px-2.5 text-[12.5px] transition-colors md:min-h-[36px] ${
                 active ? "border-brand bg-brand text-white" : "border-app-border text-text-primary hover:bg-app-bg"
               }`}
             >

@@ -98,7 +98,7 @@ export default function GlobalSearch() {
 
   return (
     <div ref={wrapRef} className="relative w-full max-w-xl">
-      <div className="flex items-center gap-2 bg-surface border border-app-border rounded-lg px-3 h-9">
+      <div className="flex items-center gap-2 bg-surface border border-app-border rounded-lg px-3 h-11 md:h-9">
         <Search className="h-4 w-4 text-text-muted shrink-0" strokeWidth={2} />
         <input
           ref={inputRef}
@@ -122,7 +122,7 @@ export default function GlobalSearch() {
                 <button
                   key={r}
                   onClick={() => { setQ(r); inputRef.current?.focus(); }}
-                  className="w-full text-left px-2 py-1.5 rounded-md text-sm text-text-primary hover:bg-app-bg"
+                  className="w-full text-left px-2 py-1.5 min-h-[44px] md:min-h-0 rounded-md text-sm text-text-primary hover:bg-app-bg"
                 >
                   {r}
                 </button>
@@ -141,7 +141,7 @@ export default function GlobalSearch() {
                     <button
                       key={`${g.type}-${it.id}`}
                       onClick={() => go(it)}
-                      className="w-full text-left px-2 py-2 rounded-md hover:bg-app-bg flex items-center justify-between gap-3"
+                      className="w-full text-left px-2 py-2 min-h-[44px] md:min-h-0 rounded-md hover:bg-app-bg flex items-center justify-between gap-3"
                     >
                       <span className="text-sm text-text-primary truncate">{it.label}</span>
                       {it.sub && <span className="text-xs text-text-muted flex-shrink-0 truncate max-w-[40%]">{it.sub}</span>}

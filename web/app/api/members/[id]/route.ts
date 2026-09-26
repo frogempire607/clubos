@@ -17,6 +17,19 @@ import { MEMBER_TRACK_SELECT, serializeMemberForList, type SerializedMember } fr
 import { buildTrackContext, loadSourceLabels } from "@/lib/membersQuery";
 import { sendLoginEmailChangedEmail } from "@/lib/email";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
+import { EXCLUDE_VOID } from "@/lib/paymentSources";
+import {
+  PRESENT_STATUSES,
+  RECENT_ACTIVITY_LIMIT,
+  appendAttributedNote,
+  attendanceActivityText,
+  attendanceWindows,
+  invitationActivityText,
+  mergeRecentActivity,
+  subscriptionActivityText,
+  transactionActivityText,
+  type ActivityItem,
+} from "@/lib/memberProfileFacts";
 
 const updateSchema = z.object({
   firstName: z.string().min(1).optional(),
@@ -30,6 +43,10 @@ const updateSchema = z.object({
   status: z.enum(["ACTIVE", "PROSPECT", "INACTIVE", "PAUSED"]).optional(),
   tags: z.string().optional(),
   notes: z.string().optional().nullable(),
+  // B6 — "add a note" from the profile. The server prepends it to `notes` with
+  // an attribution line built from the SESSION (never a client-sent name).
+  // Ignored when `notes` is also sent, so a full edit can't race an append.
+  appendNote: z.string().max(4000).optional(),
   customFieldValues: z.record(z.string()).optional(),
   streetAddress: z.string().optional().nullable(),
   city:          z.string().optional().nullable(),
@@ -334,6 +351,117 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     console.error("[members/[id]] migration event load failed", e);
   }
 
+  // ── B6 — Overview summary figures ───────────────────────────────────────
+  // Small, bounded reads: counts and single rows, plus ≤8 rows per activity
+  // source. Each block degrades to null/[] so the profile still renders.
+  const LIMIT = RECENT_ACTIVITY_LIMIT;
+  let attendanceStats: {
+    thisMonth: number; last30: number; allTime: number; lastAttendedAt: string | null;
+  } | null = null;
+  let moneySummary: {
+    lifetimePaid: number;
+    lastPayment: { amount: number; at: string; description: string | null } | null;
+  } | null = null;
+  let recentActivity: ActivityItem[] = [];
+  let accountHolderLastLoginAt: string | null = null;
+  try {
+    const { monthStart, since30 } = attendanceWindows(new Date());
+    const present = { memberId: params.id, status: { in: [...PRESENT_STATUSES] } };
+    const [thisMonth, last30, allTime, lastRow, paidAgg, lastPaid] = await Promise.all([
+      prisma.attendanceRecord.count({ where: { ...present, createdAt: { gte: monthStart } } }),
+      prisma.attendanceRecord.count({ where: { ...present, createdAt: { gte: since30 } } }),
+      prisma.attendanceRecord.count({ where: present }),
+      prisma.attendanceRecord.findFirst({ where: present, orderBy: { createdAt: "desc" }, select: { createdAt: true, checkedInAt: true } }),
+      prisma.transaction.aggregate({
+        where: { memberId: params.id, clubId: session.user.clubId, status: "SUCCEEDED", AND: [{ NOT: { type: "REFUND" } }, EXCLUDE_VOID] },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.findFirst({
+        where: { memberId: params.id, clubId: session.user.clubId, status: "SUCCEEDED", AND: [{ NOT: { type: "REFUND" } }, EXCLUDE_VOID] },
+        orderBy: { createdAt: "desc" },
+        select: { amount: true, createdAt: true, description: true },
+      }),
+    ]);
+    attendanceStats = {
+      thisMonth, last30, allTime,
+      lastAttendedAt: lastRow ? (lastRow.checkedInAt ?? lastRow.createdAt).toISOString() : null,
+    };
+    moneySummary = {
+      lifetimePaid: Number(paidAgg._sum.amount ?? 0),
+      lastPayment: lastPaid
+        ? { amount: Number(lastPaid.amount), at: lastPaid.createdAt.toISOString(), description: lastPaid.description }
+        : null,
+    };
+  } catch (e) {
+    console.error("[members/[id]] overview figures failed", e);
+  }
+
+  try {
+    const [subEvents, deliveries, recentSigs] = await Promise.all([
+      prisma.memberSubscriptionEvent.findMany({
+        where: { memberId: params.id, clubId: session.user.clubId },
+        orderBy: { at: "desc" },
+        take: LIMIT,
+        select: { id: true, kind: true, fromPlan: true, toPlan: true, at: true },
+      }),
+      prisma.memberInvitationDelivery.findMany({
+        where: { memberId: params.id, clubId: session.user.clubId },
+        orderBy: { sentAt: "desc" },
+        take: LIMIT,
+        select: { id: true, sentToEmail: true, recipientKind: true, sentAt: true, openedAt: true, bouncedAt: true },
+      }),
+      prisma.documentSignature.findMany({
+        where: { memberId: params.id, document: { clubId: session.user.clubId } },
+        orderBy: { signedAt: "desc" },
+        take: LIMIT,
+        select: { id: true, signedAt: true, signerName: true, relationship: true, document: { select: { title: true } } },
+      }),
+    ]);
+    const att: ActivityItem[] = member.attendanceRecords.slice(0, LIMIT).map((a) => {
+      const w = attendanceActivityText(a.status, a.classSession?.recurringClass?.name ?? null);
+      return { id: `att:${a.id}`, kind: "attendance", text: w.text, tone: w.tone, at: (a.checkedInAt ?? a.createdAt).toISOString() };
+    });
+    const pay: ActivityItem[] = member.transactions
+      .filter((t) => t.reconciliationStatus !== "VOID")
+      .slice(0, LIMIT)
+      .map((t) => {
+        const w = transactionActivityText({ status: t.status, type: t.type, amount: Number(t.amount), description: t.description });
+        return { id: `txn:${t.id}`, kind: "payment", text: w.text, tone: w.tone, at: t.createdAt.toISOString() };
+      });
+    const subs: ActivityItem[] = subEvents.map((e) => {
+      const w = subscriptionActivityText(e);
+      return { id: `sub:${e.id}`, kind: "subscription", text: w.text, tone: w.tone, at: e.at.toISOString() };
+    });
+    const inv: ActivityItem[] = deliveries.map((d) => {
+      const w = invitationActivityText(d);
+      return { id: `inv:${d.id}`, kind: "invitation", text: w.text, tone: w.tone, at: (d.bouncedAt ?? d.sentAt).toISOString() };
+    });
+    const docs: ActivityItem[] = recentSigs.map((g) => ({
+      id: `doc:${g.id}`,
+      kind: "document",
+      text: `Signed ${g.document.title}${g.relationship === "GUARDIAN" ? ` · by ${g.signerName} (guardian)` : ""}`,
+      tone: "ok",
+      at: g.signedAt.toISOString(),
+    }));
+    recentActivity = mergeRecentActivity([att, pay, subs, inv, docs], LIMIT);
+  } catch (e) {
+    console.error("[members/[id]] recent activity failed", e);
+  }
+
+  // Account-holder card meta line: when the primary confirmed guardian last
+  // signed in. One row, scalars only.
+  try {
+    const holder =
+      family.guardians.find((g) => g.status === "CONFIRMED" && g.isPrimary) ??
+      family.guardians.find((g) => g.status === "CONFIRMED");
+    if (holder) {
+      const u = await prisma.user.findUnique({ where: { id: holder.userId }, select: { lastLoginAt: true } });
+      accountHolderLastLoginAt = u?.lastLoginAt ? u.lastLoginAt.toISOString() : null;
+    }
+  } catch (e) {
+    console.error("[members/[id]] account holder meta failed", e);
+  }
+
   return NextResponse.json({
     ...rest,
     relationships,
@@ -345,6 +473,12 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     tracks: tracks?.tracks ?? null,
     nextAction: tracks?.nextAction ?? null,
     sourceLabel: tracks?.sourceLabel ?? null,
+    // B6 — Overview summary + phone fact grid.
+    balanceOwed: tracks?.balanceOwed ?? null,
+    attendanceStats,
+    moneySummary,
+    recentActivity,
+    accountHolderLastLoginAt,
   });
 }
 
@@ -360,7 +494,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
   try {
     const body = await req.json();
-    const data = updateSchema.parse(body);
+    const { appendNote, ...data } = updateSchema.parse(body);
+    if (appendNote !== undefined && data.notes === undefined && appendNote.trim()) {
+      data.notes = appendAttributedNote(member.notes, appendNote, session.user.name, new Date());
+    }
 
     // P4 — owner cannot edit DOB on a parent-locked member.
     // The lock is set by the guardian from /member/family/[memberId];

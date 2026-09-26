@@ -46,7 +46,7 @@ export default function UserMenu({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center gap-2 rounded-full pl-1 pr-3 py-1 hover:bg-app-bg transition"
+        className="flex items-center gap-2 rounded-full pl-1 pr-3 py-1 min-h-[44px] md:min-h-0 hover:bg-app-bg transition"
       >
         <span className="w-8 h-8 rounded-full bg-charcoal text-white text-xs font-semibold flex items-center justify-center">
           {initials}
@@ -75,7 +75,7 @@ export default function UserMenu({
               href="/dashboard/my-account"
               onClick={() => setOpen(false)}
               role="menuitem"
-              className="block px-3 py-2 text-sm text-text-primary hover:bg-app-bg"
+              className="block px-3 py-3 md:py-2 text-sm text-text-primary hover:bg-app-bg"
             >
               My account
             </Link>
@@ -83,7 +83,7 @@ export default function UserMenu({
               href="/dashboard/preview"
               onClick={() => setOpen(false)}
               role="menuitem"
-              className="block px-3 py-2 text-sm text-text-primary hover:bg-app-bg"
+              className="block px-3 py-3 md:py-2 text-sm text-text-primary hover:bg-app-bg"
             >
               Client view
             </Link>
@@ -91,7 +91,7 @@ export default function UserMenu({
               href="/dashboard/help"
               onClick={() => setOpen(false)}
               role="menuitem"
-              className="block px-3 py-2 text-sm text-text-primary hover:bg-app-bg"
+              className="block px-3 py-3 md:py-2 text-sm text-text-primary hover:bg-app-bg"
             >
               Need help?
             </Link>
@@ -104,7 +104,7 @@ export default function UserMenu({
                 setOpen(false);
                 signOutEverywhere({ callbackUrl: "/login" });
               }}
-              className="block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-app-bg"
+              className="block w-full text-left px-3 py-3 md:py-2 text-sm text-text-primary hover:bg-app-bg"
             >
               Sign out
             </button>

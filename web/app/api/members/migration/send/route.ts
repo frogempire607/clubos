@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { sendActivation, ensureActivationToken } from "@/lib/migrationServer";
 import { MIGRATION_STATUS } from "@/lib/migration";
+import { classifySendReason, isUndelivered, type SendOutcome } from "@/lib/migrationQueueModel";
 
 // Cap per request so thousands of members send in safe batches. The UI loops
 // until `remaining` is 0, showing progress. Capped by FAMILY now (one invite
@@ -68,9 +69,13 @@ export async function POST(req: Request) {
   // guardian through "set up the next athlete" without extra emails.
   const targets = await prisma.member.findMany({
     where: { id: { in: targetIds }, clubId, deletedAt: null },
-    select: { id: true, isMinor: true, guardianEmail: true, migrationStatus: true, importedAt: true },
+    select: {
+      id: true, firstName: true, lastName: true,
+      isMinor: true, guardianEmail: true, migrationStatus: true, importedAt: true,
+    },
   });
   const statusById = new Map(targets.map((t) => [t.id, t.migrationStatus]));
+  const nameById = new Map(targets.map((t) => [t.id, `${t.firstName} ${t.lastName}`.trim()]));
   const familyMap = new Map<string, string[]>();
   for (const t of targets) {
     const key = t.isMinor && t.guardianEmail ? `g:${t.guardianEmail.toLowerCase()}` : `m:${t.id}`;
@@ -89,12 +94,39 @@ export async function POST(req: Request) {
   let membersInvited = 0; // siblings given a token without a separate email
   let failed = 0;
   const errors: string[] = [];
+  // B6 / §1k — WHO was skipped and why, so the screen can say "3 skipped: 2
+  // have no email on file…" and list them, instead of a bare count. Skipped =
+  // we chose not to send; undelivered = the mail provider refused. Both are
+  // per-member, bounded, and carry the name so the client needs no lookup.
+  const skipped: SendOutcome[] = [];
+  const undelivered: SendOutcome[] = [];
+  const OUTCOME_CAP = 500;
+  const record = (memberId: string, raw: string | undefined) => {
+    const reason = classifySendReason(raw);
+    const list = isUndelivered(reason) ? undelivered : skipped;
+    if (list.length >= OUTCOME_CAP) return;
+    list.push({
+      memberId,
+      name: nameById.get(memberId) ?? "Unknown member",
+      reason,
+      // Provider text is for staff debugging, not the headline; trimmed.
+      detail: isUndelivered(reason) && raw ? raw.slice(0, 200) : null,
+    });
+  };
+  // Ids the client sent that are not (or no longer) this club's live members.
+  const foundIds = new Set(targets.map((t) => t.id));
+  for (const id of targetIds.slice(0, BATCH_CAP * 4)) {
+    if (!foundIds.has(id)) record(id, "not found");
+  }
 
   for (const fam of batchFams) {
     const guardianEmail = fam.key.startsWith("g:") ? fam.key.slice(2) : null;
     let repSent = false;
     for (const mid of fam.ids) {
-      if (statusById.get(mid) === MIGRATION_STATUS.COMPLETED) continue;
+      if (statusById.get(mid) === MIGRATION_STATUS.COMPLETED) {
+        record(mid, "already completed");
+        continue;
+      }
       if (!repSent) {
         const r = await sendActivation(mid, clubId, session.user.id, body.reminder);
         if (r.ok) {
@@ -103,6 +135,7 @@ export async function POST(req: Request) {
         } else {
           failed++;
           if (errors.length < 20) errors.push(`${mid}: ${r.reason}`);
+          record(mid, r.reason);
         }
       } else {
         const t = await ensureActivationToken(mid, clubId, session.user.id);
@@ -142,5 +175,7 @@ export async function POST(req: Request) {
     processed: processedMembers,
     families: batchFams.length,
     errors,
+    skipped,
+    undelivered,
   });
 }

@@ -77,7 +77,7 @@ export default function NotificationBell({
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-label={badge > 0 ? `Notifications, ${badge} need attention` : "Notifications"}
-        className={`relative w-10 h-10 rounded-lg flex items-center justify-center transition ${iconClasses}`}
+        className={`relative w-11 h-11 md:w-10 md:h-10 rounded-lg flex items-center justify-center transition ${iconClasses}`}
       >
         <Bell className="h-5 w-5" strokeWidth={2} />
         {badge > 0 && (

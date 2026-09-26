@@ -2,7 +2,27 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { MigrationFunnel } from "@/components/members/MigrationFunnel";
+import { MigrationFunnel, type FunnelPayload } from "@/components/members/MigrationFunnel";
+import {
+  MigrationEmptySearch,
+  MigrationNeedsYouCards,
+  MigrationTurnControl,
+  MigrationWaitingOnPill,
+} from "@/components/members/MigrationQueueChrome";
+import { MigrationStripeBanner } from "@/components/members/MigrationStripeBanner";
+import { SendResultPanel } from "@/components/members/SendResultPanel";
+import {
+  NEED_COPY,
+  QUEUE_TURN_LABELS,
+  accumulateSendResult,
+  emptySearchSentence,
+  emptySendResult,
+  suggestName,
+  type Need,
+  type QueueTurn,
+  type SendResult,
+} from "@/lib/migrationQueueModel";
+import { MIGRATION_STEPS } from "@/lib/memberTracks";
 import { MigrationMeterBar } from "@/components/members/MemberTracks";
 import { MigrationDetailDrawer } from "@/components/members/MigrationDetailDrawer";
 import MembersTabs from "@/components/MembersTabs";
@@ -215,17 +235,46 @@ export default function MigrationPage() {
   const [showFamilies, setShowFamilies] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
+  // ── B6 — queue chrome ──────────────────────────────────────────────────
+  // The funnel payload (one fetch, shared with the turn control, the needs-you
+  // cards and the payments banner), the two derived filters, an exact-id
+  // filter for "See the 3 skipped" / "Fix these 8", and the last send result.
+  const [funnel, setFunnel] = useState<FunnelPayload | null>(null);
+  const [funnelKey, setFunnelKey] = useState(0);
+  const [turn, setTurn] = useState<QueueTurn | null>(null);
+  const [need, setNeed] = useState<Need | null>(null);
+  const [idsFilter, setIdsFilter] = useState<{ ids: string[]; label: string } | null>(null);
+  const [sendResult, setSendResult] = useState<SendResult | null>(null);
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+  // Every name the page has loaded, plus one cached unfiltered sweep, for the
+  // empty-search spelling suggestion. Never refetched per keystroke.
+  const namesRef = useRef<Set<string>>(new Set());
+  const namesSweptRef = useRef(false);
   // id → family signals so a "select all" send can group by family exactly like
   // the server (one invite per guardian) without re-fetching. Populated as rows
   // load and as select-all sweeps every page.
   const metaRef = useRef<Map<string, { isMinor: boolean; guardianEmail: string | null }>>(new Map());
 
+  // One definition of "the current filter" for the page, select-all and the
+  // exports — before B6 the latter two dropped the funnel step, so "Select all
+  // N matching" could select people the list wasn't showing.
+  const scopeParams = useCallback(
+    (p: number, pageSize: number) => {
+      const params = new URLSearchParams({ filter, q, page: String(p), pageSize: String(pageSize) });
+      if (group) params.set("group", group);
+      if (readiness) params.set("readiness", readiness);
+      if (stepFilter !== null) params.set("step", String(stepFilter));
+      if (turn) params.set("turn", turn);
+      if (need) params.set("need", need);
+      if (idsFilter) params.set("ids", idsFilter.ids.join(","));
+      return params;
+    },
+    [filter, q, group, readiness, stepFilter, turn, need, idsFilter],
+  );
+
   const load = useCallback(() => {
     setLoading(true);
-    const params = new URLSearchParams({ filter, q, page: String(page), pageSize: "25" });
-    if (group) params.set("group", group);
-    if (readiness) params.set("readiness", readiness);
-    if (stepFilter !== null) params.set("step", String(stepFilter));
+    const params = scopeParams(page, 25);
     fetch(`/api/members/migration?${params}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -236,16 +285,99 @@ export default function MigrationPage() {
           setTotalInFilter(d.totalInFilter || 0);
           for (const m of (d.members ?? []) as Row[]) {
             metaRef.current.set(m.id, { isMinor: m.isMinor, guardianEmail: m.guardianEmail });
+            namesRef.current.add(`${m.firstName} ${m.lastName}`);
           }
         }
         setLoading(false);
       });
-  }, [filter, q, page, group, readiness, stepFilter]);
+  }, [scopeParams, page]);
 
   useEffect(() => { load(); }, [load]);
   // Clear selection when the underlying set changes (filter/search) — but NOT on
   // page changes, so a selection can span every page ("select all matching").
-  useEffect(() => { setSelected(new Set()); }, [filter, q, group, readiness, stepFilter]);
+  useEffect(() => { setSelected(new Set()); }, [filter, q, group, readiness, stepFilter, turn, need, idsFilter]);
+
+  // B6 — refresh the funnel (and so the turn/needs counts) with the list.
+  const reloadAll = useCallback(() => {
+    load();
+    setFunnelKey((k) => k + 1);
+  }, [load]);
+
+  // §1k empty search — a spelling suggestion from names we have (or fetch once).
+  useEffect(() => {
+    setSuggestion(null);
+    if (loading || rows.length > 0 || q.trim().length < 3) return;
+    let cancelled = false;
+    (async () => {
+      if (!namesSweptRef.current) {
+        namesSweptRef.current = true;
+        for (let p = 1; p <= 5; p++) {
+          const res = await fetch(`/api/members/migration?${new URLSearchParams({ filter: "all", page: String(p), pageSize: "100" })}`);
+          if (!res.ok) break;
+          const d = await res.json().catch(() => null);
+          const batch: Row[] = d?.members ?? [];
+          for (const m of batch) namesRef.current.add(`${m.firstName} ${m.lastName}`);
+          if (batch.length === 0 || p >= (d?.pageCount ?? 1)) break;
+        }
+      }
+      if (!cancelled) setSuggestion(suggestName(q, namesRef.current));
+    })();
+    return () => { cancelled = true; };
+  }, [loading, rows.length, q]);
+
+  function clearAllFilters() {
+    setFilter("all");
+    setGroup("");
+    setReadiness("");
+    setStepFilter(null);
+    setTurn(null);
+    setNeed(null);
+    setIdsFilter(null);
+    setQ("");
+    setPage(1);
+  }
+
+  function showPeople(ids: string[], label: string) {
+    // An exact list replaces every other filter — "these 3", not "these 3 that
+    // also happen to be at step 2".
+    setFilter("all");
+    setGroup("");
+    setReadiness("");
+    setStepFilter(null);
+    setTurn(null);
+    setNeed(null);
+    setQ("");
+    setIdsFilter({ ids, label });
+    setPage(1);
+  }
+
+  // Bulk "Mark reviewed" — one request per 500, same permission and the same
+  // idempotent, attributed write as the single-member triage route.
+  async function markReviewed(ids: string[]) {
+    if (ids.length === 0) return;
+    setBusy(true);
+    setMsg("");
+    let reviewed = 0, already = 0;
+    for (let i = 0; i < ids.length; i += 500) {
+      const res = await fetch("/api/members/migration/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberIds: ids.slice(i, i + 500) }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg(typeof d.error === "string" ? d.error : "Could not mark reviewed");
+        setBusy(false);
+        return;
+      }
+      reviewed += d.reviewed || 0;
+      already += d.alreadyReviewed || 0;
+    }
+    setBusy(false);
+    setMsg(`${reviewed} marked reviewed${already ? ` · ${already} already were` : ""}.`);
+    setSelected(new Set());
+    reloadAll();
+  }
 
   // Send activation links to an explicit set of member ids (selection or a
   // family group). The server collapses each family to ONE guardian email, but
@@ -268,6 +400,8 @@ export default function MigrationPage() {
     }
     const families = [...famGroups.values()];
     let sent = 0, covered = 0, failed = 0;
+    let result = emptySendResult(reminder);
+    setSendResult(null);
     for (let i = 0; i < families.length; i += FAM_PER_CHUNK) {
       const chunkIds = families.slice(i, i + FAM_PER_CHUNK).flat();
       const res = await fetch("/api/members/migration/send", {
@@ -280,12 +414,16 @@ export default function MigrationPage() {
       sent += d.sent || 0;
       covered += d.membersInvited || 0;
       failed += d.failed || 0;
+      result = accumulateSendResult(result, d);
       setMsg(`Sending… ${sent} sent${covered ? ` · ${covered} sibling(s) covered` : ""}${failed ? ` · ${failed} failed` : ""}`);
     }
     setBusy(false);
-    setMsg(`Done — ${sent} ${reminder ? "reminder" : "activation"} email(s) sent${covered ? ` · ${covered} sibling(s) covered` : ""}${failed ? ` · ${failed} failed` : ""}.`);
+    // §1k — the result panel says what happened (sent / skipped / undelivered);
+    // the inline line is cleared so the two never disagree.
+    setMsg("");
+    setSendResult(result);
     setSelected(new Set());
-    load();
+    reloadAll();
   }
 
   // "Send reminders to all pending" — server resolves the target set itself and
@@ -294,6 +432,8 @@ export default function MigrationPage() {
     setBusy(true);
     setMsg("");
     let totalSent = 0, totalFailed = 0, guard = 0;
+    let result = emptySendResult(reminder);
+    setSendResult(null);
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const res = await fetch("/api/members/migration/send", {
@@ -305,13 +445,15 @@ export default function MigrationPage() {
       if (!res.ok) { setMsg(typeof d.error === "string" ? d.error : "Send failed"); break; }
       totalSent += d.sent || 0;
       totalFailed += d.failed || 0;
+      result = accumulateSendResult(result, d);
       setMsg(`Sending… ${totalSent} sent${totalFailed ? `, ${totalFailed} failed` : ""}${d.remaining ? ` · ${d.remaining} queued` : ""}`);
       if (!d.remaining || ++guard > 50) break;
     }
     setBusy(false);
-    setMsg(`Done — ${totalSent} ${reminder ? "reminder" : "activation"} email(s) sent${totalFailed ? `, ${totalFailed} failed` : ""}.`);
+    setMsg("");
+    setSendResult(result);
     setSelected(new Set());
-    load();
+    reloadAll();
   }
 
   // Pull every id matching the current filter + search across ALL pages so the
@@ -321,7 +463,7 @@ export default function MigrationPage() {
     setSelectingAll(true);
     const ids: string[] = [];
     for (let p = 1; p <= 200; p++) {
-      const params = new URLSearchParams({ filter, q, page: String(p), pageSize: "100" });
+      const params = scopeParams(p, 100);
       const res = await fetch(`/api/members/migration?${params}`);
       if (!res.ok) break;
       const d = await res.json();
@@ -349,9 +491,7 @@ export default function MigrationPage() {
   async function fetchAllPages(): Promise<Row[]> {
     const all: Row[] = [];
     for (let p = 1; p <= 60; p++) {
-      const params = new URLSearchParams({ filter, q, page: String(p), pageSize: "100" });
-      if (group) params.set("group", group);
-      if (readiness) params.set("readiness", readiness);
+      const params = scopeParams(p, 100);
       const res = await fetch(`/api/members/migration?${params}`);
       if (!res.ok) break;
       const d = await res.json();
@@ -489,6 +629,16 @@ export default function MigrationPage() {
   const moreThanPage = totalInFilter > rows.length;
   const allMatchingSelected = totalInFilter > 0 && selected.size >= totalInFilter;
 
+  // §1k — the active filters, in words, for the empty state.
+  const activeFilterLabels = [
+    idsFilter ? idsFilter.label : null,
+    stepFilter !== null ? `Step ${stepFilter} · ${MIGRATION_STEPS[stepFilter - 1] ?? ""}` : null,
+    turn ? QUEUE_TURN_LABELS[turn] : null,
+    need ? NEED_COPY[need].title : null,
+    filter !== "all" ? FILTERS.find((f) => f.key === filter)?.label ?? null : null,
+  ].filter((x): x is string => !!x);
+  const hasAnyFilter = activeFilterLabels.length > 0 || q.trim().length > 0;
+
   return (
     <div className="p-8 max-w-7xl">
       <MembersTabs />
@@ -577,15 +727,65 @@ export default function MigrationPage() {
           The tiles were eight unrelated numbers that never added up to an
           answer. The funnel is one sequence, every segment is a filter, and
           the counts come from the same resolver the queue rows use. */}
+      {/* B6 — non-blocking: says what still works and who it holds up. */}
+      <MigrationStripeBanner payments={funnel?.payments} />
+
       <div className="mb-6">
         <MigrationFunnel
           activeStep={stepFilter}
           onPickStep={(step) => {
             setStepFilter(step);
+            setIdsFilter(null);
             setPage(1);
           }}
+          onData={setFunnel}
+          reloadKey={funnelKey}
         />
       </div>
+
+      {/* ── B6 — "Needs you" cards + whose-turn segments ──────────────────
+          Both filter the queue below with the same meter rule the funnel
+          counted with (lib/migrationQueueModel.ts). Picking a card implies the
+          Needs-you segment. */}
+      {funnel && !funnel.capped && (
+        <div className="mb-4 space-y-3">
+          <MigrationNeedsYouCards
+            needs={funnel.needs ?? null}
+            active={need}
+            onPick={(n) => {
+              setNeed(n);
+              if (n) setTurn("needs_you");
+              setIdsFilter(null);
+              setPage(1);
+            }}
+          />
+          <MigrationTurnControl
+            counts={funnel.queue}
+            active={turn}
+            onPick={(t) => {
+              setTurn(t);
+              if (t !== "needs_you") setNeed(null);
+              setIdsFilter(null);
+              setPage(1);
+            }}
+          />
+        </div>
+      )}
+
+      {idsFilter && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-[13px]">
+          <span className="inline-flex items-center rounded-full border border-brand/40 bg-brand/5 px-3 py-1 text-brand">
+            Showing {idsFilter.label}
+          </span>
+          <button
+            type="button"
+            onClick={() => { setIdsFilter(null); setPage(1); }}
+            className="inline-flex min-h-[44px] items-center text-text-muted underline hover:text-text-primary md:min-h-0"
+          >
+            Show everyone
+          </button>
+        </div>
+      )}
 
       {/* Filters + search */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -654,6 +854,14 @@ export default function MigrationPage() {
           Send Activation Links ({selected.size})
         </button>
         <button
+          onClick={() => markReviewed([...selected])}
+          disabled={busy || selected.size === 0}
+          title="Record that you've checked what came over in the import — step 2 of 7. Attributed to you."
+          className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border px-3 py-1.5 text-xs text-text-primary hover:bg-app-bg disabled:opacity-50 md:min-h-0"
+        >
+          Mark reviewed ({selected.size})
+        </button>
+        <button
           onClick={() => sendAllPending(true)}
           disabled={busy}
           className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border px-3 py-1.5 text-xs text-text-primary hover:bg-app-bg disabled:opacity-50 md:min-h-0"
@@ -670,6 +878,14 @@ export default function MigrationPage() {
         </button>
         {msg && <span className="text-xs text-text-muted">{msg}</span>}
       </div>
+
+      {sendResult && (
+        <SendResultPanel
+          result={sendResult}
+          onShowPeople={showPeople}
+          onDismiss={() => setSendResult(null)}
+        />
+      )}
 
       {showFamilies && (
         <FamiliesPanel
@@ -744,6 +960,25 @@ export default function MigrationPage() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={8} className="px-3 py-10 text-center text-text-muted">Loading…</td></tr>
+              ) : rows.length === 0 && hasAnyFilter ? (
+                <tr><td colSpan={8} className="p-0">
+                  <MigrationEmptySearch
+                    sentence={emptySearchSentence(q, activeFilterLabels)}
+                    suggestion={suggestion}
+                    hasFilters={hasAnyFilter}
+                    onUseSuggestion={(s) => { setQ(s); setPage(1); }}
+                    onClear={clearAllFilters}
+                    onSearchAll={
+                      q.trim() && activeFilterLabels.length > 0
+                        ? () => {
+                            const keep = q;
+                            clearAllFilters();
+                            setQ(keep);
+                          }
+                        : undefined
+                    }
+                  />
+                </td></tr>
               ) : rows.length === 0 ? (
                 <tr><td colSpan={8} className="px-3 py-10 text-center text-text-muted">
                   No migrated members yet. Use “Import / Migrate Members” to begin.
@@ -792,15 +1027,9 @@ export default function MigrationPage() {
                       {r.meter?.applicable ? (
                         <div className="min-w-[150px]">
                           <MigrationMeterBar meter={r.meter} />
-                          <div className="mt-1 text-[11px] text-text-muted">
-                            Step {r.meter.step} of {r.meter.total} ·{" "}
-                            {r.meter.waitingOn === "STAFF"
-                              ? "waiting on you"
-                              : r.meter.waitingOn === "MEMBER"
-                                ? "waiting on member"
-                                : r.meter.waitingOn === "BLOCKED"
-                                  ? "blocked"
-                                  : "nobody"}
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-text-muted">
+                            <span>Step {r.meter.step} of {r.meter.total}</span>
+                            {r.meter.step < r.meter.total && <MigrationWaitingOnPill waitingOn={r.meter.waitingOn} />}
                           </div>
                         </div>
                       ) : (
@@ -914,15 +1143,15 @@ export default function MigrationPage() {
         </div>
       </div>
 
-      {showImport && <ImportWizard onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); load(); }} />}
-      {showMembershipImport && <MembershipImportWizard onClose={() => setShowMembershipImport(false)} onDone={() => { setShowMembershipImport(false); load(); }} />}
+      {showImport && <ImportWizard onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); reloadAll(); }} />}
+      {showMembershipImport && <MembershipImportWizard onClose={() => setShowMembershipImport(false)} onDone={() => { setShowMembershipImport(false); reloadAll(); }} />}
       {historyFor && <HistoryDrawer row={historyFor} onClose={() => setHistoryFor(null)} />}
       {detailFor && (
         <MigrationDetailDrawer
           memberId={detailFor}
           canEdit
           onClose={() => setDetailFor(null)}
-          onChanged={load}
+          onChanged={reloadAll}
         />
       )}
 
@@ -930,7 +1159,7 @@ export default function MigrationPage() {
         <MigrationDrawer
           memberId={drawerFor.id}
           onClose={() => setDrawerFor(null)}
-          onChanged={() => { setDrawerFor(null); load(); }}
+          onChanged={() => { setDrawerFor(null); reloadAll(); }}
         />
       )}
     </div>

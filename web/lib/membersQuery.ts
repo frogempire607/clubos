@@ -32,6 +32,15 @@ import { membershipTrackFor, nextAction, rolesFor, type MemberTrackInput } from 
 import { toTrackInput } from "@/lib/memberDisplay";
 import { loadGuardianContacts } from "@/lib/guardianContacts";
 import { EXCLUDE_VOID } from "@/lib/paymentSources";
+import {
+  ageWhere,
+  customFieldWhere,
+  distinctTags,
+  familyKeysFor,
+  letterWhere,
+  normalizeLetter,
+  parseAge,
+} from "@/lib/membersListB6";
 
 /**
  * The four §1a work-queue cards. `duplicates` is nullable because it is the one
@@ -97,6 +106,14 @@ export type MemberListFilters = {
   plan: string | null;
   tag: string | null;
   gender: string | null;
+  /** B6 — inclusive age range from dateOfBirth. Either end may be open. */
+  ageMin: number | null;
+  ageMax: number | null;
+  /** B6 — a club custom field id, and optionally a value prefix (`cf` / `cfv`). */
+  customFieldId: string | null;
+  customFieldValue: string | null;
+  /** B6 — A–Z jump: last names starting with this letter. */
+  letter: string | null;
   /** Work-queue shortcuts from the 4-card strip. */
   queue:
     | "neverInvited"
@@ -134,6 +151,11 @@ export const MEMBER_FILTER_PARAM_KEYS = [
   "plan",
   "tag",
   "gender",
+  "ageMin",
+  "ageMax",
+  "cf",
+  "cfv",
+  "letter",
   "queue",
   "sort",
   "page",
@@ -164,6 +186,11 @@ export function parseMemberFilters(url: URL): MemberListFilters {
     plan: str("plan"),
     tag: str("tag"),
     gender: str("gender"),
+    ageMin: parseAge(str("ageMin")),
+    ageMax: parseAge(str("ageMax")),
+    customFieldId: str("cf"),
+    customFieldValue: str("cfv"),
+    letter: normalizeLetter(str("letter")),
     queue: (str("queue") as MemberListFilters["queue"]) ?? null,
     sort: (str("sort") as MemberListFilters["sort"]) ?? "lastSeen",
     page: num("page", 1),
@@ -244,7 +271,15 @@ export function memberWhere(clubId: string, f: MemberListFilters): Prisma.Member
   // Filter by the plan someone actually holds — see onPlanWhere for why this
   // is a subscription test and not a Member.membershipId equality check.
   if (f.plan) and.push(onPlanWhere(f.plan));
-  if (f.gender) and.push({ gender: f.gender });
+  if (f.gender) and.push({ gender: { equals: f.gender, mode: "insensitive" } });
+
+  // B6 — the rest of the Filters panel, and the A–Z jump.
+  const age = ageWhere(f.ageMin ?? null, f.ageMax ?? null);
+  if (age) and.push(age);
+  const cf = customFieldWhere(f.customFieldId ?? null, f.customFieldValue ?? null);
+  if (cf) and.push(cf);
+  const letter = letterWhere(f.letter ?? null);
+  if (letter) and.push(letter);
 
   // Work-queue cards. Each is a saved filter that also arms a bulk action, so
   // the set it selects has to be exactly the set the action will operate on.
@@ -445,8 +480,16 @@ export function matchesDerived(m: SerializedMember, f: MemberListFilters): boole
   return true;
 }
 
+/** A roster row plus its household key (B6 family collapse). */
+export type RosterListMember = SerializedMember & { familyKey: string | null };
+
 export type MemberListResult = {
-  members: SerializedMember[];
+  members: RosterListMember[];
+  /**
+   * B6 — values for the Filters panel: every tag and gender in use in the club
+   * (not just the loaded page, and not narrowed by the current filter).
+   */
+  facets: { tags: string[]; genders: string[] };
   pagination: { total: number; page: number; pageSize: number; pages: number };
   counts: PersonTypeCounts | null;
   countsCapped: boolean;
@@ -625,6 +668,7 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
   const capped = total > COUNT_CAP;
 
   const queueCounts = capped ? null : await countQueues(clubId, f);
+  const facets = await loadFacets(clubId);
 
   if (!capped) {
     const all = await prisma.member.findMany({
@@ -638,7 +682,11 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
     );
     ctx.sourceLabelByBatch = await loadSourceLabels(all.map((m) => m.importBatchId));
 
-    const serialized = all.map((m) => serializeMemberForList(m, ctx));
+    const familyKeys = familyKeysFor(all);
+    const serialized: RosterListMember[] = all.map((m) => ({
+      ...serializeMemberForList(m, ctx),
+      familyKey: familyKeys.get(m.id) ?? null,
+    }));
     const counts = countsFrom(serialized);
     const filtered = hasDerivedFilter ? serialized.filter((m) => matchesDerived(m, f)) : serialized;
 
@@ -651,6 +699,7 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
         pageSize: f.pageSize,
         pages: Math.max(1, Math.ceil(filtered.length / f.pageSize)),
       },
+      facets,
       counts,
       countsCapped: false,
       excluded: { archived, historical },
@@ -672,8 +721,10 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
   );
   ctx.sourceLabelByBatch = await loadSourceLabels(rows.map((m) => m.importBatchId));
 
+  const pageFamilyKeys = familyKeysFor(rows);
   return {
-    members: rows.map((m) => serializeMemberForList(m, ctx)),
+    members: rows.map((m) => ({ ...serializeMemberForList(m, ctx), familyKey: pageFamilyKeys.get(m.id) ?? null })),
+    facets,
     pagination: {
       total,
       page: f.page,
@@ -696,7 +747,18 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
  * clause itself varies per card.
  */
 async function countQueues(clubId: string, f: MemberListFilters) {
-  const base = memberWhere(clubId, { ...f, queue: null, search: "", tag: "", gender: "" });
+  const base = memberWhere(clubId, {
+    ...f,
+    queue: null,
+    search: "",
+    tag: "",
+    gender: "",
+    ageMin: null,
+    ageMax: null,
+    customFieldId: null,
+    customFieldValue: null,
+    letter: null,
+  });
   const q = queueClauses();
   const [neverInvited, blocked, missingContact, duplicates, renewingSoon, paused, nextResume] = await Promise.all([
     prisma.member.count({ where: { AND: [base, q.neverInvited] } }),
@@ -715,6 +777,27 @@ async function countQueues(clubId: string, f: MemberListFilters) {
   return {
     neverInvited, blocked, missingContact, duplicates, renewingSoon, paused,
     pausedNextResume: nextResume?.pausedUntil ? nextResume.pausedUntil.toISOString() : null,
+  };
+}
+
+/**
+ * B6 — the tag and gender values in use across the club, for the Filters
+ * panel. One lean distinct query; the panel falls back to free text anyway.
+ */
+async function loadFacets(clubId: string): Promise<{ tags: string[]; genders: string[] }> {
+  const rows = await prisma.member.findMany({
+    where: { clubId, deletedAt: null, isHistoricalOnly: false },
+    select: { tags: true, gender: true },
+    distinct: ["tags", "gender"],
+  });
+  const genders = new Map<string, string>();
+  for (const r of rows) {
+    const g = r.gender?.trim();
+    if (g && !genders.has(g.toLowerCase())) genders.set(g.toLowerCase(), g);
+  }
+  return {
+    tags: distinctTags(rows),
+    genders: Array.from(genders.values()).sort((a, b) => a.localeCompare(b)),
   };
 }
 
@@ -778,6 +861,11 @@ export async function resolveSelection(
     plan: null,
     tag: null,
     gender: null,
+    ageMin: null,
+    ageMax: null,
+    customFieldId: null,
+    customFieldValue: null,
+    letter: null,
     queue: null,
     sort: "lastSeen",
     page: 1,

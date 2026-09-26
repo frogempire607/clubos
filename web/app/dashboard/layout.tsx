@@ -126,7 +126,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             type="button"
             onClick={() => setDrawerOpen(true)}
             aria-label="Open menu"
-            className="w-10 h-10 rounded-lg flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10"
+            className="w-11 h-11 rounded-lg flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10"
           >
             <Menu className="h-5 w-5" strokeWidth={2} />
           </button>

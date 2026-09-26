@@ -9,6 +9,7 @@ import { requirePermission } from "@/lib/apiGuard";
 import { MIGRATION_STATUS, PAYMENT_SETUP } from "@/lib/migration";
 import { deriveReadiness, resolveOfferPricing, READINESS_LABELS, type Readiness } from "@/lib/billingAdmin";
 import type { Prisma } from "@prisma/client";
+import { asNeed, asQueueTurn, needOf, turnOf } from "@/lib/migrationQueueModel";
 
 // GET /api/members/migration?filter=&page=&pageSize=&q=&group=&readiness=
 // Migration dashboard: bucket counts + a paginated, filtered member list.
@@ -31,6 +32,18 @@ export async function GET(req: Request) {
   // rules lib/memberTracks.ts already owns.
   const stepParam = Number(url.searchParams.get("step"));
   const stepFilter = Number.isInteger(stepParam) && stepParam >= 1 && stepParam <= 7 ? stepParam : null;
+  // B6 — the whose-turn segmented control (`?turn=`), the "Needs you" cards
+  // (`?need=`), and an exact id list (`?ids=a,b,c`) for "See the 3 skipped" /
+  // "Fix these 8" after a send. turn/need are derived like `step`, from the
+  // same meter; ids is a plain WHERE.
+  const turnFilter = asQueueTurn(url.searchParams.get("turn"));
+  const needFilter = asNeed(url.searchParams.get("need"));
+  const idsFilter = (url.searchParams.get("ids") || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .slice(0, 1000);
+  const derivedMeterMode = stepFilter !== null || turnFilter !== null || needFilter !== null;
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
   const pageSize = Math.min(100, Math.max(10, parseInt(url.searchParams.get("pageSize") || "25", 10)));
 
@@ -86,12 +99,13 @@ export async function GET(req: Request) {
       : ({ migrationGroup: group } as Prisma.MemberWhereInput)
     : {};
 
-  const where: Prisma.MemberWhereInput = { AND: [base, filterWhere, search, groupWhere] };
+  const idsWhere: Prisma.MemberWhereInput = idsFilter.length ? { id: { in: idsFilter } } : {};
+  const where: Prisma.MemberWhereInput = { AND: [base, filterWhere, search, groupWhere, idsWhere] };
 
   // Readiness is DERIVED per row (plan + date + saved card + triage), so a
   // readiness filter can't run in SQL — pull the whole candidate set (capped),
   // derive, then paginate in memory. Fine at this club's scale (~hundreds).
-  const readinessMode = !!readinessFilter || stepFilter !== null;
+  const readinessMode = !!readinessFilter || derivedMeterMode;
 
   const [
     total,
@@ -318,9 +332,9 @@ export async function GET(req: Request) {
   // disagreed the segment count and the list it opens would differ — which is
   // exactly the class of bug 4.5.1 exists to prevent.
   let stepIds: Set<string> | null = null;
-  if (stepFilter !== null) {
+  if (derivedMeterMode) {
     const stepRows = await prisma.member.findMany({
-      where: { ...base, ...filterWhere, ...search },
+      where: { AND: [base, filterWhere, search, idsWhere] },
       select: MEMBER_TRACK_SELECT,
       take: 20_000,
     });
@@ -328,7 +342,13 @@ export async function GET(req: Request) {
     ctx.sourceLabelByBatch = await loadSourceLabels(stepRows.map((r) => r.importBatchId));
     stepIds = new Set(
       stepRows
-        .filter((r) => migrationMeterFor(toTrackInput(r, ctx)).step === stepFilter)
+        .filter((r) => {
+          const meter = migrationMeterFor(toTrackInput(r, ctx));
+          if (stepFilter !== null && meter.step !== stepFilter) return false;
+          if (turnFilter !== null && turnOf(meter) !== turnFilter) return false;
+          if (needFilter !== null && needOf(meter) !== needFilter) return false;
+          return true;
+        })
         .map((r) => r.id),
     );
   }

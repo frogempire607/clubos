@@ -16,6 +16,10 @@ export type FunnelPayload = {
   segments: { step: number; label: string; count: number; subline: string | null }[] | null;
   progress: { complete: number; inSetup: number; invitedNoResponse: number; notInvited: number } | null;
   queue: { needsYou: number; waitingOnMember: number; inSetup: number; done: number; blocked: number } | null;
+  /** B6 — what "Needs you" is made of (the 4-up cards). Absent when capped. */
+  needs?: { review: number; invite: number; approve: number; blocked: number };
+  /** B6 — drives the non-blocking payments banner. Absent when capped. */
+  payments?: { connected: boolean; chargesEnabled: boolean; heldUp: number };
   advisory: {
     total: number;
     complete: number;
@@ -28,9 +32,15 @@ export type FunnelPayload = {
 export function MigrationFunnel({
   activeStep,
   onPickStep,
+  onData,
+  reloadKey = 0,
 }: {
   activeStep: number | null;
   onPickStep: (step: number | null) => void;
+  /** B6 — hands the payload up so the queue chrome reuses it (one fetch). */
+  onData?: (d: FunnelPayload) => void;
+  /** B6 — bump to refetch after a send / bulk review changes the counts. */
+  reloadKey?: number;
 }) {
   const [data, setData] = useState<FunnelPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,12 +52,19 @@ export function MigrationFunnel({
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not load the funnel");
         return r.json();
       })
-      .then((d: FunnelPayload) => !cancelled && setData(d))
+      .then((d: FunnelPayload) => {
+        if (cancelled) return;
+        setData(d);
+        onData?.(d);
+      })
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Could not load the funnel"));
     return () => {
       cancelled = true;
     };
-  }, []);
+    // onData is deliberately not a dependency: an inline callback would refetch
+    // on every parent render. reloadKey is the explicit refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadKey]);
 
   if (error) {
     return (
