@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Staff profile — Schedule &amp; availability</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EFEEEB;font-family:Inter,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;color:#111111}
+a{color:#6D5DF6;text-decoration:none}a:hover{color:#5948E8}
+.fr *{box-sizing:border-box}
+.th-light{--bg:#F7F7F9;--surface:#FFFFFF;--topbar:#FFFFFF;--border:#E5E7EB;--hair:#F5F5F7;--hair2:#F1F1F3;--fill:#FAFAFB;--fill-b:#EFEFF2;--text:#111111;--label:#374151;--body:#4B5563;--muted:#6B7280;--brand:#6D5DF6;--brand-ink:#5948E8;--tint:rgba(109,93,246,.06);--tint-b:rgba(109,93,246,.25);--chip:#F1F1F3;--chip-t:#4B5563;--ok-s:rgba(163,230,53,.25);--ok-t:#3F6212;--ok-i:#4D7C0F;--pend-s:#EDEBFF;--pend-t:#4F46E5;--warn-s:#FFF7ED;--warn-t:#B45309;--warn-b:rgba(180,83,9,.22);--danger-t:#B91C1C;--red:#DC2626;--dash:#D7D7DC;--av:#E5E7EB;--scrim:rgba(17,17,17,.42);--cs:light}
+.th-dark{--bg:#111114;--surface:#1A1A1F;--topbar:#16161A;--border:#2C2C33;--hair:#24242A;--hair2:#26262C;--fill:#1F1F25;--fill-b:#2C2C33;--text:#F3F3F5;--label:#D4D6DC;--body:#BEC1C8;--muted:#9A9EA8;--brand:#6D5DF6;--brand-ink:#B1A8FF;--tint:rgba(124,111,247,.12);--tint-b:rgba(124,111,247,.4);--chip:#2A2A31;--chip-t:#C9CCD3;--ok-s:rgba(163,230,53,.16);--ok-t:#C5F07A;--ok-i:#A3E635;--pend-s:rgba(124,111,247,.22);--pend-t:#C8C1FF;--warn-s:rgba(251,146,60,.10);--warn-t:#FDBA74;--warn-b:rgba(251,146,60,.28);--danger-t:#FCA5A5;--red:#F87171;--dash:#3A3A42;--av:#2E2E36;--scrim:rgba(0,0,0,.6);--cs:dark}
+.flabel{height:16px;margin:0 0 12px;font-size:13px;font-weight:600;line-height:16px;color:#3A3A44}
+.fr{position:relative;overflow:hidden;background:var(--bg);color:var(--text);border:1px solid rgba(0,0,0,.1);border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.06);font-size:14px;line-height:1.45;container-type:inline-size}
+.fr-desk{width:1440px;height:960px}.fr-phone{width:375px;height:812px;border-radius:30px}
+.fr a{color:var(--brand-ink);text-decoration:none}
+.ic{width:16px;height:16px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.shell{display:flex;height:100%}
+.side{width:248px;flex-shrink:0;background:#1F1F23;display:flex;flex-direction:column}
+.th-dark .side{background:#151518;border-right:1px solid #26262C}
+.brandrow{padding:16px 14px;border-bottom:1px solid rgba(255,255,255,.08)}
+.logo{width:28px;height:28px;border-radius:8px;background:#6D5DF6;display:grid;place-items:center;color:#A3E635;font:700 14px Georgia,serif;flex-shrink:0}
+.wm{color:#fff;font:600 15px Georgia,serif;letter-spacing:-.01em}
+.side-mail{font-size:11px;color:rgba(229,231,235,.72);padding-left:38px}
+.nav{flex:1;padding:8px;display:flex;flex-direction:column;gap:2px}
+.ni{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;border-left:3px solid transparent;font-size:13px;color:rgba(229,231,235,.72)}
+.ni .ic{width:18px;height:18px;opacity:.85}
+.ni.on{border-left-color:#6D5DF6;background:#2A2A2E;color:#fff;font-weight:500}
+.sub{margin-left:26px;margin-top:2px;padding-left:10px;border-left:1px solid rgba(255,255,255,.1);display:flex;flex-direction:column;gap:1px}
+.si{padding:6px 10px;border-radius:7px;border-left:2px solid transparent;font-size:12px;color:rgba(255,255,255,.5)}
+.si.on{border-left-color:#6D5DF6;background:#2A2A2E;color:#fff;font-weight:500}
+.dm{margin:10px 10px 14px;display:flex;align-items:center;justify-content:center;gap:8px;padding:7px 12px;color:rgba(229,231,235,.72);font-size:12px;border:1px solid rgba(255,255,255,.08);border-radius:8px}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.top{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--topbar)}
+.search{flex:1;max-width:576px;display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:8px;padding:0 12px;height:36px;color:var(--muted);font-size:14px}
+.kbd{font-size:10px;border:1px solid var(--border);border-radius:4px;padding:2px 6px;margin-left:auto}
+.club{display:flex;align-items:center;gap:8px;padding:4px 12px 4px 4px;font-size:14px;font-weight:500;color:var(--text)}
+.club-av{width:32px;height:32px;border-radius:999px;background:#1F1F23;color:#fff;font-size:12px;font-weight:600;display:grid;place-items:center}
+.th-dark .club-av{background:#2E2E36}
+.mtop,.bnav{display:none}
+.scroll{flex:1;overflow-y:auto;overflow-x:hidden;position:relative}
+.page{max-width:1192px;padding:28px 32px 20px;display:flex;flex-direction:column;gap:16px;min-height:100%}
+.back{display:inline-flex;align-items:center;gap:5px;font-size:13px;align-self:flex-start}
+.fr a.back{color:var(--muted)}
+.back .ic{width:14px;height:14px}
+.idh{display:flex;align-items:flex-start;gap:16px}
+.av{width:64px;height:64px;border-radius:999px;background:var(--av);color:var(--text);display:grid;place-items:center;font-size:19px;font-weight:600;flex-shrink:0}
+.nm{margin:0;font-size:25px;font-weight:600;letter-spacing:-.02em;line-height:1.2}
+.idrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.meta{font-size:13px;color:var(--muted);margin-top:5px;display:flex;flex-wrap:wrap;gap:2px 18px}
+.role{font-size:10.5px;font-weight:600;letter-spacing:.04em;padding:2px 7px;border-radius:5px;background:var(--chip);color:var(--chip-t);text-transform:uppercase}
+.active{font-size:11.5px;font-weight:500;padding:2px 8px;border-radius:999px;background:#A3E635;color:#1F1F23}
+.you{font-size:11.5px;font-weight:500;padding:2px 8px;border-radius:999px;background:var(--tint);color:var(--brand-ink);box-shadow:inset 0 0 0 1px var(--tint-b)}
+.hacts{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font-family:inherit;font-size:13px;font-weight:400;padding:7px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap;line-height:1.3}
+.fr a.btn{color:var(--text)}
+.btn .ic{width:14px;height:14px;color:var(--muted)}
+.btn.pri{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:500}
+.fr a.btn.pri{color:#fff}.btn.pri .ic{color:#fff}.btn.pri:hover{background:#5948E8}
+.btn.char{background:#1F1F23;border-color:#1F1F23;color:#fff;font-weight:500}
+.th-dark .btn.char{background:#F3F3F5;border-color:#F3F3F5;color:#111}
+.btn.dng{background:#B91C1C;border-color:#B91C1C;color:#fff;font-weight:500}
+.fr a.btn.dng{color:#fff}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.sq{width:32px;height:32px;padding:0}
+.banner{display:flex;gap:14px;align-items:flex-start;background:var(--warn-s);border:1px solid var(--warn-b);border-radius:10px;padding:14px 16px}
+.banner>.ic{width:18px;height:18px;color:var(--warn-t);margin-top:1px}
+.bt{font-size:13.5px;font-weight:600;margin-bottom:3px}
+.bb{font-size:12.5px;color:var(--muted);line-height:1.6}
+.tabs{display:flex;align-items:center;gap:2px;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;flex-shrink:0}
+.tabs::-webkit-scrollbar{display:none}
+.tab{display:inline-flex;align-items:center;gap:6px;padding:9px 12px;font-size:13.5px;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0}
+.fr a.tab{color:var(--muted)}
+.fr a.tab:hover{color:var(--text)}
+.fr a.tab.on{color:var(--brand-ink);border-bottom-color:var(--brand);font-weight:500}
+.rdot{width:6px;height:6px;border-radius:999px;background:var(--red);flex-shrink:0}
+.udot{width:6px;height:6px;border-radius:999px;background:var(--brand);flex-shrink:0}
+.tabrule{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--muted);margin-top:-4px;line-height:1.5}
+.tabrule .ic{width:14px;height:14px;margin-top:2px}
+.tabrule b{color:var(--text);font-weight:500}
+.cols{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:16px;align-items:start}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+.ch{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px;flex-wrap:wrap}
+.h2{margin:0;font-size:14px;font-weight:600}
+.cap{font-size:12.5px;color:var(--muted);margin:0 0 14px;line-height:1.55}
+.cap b{color:var(--text);font-weight:500}
+.mut{color:var(--muted)}.s12{font-size:12px}
+.weekbar{display:flex;align-items:center;gap:8px}
+.wgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
+.dcell{border:1px solid var(--border);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;min-height:156px;background:var(--surface);min-width:0}
+.dcell.today{box-shadow:inset 0 0 0 1px var(--brand);border-color:var(--brand)}
+.dhd{display:flex;align-items:baseline;gap:6px}
+.dhd b{font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--muted)}
+.dhd span{font-size:15px;font-weight:600}
+.avail{font-size:11.5px;color:var(--ok-t);background:var(--ok-s);border-radius:6px;padding:2px 6px;align-self:flex-start;max-width:100%}
+.avail.no{color:var(--muted);background:var(--chip)}
+.avail.ex{color:var(--warn-t);background:var(--warn-s)}
+.as{display:flex;align-items:flex-start;gap:2px;padding:6px 4px 6px 9px;border-radius:8px;background:var(--pend-s);color:var(--pend-t)}
+.as .nmx{flex:1;min-width:0;font-size:12.5px;font-weight:500;line-height:1.3}
+.as small{display:block;font-size:11px;font-weight:400;opacity:.9}
+.as.bad{background:var(--warn-s);color:var(--warn-t);box-shadow:inset 0 0 0 1px var(--warn-b)}
+.ib{width:24px;height:24px;display:grid;place-items:center;border:0;background:transparent;color:inherit;border-radius:6px;cursor:pointer;opacity:.75;padding:0;flex-shrink:0}
+.ib:hover{opacity:1;background:rgba(0,0,0,.06)}
+.ib .ic{width:13px;height:13px}
+.addl{font-family:inherit;font-size:12px;color:var(--muted);background:transparent;border:1px dashed var(--border);border-radius:8px;padding:5px 8px;cursor:pointer;text-align:left}
+.addl:hover{color:var(--brand-ink);border-color:var(--brand)}
+.lockrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);background:var(--fill);border:1px solid var(--fill-b);border-radius:8px;padding:9px 12px;margin-top:12px}
+.lockrow .ic{width:13px;height:13px}
+.lockrow b{color:var(--text);font-weight:500}
+.hday{display:grid;grid-template-columns:112px minmax(0,1fr) auto;gap:10px;align-items:start;padding:10px 0;border-bottom:1px solid var(--hair)}
+.hday:last-child{border-bottom:0}
+.hday.chg{background:var(--tint);margin:0 -20px;padding:10px 20px}
+.hdn{font-size:13.5px;font-weight:500;padding-top:7px;display:flex;align-items:center;gap:6px}
+.slots{display:flex;flex-direction:column;gap:6px;min-width:0}
+.slot{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.slot.inactive .tin{opacity:.5}
+.tin{font-family:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:118px;color-scheme:var(--cs)}
+.dsh{color:var(--muted)}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);cursor:pointer}
+.chk input{width:16px;height:16px;margin:0;accent-color:#6D5DF6}
+.lnk{font-family:inherit;font-size:12.5px;font-weight:500;background:transparent;border:0;padding:6px 2px;cursor:pointer;color:var(--brand-ink);white-space:nowrap}
+.lnk.red{color:var(--danger-t)}
+.offtxt{font-size:13px;color:var(--muted);padding-top:7px}
+.form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.fld{display:flex;flex-direction:column;gap:5px;min-width:0}
+.fl{font-size:12px;font-weight:500}
+.in{font-family:inherit;font-size:14px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:100%;min-height:38px;color-scheme:var(--cs)}
+.reveal{grid-column:1/-1;display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .2s ease-out,opacity .18s ease-out}
+.reveal.open{grid-template-rows:1fr;opacity:1}
+.reveal>div{min-height:0;overflow:hidden}
+@media (prefers-reduced-motion:reduce){.reveal{transition:none}}
+.exl{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--hair)}
+.exl:last-child{border-bottom:0}
+.exl .d{font-size:13px;font-weight:500}
+.empty{font-size:12.5px;color:var(--muted);padding:14px 0 4px;text-align:center}
+.savebar{position:sticky;bottom:12px;margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px 12px 10px 16px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(17,17,17,.14);z-index:4}
+.savebar .grow{flex:1;min-width:0;font-size:13px;display:flex;align-items:center;gap:8px}
+.savebar .grow b{font-weight:600}
+.scrim{position:absolute;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:24px;z-index:20}
+.dlg{width:440px;max-width:100%;max-height:100%;overflow:auto;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:14px;box-shadow:0 18px 44px rgba(17,17,17,.13)}
+.grab{display:none;width:38px;height:4px;border-radius:2px;background:var(--dash);margin:10px auto 0}
+.dhx{padding:18px 20px 8px}.dt{margin:0;font-size:15px;font-weight:600}.dsub{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.5}
+.dbd{padding:6px 20px 14px;display:flex;flex-direction:column;gap:8px}
+.dft{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--hair2);background:var(--fill);border-radius:0 0 14px 14px}
+.opt{display:flex;align-items:center;gap:10px;text-align:left;font-family:inherit;padding:11px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);cursor:pointer;width:100%}
+.opt:hover{border-color:var(--brand)}
+.opt b{font-size:13.5px;font-weight:600;display:block}.opt small{font-size:12px;color:var(--muted)}
+.fit{margin-left:auto;font-size:11.5px;font-weight:500;padding:2px 8px;border-radius:999px;background:var(--ok-s);color:var(--ok-t);white-space:nowrap}
+.fit.bad{background:var(--warn-s);color:var(--warn-t)}
+.mtop{align-items:center;gap:6px;background:#1F1F23;padding:6px;color:#fff}
+.mtop .t{flex:1;font-size:15px;font-weight:600}
+.mtop a,.mtop button{width:44px;height:44px;display:grid;place-items:center;background:transparent;border:0;color:rgba(255,255,255,.85)}
+.fr .mtop a{color:rgba(255,255,255,.85)}
+.mtop .ic{width:20px;height:20px}
+.bnav{background:#1F1F23;border-top:1px solid rgba(255,255,255,.1);padding-bottom:14px}
+.bi{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0 2px;min-height:52px;color:rgba(255,255,255,.6);font-size:12px;font-weight:500}
+.bi .ic{width:21px;height:21px}
+.bi.on{color:#fff}.bi.on .ic{color:#A3E635}
+@container (max-width:600px){
+.side,.top,.only-d,.hacts{display:none}
+.mtop,.bnav{display:flex}
+.page{padding:14px 16px 20px;gap:14px}
+.idh{gap:13px;align-items:center}
+.av{width:56px;height:56px;font-size:17px}
+.nm{font-size:19px}
+.meta{font-size:12.5px;gap:2px 12px}
+.role,.active,.you,.dhd b,.as small,.avail,.fit{font-size:12px}
+.banner{flex-wrap:wrap;padding:12px;gap:10px}
+.btn{min-height:44px;font-size:14px;padding:10px 14px}
+.sq{width:44px;height:44px}
+.tabs{margin:0 -16px;padding:0 8px}
+.tab{min-height:44px;font-size:14px}
+.cols,.form{grid-template-columns:minmax(0,1fr)}
+.card{padding:16px}
+.ch{margin-bottom:8px}
+.weekbar{width:100%}.weekbar .btn{flex:1;padding:10px 6px}
+.wgrid{grid-template-columns:minmax(0,1fr);gap:6px}
+.dcell{min-height:0;display:grid;grid-template-columns:44px minmax(0,1fr);column-gap:10px;row-gap:6px;padding:10px 12px}
+.dhd{flex-direction:column;gap:0;grid-row:span 6}
+.dcell>*:not(.dhd){grid-column:2}
+.as{align-items:center;font-size:13px}
+.as .nmx{font-size:13.5px}
+.ib{width:40px;height:40px}
+.addl{min-height:44px;font-size:13px}
+.hday{grid-template-columns:minmax(0,1fr) auto}
+.hday.chg{margin:0 -16px;padding:10px 16px}
+.slots{grid-column:1/-1;grid-row:2}
+.hdn{padding-top:0;align-self:center}
+.tin{flex:1;width:auto;min-height:44px;font-size:16px}
+.chk{min-height:44px;font-size:13.5px}
+.chk input{width:20px;height:20px}
+.lnk{min-height:44px;padding:0 8px;font-size:13.5px}
+.in{min-height:44px;font-size:16px}
+.savebar{margin:auto -16px -20px;border-radius:0;border-left:0;border-right:0;border-bottom:0;bottom:0;padding:12px 16px;flex-wrap:wrap;box-shadow:0 -8px 24px rgba(17,17,17,.10)}
+.savebar .grow{flex-basis:100%;font-size:13.5px}.savebar .btn{flex:1}
+.scrim{align-items:flex-end;padding:0}
+.dlg{width:100%;border-radius:22px 22px 0 0;max-height:90%}
+.grab{display:block}
+.dft{flex-direction:column-reverse;border-radius:0;padding-bottom:24px}.dft .btn{width:100%}
+.opt{min-height:56px}
+.cap,.tabrule,.bb,.lockrow,.dsub,.s12,.opt small,.empty{font-size:12.5px}
+}
+</style>
+</helmet>
+<div style="width:3902px;height:2176px;box-sizing:border-box;padding:64px;display:flex;flex-wrap:wrap;gap:72px 48px;align-items:flex-start;background:#EFEEEB">
+<sc-for list="{{frames}}" as="f" hint-placeholder-count="8">
+<div>
+<div class="flabel">{{f.label}}</div>
+<div class="fr {{f.cls}}">
+<div class="shell">
+<aside class="side" aria-label="Main navigation">
+<div class="brandrow"><div style="display:flex;align-items:center;gap:10px;margin-bottom:3px"><div class="logo" aria-hidden="true">A</div><span class="wm">AthletixOS</span></div><div class="side-mail">{{f.p.sideMail}}</div></div>
+<nav class="nav">
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>Dashboard</div>
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg>Members</div>
+<div><div class="ni on"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path></svg>Staff</div>
+<div class="sub"><sc-for list="{{f.p.subnav}}" as="sn" hint-placeholder-count="4"><div class="{{sn.cls}}">{{sn.label}}</div></sc-for></div></div>
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>Classes &amp; Events</div>
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>Communication</div>
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>Attendance</div>
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4M16 13H8M16 17H8"></path></svg>Documents</div>
+</nav>
+<div class="dm"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" style="width:14px;height:14px"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>{{f.modeLabel}}</div>
+</aside>
+<div class="main">
+<div class="top">
+<div class="search"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>Search members, classes, events, documents…<span class="kbd">Ctrl K</span></div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:12px;color:var(--muted)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg><div class="club"><span class="club-av">{{f.p.meIni}}</span>{{f.p.meName}}<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" style="width:12px;height:12px;color:var(--muted)"><path d="m6 9 6 6 6-6"></path></svg></div></div>
+</div>
+<div class="mtop">
+<a href="#" aria-label="{{f.p.backText}}"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7M19 12H5"></path></svg></a>
+<span class="t">{{f.p.mTitle}}</span>
+<button type="button" aria-label="More actions"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg></button>
+</div>
+<div class="scroll">
+<div class="page">
+<a class="back only-d" href="{{f.p.backHref}}"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7M19 12H5"></path></svg>{{f.p.backText}}</a>
+
+<div class="idh">
+<div class="av" aria-hidden="true">{{f.p.ini}}</div>
+<div style="flex:1;min-width:0">
+<div class="idrow">
+<h1 class="nm">{{f.p.name}}</h1>
+<span class="active">Active</span>
+<sc-if value="{{f.p.self}}" hint-placeholder-val="{{ false }}"><span class="you">You</span></sc-if>
+<span class="role">{{f.p.title}}</span>
+<span class="role">Staff</span>
+</div>
+<div class="meta"><sc-for list="{{f.p.meta}}" as="mt" hint-placeholder-count="3"><span>{{mt}}</span></sc-for></div>
+</div>
+<div class="hacts">
+<sc-if value="{{f.p.notSelf}}" hint-placeholder-val="{{ true }}">
+<a class="btn" href="#"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>Message</a>
+<a class="btn" href="#"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>Setup link</a>
+<a class="btn pri" href="#"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>Edit staff</a>
+</sc-if>
+<sc-if value="{{f.p.self}}" hint-placeholder-val="{{ false }}">
+<a class="btn" href="#"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>Edit my info</a>
+</sc-if>
+</div>
+</div>
+
+<sc-if value="{{f.p.hasBanner}}" hint-placeholder-val="{{ true }}">
+<div class="banner" role="status">
+<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>
+<div style="flex:1;min-width:0"><div class="bt">{{f.p.bannerTitle}}</div><div class="bb">{{f.p.bannerBody}}</div></div>
+</div>
+</sc-if>
+
+<nav class="tabs" aria-label="Staff profile sections">
+<sc-for list="{{f.p.tabs}}" as="t" hint-placeholder-count="8">
+<a class="tab {{t.cls}}" href="{{t.href}}" aria-current="{{t.cur}}" onClick="{{t.go}}">{{t.label}}<sc-if value="{{t.dot}}" hint-placeholder-val="{{ false }}"><span class="rdot" role="img" aria-label="needs action"></span></sc-if><sc-if value="{{t.udot}}" hint-placeholder-val="{{ false }}"><span class="udot" role="img" aria-label="unsaved changes"></span></sc-if></a>
+</sc-for>
+</nav>
+<div class="tabrule"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4M12 8h.01"></path></svg><span>{{f.p.rule}}</span></div>
+
+<section class="card">
+<div class="ch">
+<h2 class="h2">{{f.p.weekLabel}}</h2>
+<div class="weekbar">
+<button class="btn" type="button" onClick="{{f.p.prev}}" aria-label="Previous week"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>Prev</button>
+<button class="btn" type="button" onClick="{{f.p.thisWeek}}">This week</button>
+<button class="btn" type="button" onClick="{{f.p.next}}" aria-label="Next week">Next<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></button>
+</div>
+</div>
+<p class="cap">{{f.p.weekCap}}</p>
+<div class="wgrid">
+<sc-for list="{{f.p.days}}" as="d" hint-placeholder-count="7">
+<div class="{{d.cellCls}}">
+<div class="dhd"><b>{{d.dow}}</b><span>{{d.dnum}}</span></div>
+<span class="{{d.availCls}}">{{d.avail}}</span>
+<sc-for list="{{d.items}}" as="it" hint-placeholder-count="1">
+<div class="{{it.cls}}">
+<div class="nmx">{{it.name}}<small>{{it.time}}{{it.warn}}</small></div>
+<sc-if value="{{f.p.canAssign}}" hint-placeholder-val="{{ true }}">
+<button class="ib" type="button" onClick="{{it.edit}}" aria-label="Change {{it.name}} on {{d.full}}"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg></button>
+<button class="ib" type="button" onClick="{{it.remove}}" aria-label="Remove {{it.name}} on {{d.full}}"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+</sc-if>
+</div>
+</sc-for>
+<sc-if value="{{f.p.canAssign}}" hint-placeholder-val="{{ true }}"><button class="addl" type="button" onClick="{{d.assign}}">+ Assign</button></sc-if>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{f.p.self}}" hint-placeholder-val="{{ false }}">
+<div class="lockrow"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg><span><b>Assigning classes</b> needs Staff schedule: edit.</span><span class="role">Owner</span><span>Your access is <b>view</b>, so you see your assignments here. Your hours and time off below are yours to change.</span></div>
+</sc-if>
+</section>
+
+<div class="cols">
+<section class="card">
+<div class="ch"><h2 class="h2">Weekly hours</h2><sc-if value="{{f.p.dirty}}" hint-placeholder-val="{{ false }}"><span class="s12" style="color:var(--brand-ink);font-weight:500">Unsaved</span></sc-if></div>
+<p class="cap">{{f.p.hoursCap}}</p>
+<sc-for list="{{f.p.hdays}}" as="h" hint-placeholder-count="7">
+<div class="{{h.cls}}">
+<div class="hdn">{{h.name}}</div>
+<div class="slots">
+<sc-if value="{{h.none}}" hint-placeholder-val="{{ false }}"><div class="offtxt">Off</div></sc-if>
+<sc-for list="{{h.slots}}" as="sl" hint-placeholder-count="1">
+<div class="{{sl.cls}}">
+<input class="tin" type="time" value="{{sl.s}}" onChange="{{sl.setS}}" aria-label="{{h.name}} start time">
+<span class="dsh">–</span>
+<input class="tin" type="time" value="{{sl.e}}" onChange="{{sl.setE}}" aria-label="{{h.name}} end time">
+<label class="chk"><input type="checkbox" checked="{{sl.a}}" onChange="{{sl.tog}}">Active</label>
+<button class="lnk red" type="button" onClick="{{sl.rm}}">Remove</button>
+</div>
+</sc-for>
+</div>
+<button class="lnk" type="button" onClick="{{h.add}}">+ Add slot</button>
+</div>
+</sc-for>
+</section>
+
+<section class="card">
+<div class="ch"><h2 class="h2">Time off &amp; date exceptions</h2></div>
+<p class="cap">Block out vacation days or set modified hours for one date. <b>Saves when you add it.</b></p>
+<div class="form">
+<div class="fld"><label class="fl" for="ex-date">Date</label><input class="in" id="ex-date" type="date" value="{{f.p.ef.date}}" onChange="{{f.p.ef.setDate}}"></div>
+<div class="fld"><label class="fl" for="ex-type">Type</label><select class="in" id="ex-type" value="{{f.p.ef.type}}" onChange="{{f.p.ef.setType}}"><option value="unavail">Unavailable</option><option value="mod">Modified hours</option></select></div>
+<div class="{{f.p.ef.modCls}}"><div><div class="form" style="padding-top:2px">
+<div class="fld"><label class="fl">From</label><input class="in" type="time" value="{{f.p.ef.s}}" onChange="{{f.p.ef.setS}}" aria-label="Modified hours start"></div>
+<div class="fld"><label class="fl">To</label><input class="in" type="time" value="{{f.p.ef.e}}" onChange="{{f.p.ef.setE}}" aria-label="Modified hours end"></div>
+</div></div></div>
+<div class="fld" style="grid-column:1/-1"><label class="fl" for="ex-note">Note (optional)</label><input class="in" id="ex-note" type="text" placeholder="e.g. Vacation" value="{{f.p.ef.note}}" onChange="{{f.p.ef.setNote}}"></div>
+<button class="btn out" type="button" style="grid-column:1/-1;border-color:var(--brand);color:var(--brand-ink);font-weight:500" onClick="{{f.p.ef.add}}">Add</button>
+</div>
+<div style="margin-top:14px;border-top:1px solid var(--hair2);padding-top:4px">
+<sc-if value="{{f.p.noExc}}" hint-placeholder-val="{{ false }}"><div class="empty">No upcoming exceptions.</div></sc-if>
+<sc-for list="{{f.p.excList}}" as="x" hint-placeholder-count="1">
+<div class="exl"><div style="flex:1;min-width:0"><div class="d">{{x.label}}</div><div class="s12 mut">{{x.what}}</div></div><button class="lnk red" type="button" onClick="{{x.rm}}" aria-label="Remove {{x.label}}">Remove</button></div>
+</sc-for>
+</div>
+</section>
+</div>
+
+<div class="savebar" role="status">
+<div class="grow"><sc-if value="{{f.p.dirty}}" hint-placeholder-val="{{ false }}"><span class="udot"></span></sc-if><span>{{f.p.barText}}</span></div>
+<sc-if value="{{f.p.dirty}}" hint-placeholder-val="{{ false }}"><button class="btn" type="button" onClick="{{f.p.discard}}">Discard</button></sc-if>
+<button class="btn pri" type="button" onClick="{{f.p.save}}" disabled="{{f.p.clean}}">Save weekly hours</button>
+</div>
+</div>
+</div>
+<nav class="bnav" aria-label="App">
+<div class="bi"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>Home</div>
+<div class="bi"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>Members</div>
+<div class="bi"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>Classes</div>
+<div class="bi"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>Money</div>
+<div class="bi on"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M4 6h16M4 18h16"></path></svg>More</div>
+</nav>
+</div>
+</div>
+
+<sc-if value="{{f.p.dlgOpen}}" hint-placeholder-val="{{ false }}">
+<div class="scrim" onClick="{{f.p.closeDlg}}">
+<div class="dlg" role="dialog" aria-modal="true" aria-label="{{f.p.dlgTitle}}" onClick="{{f.p.stop}}">
+<div class="grab"></div>
+<div class="dhx"><h3 class="dt">{{f.p.dlgTitle}}</h3><div class="dsub">{{f.p.dlgSub}}</div></div>
+<div class="dbd">
+<sc-if value="{{f.p.noOpts}}" hint-placeholder-val="{{ false }}"><div class="empty">No other classes or events run this day.</div></sc-if>
+<sc-for list="{{f.p.dlgOpts}}" as="o" hint-placeholder-count="2">
+<button class="opt" type="button" onClick="{{o.pick}}"><span style="min-width:0"><b>{{o.name}}</b><small>{{o.time}}</small></span><span class="{{o.fitCls}}">{{o.fit}}</span></button>
+</sc-for>
+</div>
+<div class="dft"><button class="btn" type="button" onClick="{{f.p.closeDlg}}">Cancel</button></div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{f.p.leaveOpen}}" hint-placeholder-val="{{ false }}">
+<div class="scrim">
+<div class="dlg" role="alertdialog" aria-modal="true" aria-label="Unsaved weekly hours">
+<div class="grab"></div>
+<div class="dhx"><h3 class="dt">Leave without saving weekly hours?</h3><div class="dsub">{{f.p.leaveBody}}</div></div>
+<div class="dft"><button class="btn" type="button" onClick="{{f.p.stay}}">Stay on this tab</button><a class="btn dng" href="{{f.p.leaveHref}}" onClick="{{f.p.leaveDiscard}}">Discard and leave</a></div>
+</div>
+</div>
+</sc-if>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":3902,"height":2176}}'>
+const WEEK0 = Date.UTC(2026, 8, 20);
+const DAY = 86400000;
+const TODAY = '2026-09-26';
+const DN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DFULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const CL = {
+  sfun: { name: 'Sunday Funday', days: [0], s: '11:00', e: '13:00' },
+  tad1: { name: 'Tadpoles', days: [0], s: '13:15', e: '14:00' },
+  mshs: { name: 'MS/HS Preseason', days: [1, 2, 4], s: '18:30', e: '20:30' },
+  tad2: { name: 'Tadpoles', days: [3], s: '18:15', e: '19:00' },
+  girls: { name: 'Girls Class', days: [5], s: '17:00', e: '18:30' }
+};
+const PEOPLE = {
+  sal: { name: 'Sal Jones', first: 'Sal', ini: 'SJ', title: 'Head Coach', self: false, his: 'his',
+    hours: { 0: [{ s: '10:00', e: '14:00', a: true }], 1: [{ s: '17:30', e: '21:00', a: true }], 2: [{ s: '17:30', e: '21:00', a: true }] },
+    saved: null,
+    pattern: { 0: ['sfun'], 1: ['mshs'], 2: ['mshs'], 4: ['mshs'] },
+    exc: [{ date: '2026-10-10', type: 'unavail', note: 'Family event' }],
+    savedBy: 'Sal, Sep 15' },
+  kate: { name: 'Kate Zavuholnik', first: 'Kate', ini: 'KZ', title: "Girl's Coach", self: true, his: 'her',
+    hours: { 3: [{ s: '17:00', e: '19:00', a: true }], 5: [{ s: '16:00', e: '19:00', a: true }] },
+    saved: { 5: [{ s: '16:00', e: '19:00', a: true }] },
+    pattern: { 5: ['girls'] },
+    exc: [],
+    savedBy: 'you, Sep 2' }
+};
+const t12 = (v) => { const p = String(v || '0:00').split(':'); let h = Number(p[0]); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return h + ':' + p[1] + ' ' + ap; };
+const rng = (a, b) => { const A = t12(a), B = t12(b); return A.slice(-2) === B.slice(-2) ? A.slice(0, -3) + ' – ' + B : A + ' – ' + B; };
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const iso = (t) => new Date(t).toISOString().slice(0, 10);
+const mins = (s) => { const p = String(s || '0:0').split(':'); return Number(p[0]) * 60 + Number(p[1]); };
+const short = (t) => { const d = new Date(t); return DN[d.getUTCDay()] + ', ' + MON[d.getUTCMonth()].slice(0, 3) + ' ' + d.getUTCDate(); };
+const parse = (s) => Date.UTC(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10)));
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const st = {};
+    ['sal', 'kate'].forEach((pid) => {
+      const P = PEOPLE[pid];
+      st[pid] = { hours: clone(P.hours), saved: clone(P.saved || P.hours), assign: {}, exc: clone(P.exc), wk: 0,
+        ef: { date: '2026-10-03', type: 'unavail', note: '', s: '09:00', e: '12:00' },
+        dlg: null, leave: null, flash: '', savedBy: P.savedBy };
+    });
+    this.state = st;
+  }
+  upd(pid, fn) {
+    this.setState((s) => { const c = clone(s[pid]); fn(c); return { [pid]: c }; });
+  }
+  availFor(ps, t) {
+    const d = iso(t);
+    const ex = ps.exc.find((x) => x.date === d);
+    if (ex) {
+      if (ex.type === 'unavail') return { slots: [], label: 'Time off' + (ex.note ? ' · ' + ex.note : ''), cls: 'avail ex' };
+      return { slots: [{ s: ex.s, e: ex.e }], label: rng(ex.s, ex.e) + ' (this date)', cls: 'avail ex' };
+    }
+    const sl = (ps.saved[new Date(t).getUTCDay()] || []).filter((x) => x.a);
+    return sl.length ? { slots: sl, label: sl.map((x) => rng(x.s, x.e)).join(', '), cls: 'avail' } : { slots: [], label: 'Not available', cls: 'avail no' };
+  }
+  assignFor(pid, ps, t) {
+    const d = iso(t);
+    if (ps.assign[d]) return ps.assign[d];
+    return PEOPLE[pid].pattern[new Date(t).getUTCDay()] || [];
+  }
+  fits(av, c) { return av.slots.some((x) => mins(x.s) <= mins(c.s) && mins(x.e) >= mins(c.e)); }
+
+  view(pid) {
+    const P = PEOPLE[pid];
+    const ps = this.state[pid];
+    const self = P.self;
+    const who = self ? 'you' : P.first;
+    const recorder = self ? 'Kate Zavuholnik' : 'Julian Ramirez';
+    const base = WEEK0 + ps.wk * 7 * DAY;
+    const conflicts = [];
+    const days = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+      const t = base + i * DAY;
+      const av = this.availFor(ps, t);
+      const ids = this.assignFor(pid, ps, t);
+      const items = ids.map((id) => {
+        const c = CL[id];
+        const ok = this.fits(av, c);
+        if (!ok) conflicts.push(c.name + ', ' + short(t) + ' ' + t12(c.s));
+        return {
+          name: c.name, time: rng(c.s, c.e), warn: ok ? '' : ' · outside hours', cls: ok ? 'as' : 'as bad',
+          remove: () => this.upd(pid, (x) => { x.assign[iso(t)] = ids.filter((y) => y !== id); x.flash = 'Removed ' + c.name + ' on ' + short(t) + ' — saved'; }),
+          edit: () => this.upd(pid, (x) => { x.dlg = t; })
+        };
+      });
+      const d = new Date(t);
+      return { dow: DN[i].toUpperCase(), dnum: d.getUTCDate(), full: short(t), avail: av.label, availCls: av.cls, items,
+        cellCls: iso(t) === TODAY ? 'dcell today' : 'dcell',
+        assign: () => this.upd(pid, (x) => { x.dlg = t; }) };
+    });
+    const ws = new Date(base), we = new Date(base + 6 * DAY);
+    const weekLabel = 'Week of ' + MON[ws.getUTCMonth()] + ' ' + ws.getUTCDate() + ', ' + ws.getUTCFullYear();
+
+    const hdays = [0, 1, 2, 3, 4, 5, 6].map((wd) => {
+      const sl = ps.hours[wd] || [];
+      const chg = JSON.stringify(sl) !== JSON.stringify(ps.saved[wd] || []);
+      return {
+        name: DFULL[wd], none: sl.length === 0, cls: chg ? 'hday chg' : 'hday',
+        slots: sl.map((x, k) => ({
+          s: x.s, e: x.e, a: x.a, cls: x.a ? 'slot' : 'slot inactive',
+          setS: (ev) => { const v = ev.target.value; this.upd(pid, (c) => { c.hours[wd][k].s = v; c.flash = ''; }); },
+          setE: (ev) => { const v = ev.target.value; this.upd(pid, (c) => { c.hours[wd][k].e = v; c.flash = ''; }); },
+          tog: (ev) => { const v = ev.target.checked; this.upd(pid, (c) => { c.hours[wd][k].a = v; c.flash = ''; }); },
+          rm: () => this.upd(pid, (c) => { c.hours[wd].splice(k, 1); if (!c.hours[wd].length) delete c.hours[wd]; c.flash = ''; })
+        })),
+        add: () => this.upd(pid, (c) => { (c.hours[wd] = c.hours[wd] || []).push({ s: '17:00', e: '20:00', a: true }); c.flash = ''; })
+      };
+    });
+    const nChg = hdays.filter((h) => h.cls === 'hday chg').length;
+    const dirty = nChg > 0;
+
+    const ef = ps.ef;
+    const efv = {
+      date: ef.date, type: ef.type, note: ef.note, s: ef.s, e: ef.e,
+      modCls: ef.type === 'mod' ? 'reveal open' : 'reveal',
+      setDate: (ev) => { const v = ev.target.value; this.upd(pid, (c) => { c.ef.date = v; }); },
+      setType: (ev) => { const v = ev.target.value; this.upd(pid, (c) => { c.ef.type = v; }); },
+      setNote: (ev) => { const v = ev.target.value; this.upd(pid, (c) => { c.ef.note = v; }); },
+      setS: (ev) => { const v = ev.target.value; this.upd(pid, (c) => { c.ef.s = v; }); },
+      setE: (ev) => { const v = ev.target.value; this.upd(pid, (c) => { c.ef.e = v; }); },
+      add: () => this.upd(pid, (c) => {
+        if (!c.ef.date) return;
+        c.exc = c.exc.filter((x) => x.date !== c.ef.date);
+        c.exc.push({ date: c.ef.date, type: c.ef.type, note: c.ef.note, s: c.ef.s, e: c.ef.e });
+        c.exc.sort((a, b) => a.date < b.date ? -1 : 1);
+        c.flash = 'Time off added for ' + short(parse(c.ef.date)) + ' — recorded under ' + recorder;
+        c.ef.note = '';
+      })
+    };
+    const excList = ps.exc.map((x, k) => ({
+      label: short(parse(x.date)),
+      what: (x.type === 'unavail' ? 'Unavailable' : 'Modified hours ' + rng(x.s, x.e)) + (x.note ? ' · ' + x.note : ''),
+      rm: () => this.upd(pid, (c) => { c.exc.splice(k, 1); c.flash = 'Exception removed — saved'; })
+    }));
+
+    let dlgOpts = [], dlgTitle = '', dlgSub = '';
+    if (ps.dlg !== null) {
+      const t = ps.dlg;
+      const wd = new Date(t).getUTCDay();
+      const av = this.availFor(ps, t);
+      const have = this.assignFor(pid, ps, t);
+      dlgTitle = 'Assign ' + P.first + ' — ' + short(t);
+      dlgSub = P.first + "'s hours that day: " + av.label + '. Saves as soon as you pick.';
+      dlgOpts = Object.keys(CL).filter((id) => CL[id].days.indexOf(wd) >= 0 && have.indexOf(id) < 0).map((id) => {
+        const c = CL[id];
+        const ok = this.fits(av, c);
+        return { name: c.name, time: rng(c.s, c.e), fit: ok ? 'Fits hours' : 'Outside hours', fitCls: ok ? 'fit' : 'fit bad',
+          pick: () => this.upd(pid, (x) => { x.assign[iso(t)] = have.concat([id]); x.dlg = null; x.flash = 'Assigned ' + P.first + ' to ' + c.name + ', ' + short(t) + ' — saved'; }) };
+      });
+    }
+
+    const TABS = [
+      ['overview', 'Overview', self ? '#' : 'Main.dc.html', false],
+      ['personal', 'Personal info', '#', false],
+      ['schedule', 'Schedule & availability', 'Schedule.dc.html', conflicts.length > 0],
+      ['access', 'Access', 'Access.dc.html', false],
+      ['pay', 'Pay', 'Pay.dc.html', false],
+      ['lessons', 'Lessons', 'Lessons.dc.html', false],
+      ['portal', 'Portal profile', '#', false],
+      ['documents', 'Documents', '#', !self]
+    ];
+    const tabs = TABS.map(([id, label, href, dot]) => ({
+      label, href, dot: dot && !(id === 'schedule' && dirty), udot: id === 'schedule' && dirty,
+      cls: id === 'schedule' ? 'on' : '', cur: id === 'schedule' ? 'page' : undefined,
+      go: (ev) => { if (dirty && id !== 'schedule') { ev.preventDefault(); this.upd(pid, (c) => { c.leave = { href, label }; }); } }
+    }));
+
+    const conflictBody = conflicts.join('; ') + (self
+      ? '. Add hours that cover it, or tell an owner you can’t make it.'
+      : ". " + P.first + ' can add hours from ' + P.his + ' own profile, or remove the assignment here.');
+
+    return {
+      name: P.name, first: P.first, ini: P.ini, title: P.title, self, notSelf: !self,
+      sideMail: self ? 'Kate Zavuholnik · staff' : 'owner@frogempire.com',
+      meName: self ? 'Kate Z.' : 'Frog Empire', meIni: self ? 'KZ' : 'FE',
+      subnav: self
+        ? [{ label: 'My profile', cls: 'si on' }, { label: 'Schedule', cls: 'si' }]
+        : [{ label: 'Staff directory', cls: 'si on' }, { label: 'Schedule', cls: 'si' }, { label: 'Availability', cls: 'si' }, { label: 'Payroll & Payouts', cls: 'si' }],
+      backText: self ? 'Dashboard' : 'All staff', backHref: '#', mTitle: self ? 'My profile' : P.name,
+      meta: self ? ["Girl's Coach · Per class", 'Your profile — owners see the same page'] : ['Salary · $1,700/mo', 'sjones@frogempire607.com', 'On staff since Sep 14, 2025'],
+      hasBanner: conflicts.length > 0,
+      bannerTitle: (self ? 'Your hours don’t cover ' : 'Waiting on you — ') + conflicts.length + ' assignment' + (conflicts.length === 1 ? '' : 's') + (self ? '' : ' outside ' + P.first + '’s availability'),
+      bannerBody: conflictBody,
+      tabs,
+      rule: self
+        ? 'Your hours and time off: weekly hours save with the one button at the bottom; time off saves when you add it. Owners see changes on the club Schedule right away.'
+        : 'Assignments save as you add or remove them · time off saves when you add it · weekly hours use the one Save at the bottom. ' + P.first + ' can change ' + P.his + ' own hours and time off from ' + P.his + ' profile too.',
+      weekLabel,
+      weekCap: 'Green = when ' + (self ? 'you’re' : P.first + ' is') + ' available. Orange = assigned outside those hours. ' + MON[ws.getUTCMonth()].slice(0, 3) + ' ' + ws.getUTCDate() + ' – ' + MON[we.getUTCMonth()].slice(0, 3) + ' ' + we.getUTCDate() + '.',
+      prev: () => this.upd(pid, (c) => { c.wk -= 1; }),
+      next: () => this.upd(pid, (c) => { c.wk += 1; }),
+      thisWeek: () => this.upd(pid, (c) => { c.wk = 0; }),
+      days, canAssign: !self,
+      hoursCap: self
+        ? 'Your recurring availability. Owners can see and change it too — every change is recorded under the name of whoever made it.'
+        : P.first + '’s recurring availability. ' + P.first + ' keeps this current from ' + P.his + ' own profile; you can change it here too.',
+      hdays, dirty, clean: !dirty,
+      barText: dirty
+        ? nChg + ' unsaved change' + (nChg === 1 ? '' : 's') + ' to weekly hours — saved under ' + recorder
+        : (ps.flash || 'Weekly hours saved · last changed by ' + ps.savedBy),
+      save: () => this.upd(pid, (c) => { c.saved = clone(c.hours); c.savedBy = self ? 'you, just now' : 'Julian Ramirez, just now'; c.flash = 'Weekly hours saved — recorded under ' + recorder + '. The club Schedule is updated.'; }),
+      discard: () => this.upd(pid, (c) => { c.hours = clone(c.saved); c.flash = 'Changes discarded'; }),
+      ef: efv, excList, noExc: excList.length === 0,
+      dlgOpen: ps.dlg !== null, dlgTitle, dlgSub, dlgOpts, noOpts: ps.dlg !== null && dlgOpts.length === 0,
+      closeDlg: () => this.upd(pid, (c) => { c.dlg = null; }),
+      stop: (ev) => ev.stopPropagation(),
+      leaveOpen: !!ps.leave,
+      leaveBody: ps.leave ? (self ? 'You' : 'You') + ' have ' + nChg + ' unsaved change' + (nChg === 1 ? '' : 's') + ' to ' + (self ? 'your' : P.first + '’s') + ' weekly hours. Leave for ' + ps.leave.label + ' and they’ll be lost.' : '',
+      leaveHref: ps.leave ? ps.leave.href : '#',
+      stay: () => this.upd(pid, (c) => { c.leave = null; }),
+      leaveDiscard: () => this.upd(pid, (c) => { c.hours = clone(c.saved); c.leave = null; })
+    };
+  }
+  renderVals() {
+    const sal = this.view('sal');
+    const kate = this.view('kate');
+    const F = [
+      ['Desktop 1440 · Light', 'th-light fr-desk', 'Dark mode'],
+      ['Desktop 1440 · Dark', 'th-dark fr-desk', 'Light mode'],
+      ['Mobile 375 · Light', 'th-light fr-phone', 'Dark mode'],
+      ['Mobile 375 · Dark', 'th-dark fr-phone', 'Light mode']
+    ];
+    const frames = [];
+    F.forEach(([l, c, m]) => frames.push({ label: 'Owner managing Sal · ' + l, cls: c, modeLabel: m, p: sal }));
+    F.forEach(([l, c, m]) => frames.push({ label: 'Kate on her own profile · ' + l, cls: c, modeLabel: m, p: kate }));
+    return { frames };
+  }
+}
+</script>
+</body>
+</html>

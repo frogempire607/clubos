@@ -72,6 +72,14 @@ export default function UserMenu({
           </div>
           <nav className="py-1.5">
             <Link
+              href="/dashboard/my-profile"
+              onClick={() => setOpen(false)}
+              role="menuitem"
+              className="block px-3 py-3 md:py-2 text-sm text-text-primary hover:bg-app-bg"
+            >
+              My profile
+            </Link>
+            <Link
               href="/dashboard/my-account"
               onClick={() => setOpen(false)}
               role="menuitem"

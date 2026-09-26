@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Staff profile — Overview</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EFEEEB;font-family:Inter,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;color:#111111}
+a{color:#6D5DF6;text-decoration:none}a:hover{color:#5948E8}
+.fr *{box-sizing:border-box}
+.th-light{--bg:#F7F7F9;--surface:#FFFFFF;--topbar:#FFFFFF;--border:#E5E7EB;--hair:#F5F5F7;--hair2:#F1F1F3;--fill:#FAFAFB;--fill-b:#EFEFF2;--text:#111111;--label:#374151;--body:#4B5563;--muted:#6B7280;--brand:#6D5DF6;--brand-ink:#5948E8;--tint:rgba(109,93,246,.06);--tint-b:rgba(109,93,246,.25);--chip:#F1F1F3;--chip-t:#4B5563;--ok-s:rgba(163,230,53,.25);--ok-t:#3F6212;--ok-i:#4D7C0F;--pend-s:#EDEBFF;--pend-t:#4F46E5;--edit-s:#FFF1E6;--edit-t:#C2410C;--warn-s:#FFF7ED;--warn-t:#B45309;--warn-b:rgba(180,83,9,.22);--danger-s:#FEF2F2;--danger-t:#B91C1C;--red:#DC2626;--track:#D1D5DB;--dash:#D7D7DC;--av:#E5E7EB;--scrim:rgba(17,17,17,.42)}
+.th-dark{--bg:#111114;--surface:#1A1A1F;--topbar:#16161A;--border:#2C2C33;--hair:#24242A;--hair2:#26262C;--fill:#1F1F25;--fill-b:#2C2C33;--text:#F3F3F5;--label:#D4D6DC;--body:#BEC1C8;--muted:#9A9EA8;--brand:#6D5DF6;--brand-ink:#B1A8FF;--tint:rgba(124,111,247,.12);--tint-b:rgba(124,111,247,.4);--chip:#2A2A31;--chip-t:#C9CCD3;--ok-s:rgba(163,230,53,.16);--ok-t:#C5F07A;--ok-i:#A3E635;--pend-s:rgba(124,111,247,.22);--pend-t:#C8C1FF;--edit-s:rgba(255,106,0,.14);--edit-t:#FDBA74;--warn-s:rgba(251,146,60,.10);--warn-t:#FDBA74;--warn-b:rgba(251,146,60,.28);--danger-s:rgba(248,113,113,.10);--danger-t:#FCA5A5;--red:#F87171;--track:#3A3A42;--dash:#3A3A42;--av:#2E2E36;--scrim:rgba(0,0,0,.6)}
+.flabel{height:16px;margin:0 0 12px;font-size:13px;font-weight:600;line-height:16px;color:#3A3A44}
+.fr{position:relative;overflow:hidden;background:var(--bg);color:var(--text);border:1px solid rgba(0,0,0,.1);border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.06);font-size:14px;line-height:1.45;container-type:inline-size}
+.fr-desk{width:1440px;height:960px}.fr-phone{width:375px;height:812px;border-radius:30px}
+.fr a{color:var(--brand-ink);text-decoration:none}
+.ic{width:16px;height:16px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.shell{display:flex;height:100%}
+.side{width:248px;flex-shrink:0;background:#1F1F23;display:flex;flex-direction:column}
+.th-dark .side{background:#151518;border-right:1px solid #26262C}
+.brandrow{padding:16px 14px;border-bottom:1px solid rgba(255,255,255,.08)}
+.logo{width:28px;height:28px;border-radius:8px;background:#6D5DF6;display:grid;place-items:center;color:#A3E635;font:700 14px Georgia,serif;flex-shrink:0}
+.wm{color:#fff;font:600 15px Georgia,serif;letter-spacing:-.01em}
+.side-mail{font-size:11px;color:rgba(229,231,235,.72);padding-left:38px}
+.nav{flex:1;padding:8px;display:flex;flex-direction:column;gap:2px}
+.ni{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;border-left:3px solid transparent;font-size:13px;color:rgba(229,231,235,.72)}
+.ni .ic{width:18px;height:18px;opacity:.85}
+.ni.on{border-left-color:#6D5DF6;background:#2A2A2E;color:#fff;font-weight:500}
+.sub{margin-left:26px;margin-top:2px;padding-left:10px;border-left:1px solid rgba(255,255,255,.1);display:flex;flex-direction:column;gap:1px}
+.si{padding:6px 10px;border-radius:7px;border-left:2px solid transparent;font-size:12px;color:rgba(255,255,255,.5)}
+.si.on{border-left-color:#6D5DF6;background:#2A2A2E;color:#fff;font-weight:500}
+.dm{margin:10px 10px 14px;display:flex;align-items:center;justify-content:center;gap:8px;padding:7px 12px;color:rgba(229,231,235,.72);font-size:12px;border:1px solid rgba(255,255,255,.08);border-radius:8px}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.top{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--topbar)}
+.search{flex:1;max-width:576px;display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:8px;padding:0 12px;height:36px;color:var(--muted);font-size:14px}
+.kbd{font-size:10px;border:1px solid var(--border);border-radius:4px;padding:2px 6px;margin-left:auto}
+.club{display:flex;align-items:center;gap:8px;padding:4px 12px 4px 4px;font-size:14px;font-weight:500;color:var(--text)}
+.club-av{width:32px;height:32px;border-radius:999px;background:#1F1F23;color:#fff;font-size:12px;font-weight:600;display:grid;place-items:center}
+.th-dark .club-av{background:#2E2E36}
+.mtop,.bnav,.only-m{display:none}
+.scroll{flex:1;overflow-y:auto;overflow-x:hidden;position:relative}
+.page{max-width:1192px;padding:28px 32px 32px;display:flex;flex-direction:column;gap:16px;min-height:100%}
+.back{display:inline-flex;align-items:center;gap:5px;font-size:13px;align-self:flex-start}
+.fr a.back{color:var(--muted)}
+.back .ic{width:14px;height:14px}
+.idh{display:flex;align-items:flex-start;gap:16px}
+.av{width:64px;height:64px;border-radius:999px;background:var(--av);color:var(--text);display:grid;place-items:center;font-size:19px;font-weight:600;flex-shrink:0}
+.nm{margin:0;font-size:25px;font-weight:600;letter-spacing:-.02em;line-height:1.2}
+.idrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.meta{font-size:13px;color:var(--muted);margin-top:5px;display:flex;flex-wrap:wrap;gap:2px 18px}
+.meta span{display:inline-flex;align-items:center;gap:5px}
+.role{font-size:10.5px;font-weight:600;letter-spacing:.04em;padding:2px 7px;border-radius:5px;background:var(--chip);color:var(--chip-t);text-transform:uppercase}
+.active{font-size:11.5px;font-weight:500;padding:2px 8px;border-radius:999px;background:#A3E635;color:#1F1F23}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:500;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.p-ok{background:var(--ok-s);color:var(--ok-t)}.p-view{background:var(--pend-s);color:var(--pend-t)}.p-edit{background:var(--edit-s);color:var(--edit-t)}.p-none{background:var(--chip);color:var(--chip-t)}.p-warn{background:var(--warn-s);color:var(--warn-t)}.p-brand{background:var(--tint);color:var(--brand-ink)}
+.p-full{background:#A3E635;color:#1F1F23}
+.st{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+.st .ic{width:13px;height:13px;color:var(--ok-i)}
+.hacts{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font-family:inherit;font-size:13px;font-weight:400;padding:7px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap;line-height:1.3}
+.fr a.btn{color:var(--text)}
+.btn .ic{width:14px;height:14px;color:var(--muted)}
+.btn.pri{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:500}
+.fr a.btn.pri{color:#fff}.btn.pri .ic{color:#fff}.btn.pri:hover{background:#5948E8}
+.btn.char{background:#1F1F23;border-color:#1F1F23;color:#fff;font-weight:500}
+.fr a.btn.char{color:#fff}
+.th-dark .btn.char,.th-dark a.btn.char{background:#F3F3F5;border-color:#F3F3F5;color:#111}
+.btn.out{border-color:var(--brand);color:var(--brand-ink);font-weight:500}
+.fr a.btn.out{color:var(--brand-ink)}
+.sq{width:32px;height:32px;padding:0}
+.banner{display:flex;gap:14px;align-items:flex-start;background:var(--warn-s);border:1px solid var(--warn-b);border-radius:10px;padding:14px 16px}
+.banner>.ic{width:18px;height:18px;color:var(--warn-t);margin-top:1px}
+.bt{font-size:13.5px;font-weight:600;margin-bottom:3px}
+.bb{font-size:12.5px;color:var(--muted);line-height:1.6}
+.bb b{color:var(--text);font-weight:500}
+.bacts{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.bacts .btn{border-color:var(--warn-b);font-size:12.5px}
+.tabs{display:flex;align-items:center;gap:2px;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;flex-shrink:0}
+.tabs::-webkit-scrollbar{display:none}
+.tab{display:inline-flex;align-items:center;gap:6px;padding:9px 12px;font-size:13.5px;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0}
+.fr a.tab{color:var(--muted)}
+.fr a.tab:hover{color:var(--text)}
+.fr a.tab.on{color:var(--brand-ink);border-bottom-color:var(--brand);font-weight:500}
+.tab .n{font-size:11px;opacity:.7}
+.rdot{width:6px;height:6px;border-radius:999px;background:var(--red);flex-shrink:0}
+.cols{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:16px;align-items:start}
+.stack{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+.ch{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.h2{margin:0;font-size:14px;font-weight:600}
+.cl{font-size:12.5px;font-weight:500;display:inline-flex;align-items:center;gap:4px}
+.fr a.cl{color:var(--brand-ink)}
+.mut{color:var(--muted)}.s12{font-size:12px}.s125{font-size:12.5px}.s13{font-size:13px}
+.row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--hair)}
+.row:last-child{border-bottom:0}
+.legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:11px;color:var(--muted);margin:-8px 0 12px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend .ic{width:11px;height:11px}
+.f2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 20px}
+.fi{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--hair);min-width:0}
+.fi>.ic{width:12px;height:12px;color:#9CA3AF}
+.fk{font-size:12px;color:var(--muted);width:92px;flex-shrink:0}
+.fv{font-size:13px;min-width:0;overflow-wrap:anywhere}
+.locked{grid-column:1/-1;display:flex;align-items:flex-start;gap:10px;padding:11px 12px;margin-top:6px;background:var(--fill);border:1px solid var(--fill-b);border-radius:8px}
+.locked>.ic{width:13px;height:13px;color:var(--muted);margin-top:3px}
+.lk{font-size:10.5px;font-weight:600;letter-spacing:.03em;padding:1px 6px;border-radius:4px;background:var(--chip);color:var(--chip-t)}
+.note{font-size:11.5px;color:var(--muted);line-height:1.55;margin-top:4px}
+.note b{color:var(--text);font-weight:500}
+.tint{margin-top:12px;padding:12px;background:var(--fill);border:1px solid var(--fill-b);border-radius:8px}
+.kv{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--hair);font-size:12.5px}
+.kv:last-child{border-bottom:0}
+.kv>span:first-child{color:var(--muted)}
+.big{font-size:22px;font-weight:600;letter-spacing:-.02em}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.wk{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--hair)}
+.wk:last-child{border-bottom:0}
+.dd{width:40px;flex-shrink:0;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--muted);text-transform:uppercase}
+.dd span{display:block;font-size:15px;font-weight:600;color:var(--text);letter-spacing:0}
+.as{display:inline-flex;flex-direction:column;padding:5px 10px;border-radius:8px;background:var(--pend-s);color:var(--pend-t);font-size:12.5px;font-weight:500;line-height:1.3}
+.as small{font-size:11px;font-weight:400;opacity:.85}
+.as.bad{background:var(--warn-s);color:var(--warn-t);box-shadow:inset 0 0 0 1px var(--warn-b)}
+.off{font-size:12.5px;color:var(--muted)}
+.avl{font-size:12px;color:var(--muted);margin-left:auto;text-align:right;white-space:nowrap}
+.tile{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;flex-shrink:0}
+.tile .ic{width:13px;height:13px}
+.t-ok{background:var(--ok-s);color:var(--ok-t)}.t-n{background:var(--chip);color:var(--chip-t)}.t-o{background:var(--edit-s);color:var(--edit-t)}
+.mtop{align-items:center;gap:6px;background:#1F1F23;padding:6px;color:#fff}
+.mtop .t{flex:1;font-size:15px;font-weight:600}
+.mtop a,.mtop button{width:44px;height:44px;display:grid;place-items:center;background:transparent;border:0;color:rgba(255,255,255,.85)}
+.fr .mtop a{color:rgba(255,255,255,.85)}
+.mtop .ic{width:20px;height:20px}
+.bnav{background:#1F1F23;border-top:1px solid rgba(255,255,255,.1);padding-bottom:14px}
+.bi{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0 2px;min-height:52px;color:rgba(255,255,255,.6);font-size:12px;font-weight:500}
+.bi .ic{width:21px;height:21px}
+.bi.on{color:#fff}.bi.on .ic{color:#A3E635}
+@container (max-width:600px){
+.side,.top,.only-d,.hacts{display:none}
+.mtop,.bnav{display:flex}
+.only-m{display:block}
+.page{padding:14px 16px 20px;gap:14px}
+.idh{gap:13px;align-items:center}
+.av{width:56px;height:56px;font-size:17px}
+.nm{font-size:19px}
+.meta{font-size:12.5px;gap:2px 12px}
+.role,.pill,.active,.lk,.note,.legend,.dd,.as small,.tab .n,.avl{font-size:12px}
+.banner{flex-wrap:wrap;padding:12px;gap:10px}
+.bacts{width:100%;flex-wrap:wrap}.bacts .btn{flex:1}
+.btn{min-height:44px;font-size:14px;padding:10px 14px}
+.tabs{margin:0 -16px;padding:0 8px}
+.tab{min-height:44px;font-size:14px}
+.cols,.f2{grid-template-columns:minmax(0,1fr)}
+.card{padding:16px}
+.cl{min-height:44px;font-size:13px}
+.s12,.s125,.bb,.st,.kv{font-size:12.5px}
+.fi,.kv,.wk{min-height:44px}
+}
+</style>
+</helmet>
+<div style="width:3902px;height:1116px;box-sizing:border-box;padding:64px;display:flex;flex-wrap:wrap;gap:72px 48px;align-items:flex-start;background:#EFEEEB">
+<sc-for list="{{frames}}" as="f" hint-placeholder-count="4">
+<div>
+<div class="flabel">{{f.label}}</div>
+<div class="fr {{f.cls}}">
+<div class="shell">
+<aside class="side" aria-label="Main navigation">
+<div class="brandrow"><div style="display:flex;align-items:center;gap:10px;margin-bottom:3px"><div class="logo" aria-hidden="true">A</div><span class="wm">AthletixOS</span></div><div class="side-mail">owner@frogempire.com</div></div>
+<nav class="nav">
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>Dashboard</div>
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg>Members</div>
+<div><div class="ni on"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path></svg>Staff</div>
+<div class="sub"><div class="si on">Staff directory</div><div class="si">Schedule</div><div class="si">Availability</div><div class="si">Payroll &amp; Payouts</div></div></div>
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"></circle><circle cx="19" cy="21" r="1"></circle><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"></path></svg>Purchase Options</div>
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>Classes &amp; Events</div>
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>Communication</div>
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>Attendance</div>
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>Financials</div>
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V10M18 20V4M6 20v-4"></path></svg>Reports</div>
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4M16 13H8M16 17H8"></path></svg>Documents</div>
+<div class="ni"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"></path></svg>Settings</div>
+</nav>
+<div class="dm"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" style="width:14px;height:14px"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>{{f.modeLabel}}</div>
+</aside>
+<div class="main">
+<div class="top">
+<div class="search"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>Search members, classes, events, documents…<span class="kbd">Ctrl K</span></div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:12px;color:var(--muted)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg><div class="club"><span class="club-av">FE</span>Frog Empire<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" style="width:12px;height:12px;color:var(--muted)"><path d="m6 9 6 6 6-6"></path></svg></div></div>
+</div>
+<div class="mtop">
+<a href="#" aria-label="Back to staff directory"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7M19 12H5"></path></svg></a>
+<span class="t">Sal Jones</span>
+<button type="button" aria-label="More actions"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg></button>
+</div>
+<div class="scroll">
+<div class="page">
+<a class="back only-d" href="#"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7M19 12H5"></path></svg>All staff</a>
+
+<div class="idh">
+<div class="av" aria-hidden="true">SJ</div>
+<div style="flex:1;min-width:0">
+<div class="idrow">
+<h1 class="nm">Sal Jones</h1>
+<span class="active">Active</span>
+<span class="role">Head Coach</span>
+<span class="role">Staff</span>
+<span class="st"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Login set up</span>
+</div>
+<div class="meta"><span>Salary · $1,700/mo</span><span>sjones@frogempire607.com</span><span>On staff since Sep 14, 2025</span></div>
+</div>
+<div class="hacts">
+<a class="btn" href="#"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>Message</a>
+<a class="btn" href="#"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>Setup link</a>
+<a class="btn pri" href="#"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>Edit staff</a>
+<button class="btn sq" type="button" aria-label="More actions"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" style="width:15px;height:15px"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg></button>
+</div>
+</div>
+
+<div class="banner" role="status">
+<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>
+<div style="flex:1;min-width:0">
+<div class="bt">Waiting on you — 1 assignment is outside Sal's availability</div>
+<div class="bb"><b>MS/HS Preseason, Thu 6:30 PM</b> is on Sal's schedule, but Sal's weekly hours have Thursday off. Either Sal adds Thursday hours from his own profile, or you move the class to someone who's free.</div>
+</div>
+<div class="bacts">
+<a class="btn char" href="Schedule.dc.html">Review schedule</a>
+<a class="btn" href="#">Ask Sal to update hours</a>
+</div>
+</div>
+
+<nav class="tabs" aria-label="Staff profile sections">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="8">
+<a class="tab {{t.cls}}" href="{{t.href}}" aria-current="{{t.cur}}">{{t.label}}<sc-if value="{{t.n}}" hint-placeholder-val="{{ false }}"><span class="n">{{t.n}}</span></sc-if><sc-if value="{{t.dot}}" hint-placeholder-val="{{ false }}"><span class="rdot" role="img" aria-label="needs action"></span></sc-if></a>
+</sc-for>
+</nav>
+
+<div class="cols">
+<div class="stack">
+
+<section class="card">
+<div class="ch"><h2 class="h2">This week</h2><span style="display:flex;gap:14px;align-items:center"><span class="s12 mut">Sep 20 – 26</span><a class="cl" href="Schedule.dc.html">Schedule &amp; availability →</a></span></div>
+<div class="wk"><div class="dd">Sun<span>20</span></div><span class="as">Sunday Funday<small>11:00 AM – 1:00 PM</small></span><span class="avl">Available 10:00 AM – 2:00 PM</span></div>
+<div class="wk"><div class="dd">Mon<span>21</span></div><span class="as">MS/HS Preseason<small>6:30 – 8:30 PM</small></span><span class="avl">Available 5:30 – 9:00 PM</span></div>
+<div class="wk"><div class="dd">Tue<span>22</span></div><span class="as">MS/HS Preseason<small>6:30 – 8:30 PM</small></span><span class="avl">Available 5:30 – 9:00 PM</span></div>
+<div class="wk"><div class="dd">Wed<span>23</span></div><span class="off">Off</span><span class="avl">Not available</span></div>
+<div class="wk"><div class="dd">Thu<span>24</span></div><span class="as bad">MS/HS Preseason<small>6:30 – 8:30 PM · outside hours</small></span><span class="avl" style="color:var(--warn-t)">Not available</span></div>
+<div class="wk"><div class="dd">Fri<span>25</span></div><span class="off">Off</span><span class="avl">Not available</span></div>
+<div class="wk"><div class="dd">Sat<span>26</span></div><span class="off">Off</span><span class="avl">Not available</span></div>
+<div style="display:flex;align-items:center;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--hair2)"><span class="s125 mut">4 classes · 8 hours · next time off Oct 10 (Unavailable · family event)</span></div>
+</section>
+
+<section class="card">
+<div class="ch"><h2 class="h2">Contact &amp; identity</h2><a class="cl" href="#">Edit</a></div>
+<div class="legend"><span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>You can edit</span><span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16M16 16h5v5"></path></svg>Sal can edit too</span><span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>Locked</span></div>
+<div class="f2">
+<div class="fi"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg><span class="fk">Login email</span><span class="fv">sjones@frogempire607.com</span></div>
+<div class="fi"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg><span class="fk">Title</span><span class="fv">Head Coach</span></div>
+<div class="fi"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16M16 16h5v5"></path></svg><span class="fk">Phone</span><span class="fv">(607) 555-0148</span></div>
+<div class="fi"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg><span class="fk">Role</span><span class="fv">Staff</span></div>
+<div class="fi"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16M16 16h5v5"></path></svg><span class="fk">Availability</span><span class="fv">3 days a week</span></div>
+<div class="fi"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16M16 16h5v5"></path></svg><span class="fk">Time off</span><span class="fv">1 upcoming</span></div>
+<div class="locked">
+<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+<div style="flex:1;min-width:0">
+<div style="display:flex;align-items:center;gap:10px"><span class="s12 mut" style="width:82px">Password</span><span class="s13" style="font-weight:500;letter-spacing:.18em">••••••••</span><span class="lk">LOCKED</span></div>
+<div class="note">Password — <b>only the staff member can change this, from their own account.</b> Owners never see or set it. Locked out? Send a setup link and Sal picks a new one.</div>
+</div>
+</div>
+</div>
+</section>
+
+<section class="card">
+<div class="ch"><h2 class="h2">Recent activity</h2><span class="s12 mut">Last 30 days</span></div>
+<div class="row"><span class="tile t-o"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg></span><span class="s13" style="flex:1">Assigned to MS/HS Preseason, Thu — by Julian Ramirez</span><span class="s12 mut">Sep 19</span></div>
+<div class="row"><span class="tile t-n"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5"></path></svg></span><span class="s13" style="flex:1">Sal added time off Oct 10 — from his own profile</span><span class="s12 mut">Sep 17</span></div>
+<div class="row"><span class="tile t-n"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5"></path></svg></span><span class="s13" style="flex:1">Sal updated weekly hours — removed Thursday</span><span class="s12 mut">Sep 15</span></div>
+<div class="row"><span class="tile t-ok"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span><span class="s13" style="flex:1">Payout recorded · $1,700 for August — by Julian Ramirez</span><span class="s12 mut">Sep 1</span></div>
+</section>
+
+</div>
+<div class="stack">
+
+<section class="card">
+<h2 class="h2" style="margin-bottom:12px">Account &amp; security</h2>
+<div class="kv"><span>Staff login</span><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:999px;background:#A3E635"></span>Set up</span></div>
+<div class="kv"><span>Signs in with</span><span>sjones@frogempire607.com</span></div>
+<div class="kv"><span>Last login</span><span>Today, 9:12 AM</span></div>
+<div class="kv"><span>Password</span><span class="mut" style="display:flex;align-items:center;gap:6px"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" style="width:11px;height:11px"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>Never visible to staff</span></div>
+<div class="tint">
+<div class="s125" style="font-weight:500;margin-bottom:4px">Setup link</div>
+<div class="note" style="margin:0 0 10px">For first sign-in or a forgotten password. Goes to <b>sjones@frogempire607.com</b>, works once, and is logged against your name.</div>
+<a class="btn out" href="#">Send setup link</a>
+</div>
+</section>
+
+<section class="card">
+<div class="ch"><h2 class="h2">Pay</h2><a class="cl" href="Pay.dc.html">Pay tab</a></div>
+<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:2px"><span class="big">$1,700.00</span><span class="s12 mut">September · salary</span></div>
+<div class="s125 mut" style="line-height:1.6">Salary (monthly) · fixed for the period<br>17 classes this month · no bonuses set</div>
+<div style="display:flex;gap:16px;margin-top:6px"><a class="cl" href="#">Payroll →</a><a class="cl" href="#">Payouts →</a></div>
+</section>
+
+<section class="card">
+<div class="ch"><h2 class="h2">Access</h2><a class="cl" href="Access.dc.html">Change</a></div>
+<div class="s125" style="margin-bottom:10px">Head coach · runs members, classes and billing; sees money, can't edit payroll</div>
+<div class="chips"><span class="pill p-full">Members: full</span><span class="pill p-full">Attendance: full</span><span class="pill p-full">Classes: full</span><span class="pill p-full">Events &amp; purchase options: full</span><span class="pill p-edit">Staff schedule: edit</span><span class="pill p-full">Messaging: full</span><span class="pill p-full">Documents: full</span><span class="pill p-view">Financials &amp; payroll: view</span><span class="pill p-full">Billing management: full</span><span class="pill p-view">Reports: view</span><span class="pill p-full">Staff &amp; contractors: full</span></div>
+</section>
+
+<section class="card">
+<div class="ch"><h2 class="h2">Private lessons</h2><a class="cl" href="Lessons.dc.html">Lessons</a></div>
+<div class="s125 mut" style="margin-bottom:8px">Coaches all 6 lesson types</div>
+<div class="chips"><span class="pill p-none">One-on-One</span><span class="pill p-none">One-on-One Non-Member</span><span class="pill p-none">Duo</span><span class="pill p-none">Duo Non-Member</span><span class="pill p-none">Quad</span><span class="pill p-none">Quad Non-Member</span></div>
+</section>
+
+<section class="card">
+<div class="ch"><h2 class="h2">Documents</h2><span class="s12" style="color:var(--danger-t);font-weight:500">1 missing</span></div>
+<div class="row"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;color:var(--ok-i)"><path d="M20 6 9 17l-5-5"></path></svg><span class="s125" style="flex:1">Coaching agreement</span><span class="s12 mut">Sep 14, 2025</span></div>
+<div class="row"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;color:var(--red)"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01"></path></svg><span class="s125" style="flex:1">W-9</span><a class="cl" href="#">Request</a></div>
+</section>
+
+</div>
+</div>
+</div>
+</div>
+<nav class="bnav" aria-label="App">
+<div class="bi"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>Home</div>
+<div class="bi"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>Members</div>
+<div class="bi"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>Classes</div>
+<div class="bi"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>Money</div>
+<div class="bi on"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M4 6h16M4 18h16"></path></svg>More</div>
+</nav>
+</div>
+</div>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":3902,"height":1116}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const frames = [
+      { label: 'Desktop 1440 · Light', cls: 'th-light fr-desk', modeLabel: 'Dark mode' },
+      { label: 'Desktop 1440 · Dark', cls: 'th-dark fr-desk', modeLabel: 'Light mode' },
+      { label: 'Mobile 375 · Light', cls: 'th-light fr-phone', modeLabel: 'Dark mode' },
+      { label: 'Mobile 375 · Dark', cls: 'th-dark fr-phone', modeLabel: 'Light mode' }
+    ];
+    const TABS = [
+      ['overview', 'Overview', 'Main.dc.html', '', false],
+      ['personal', 'Personal info', '#', '', false],
+      ['schedule', 'Schedule & availability', 'Schedule.dc.html', '', true],
+      ['access', 'Access', 'Access.dc.html', '', false],
+      ['pay', 'Pay', 'Pay.dc.html', '', false],
+      ['lessons', 'Lessons', 'Lessons.dc.html', '6', false],
+      ['portal', 'Portal profile', '#', '', false],
+      ['documents', 'Documents', '#', '', true]
+    ];
+    const tabs = TABS.map(([id, label, href, n, dot]) => ({
+      label, href, n, dot,
+      cls: id === 'overview' ? 'on' : '',
+      cur: id === 'overview' ? 'page' : undefined
+    }));
+    return { frames, tabs };
+  }
+}
+</script>
+</body>
+</html>

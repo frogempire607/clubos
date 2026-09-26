@@ -4,6 +4,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { recordStaffActivity, actorFrom } from "@/lib/staffActivity";
 
 const patchSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -65,5 +66,13 @@ export async function DELETE(
   // Soft delete — preserves the audit trail. The underlying file in
   // UploadedFile / /api/files store is left in place.
   await prisma.staffDocument.update({ where: { id: docId }, data: { deletedAt: new Date() } });
+  // B21 — Recent activity on the staff profile (best-effort, after the write).
+  await recordStaffActivity({
+    clubId: session.user.clubId,
+    staffUserId: userId,
+    ...actorFrom(session),
+    kind: "DOCUMENTS",
+    summary: `Removed ${doc.title}`,
+  });
   return NextResponse.json({ ok: true });
 }

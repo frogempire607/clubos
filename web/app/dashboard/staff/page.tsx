@@ -1,45 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { Shield, X } from "lucide-react";
-import ImageUpload from "@/components/ImageUpload";
+import { ChevronRight, Shield, UserPlus } from "lucide-react";
+import Sheet from "@/components/Sheet";
+import AddStaffSheet from "@/components/staff/directory/AddStaffSheet";
+import SetupLinkSheet from "@/components/staff/directory/SetupLinkSheet";
+import { accessSummary } from "@/components/staff/directory/accessSummary";
 import PageHeader from "@/components/PageHeader";
 import EmptyState from "@/components/EmptyState";
 import { SkeletonList } from "@/components/LoadingSkeleton";
-import {
-  compDraftFromPlan,
-  compIsDirty,
-  compPayload,
-  type BonusDraft,
-  type CompDraft,
-  type Scope,
-  type ScopeType,
-} from "@/lib/staffCompensationDraft";
-import {
-  PERMISSION_CATALOG,
-  DEFAULT_PERMISSIONS,
-  resolvePermissions,
-  resolveMessagesSubScopes,
-  MESSAGES_SUBSCOPES,
-  resolveBillingSubScopes,
-  type BillingSubScope,
-  type MessagesSubScope,
-  type PermissionLevel,
-} from "@/lib/permissions";
+import { hasPermission, type PermissionLevel } from "@/lib/permissions";
 
-// Owner-facing labels for the messaging sub-scopes. Kept in sync with
-// MESSAGES_SUBSCOPES in lib/permissions.ts.
-const SUBSCOPE_LABELS: Record<MessagesSubScope, { label: string; desc: string }> = {
-  bulk:       { label: "Bulk email from the Members page", desc: "Address multiple selected members at once." },
-  marketing:  { label: "Audiences + marketing campaigns",   desc: "Build saved recipient groups and campaign metrics." },
-  templates:  { label: "Manage email templates",            desc: "Create, edit, duplicate, archive templates." },
-  images:     { label: "Upload images for email",           desc: "Attach images to the composer." },
-  unsubscribe:{ label: "Manage unsubscribe list",           desc: "See who opted out, resubscribe / block addresses." },
-  analytics:  { label: "View campaign analytics",           desc: "Open/click/delivery breakdown per send." },
-  approve:    { label: "Approve pending campaigns",         desc: "Sign off on drafts before they send." },
-  audience_all_club: { label: "Address any member",         desc: "OFF = coach can only email members in classes/events they teach (recommended for coaches)." },
-};
+// B21 — the Staff directory. Each row opens the staff profile
+// (/dashboard/staff/<id>); the old Edit Staff modal is retired and its
+// controls live on the profile's tabs. Add staff stays a quick dialog.
 
 type StaffProfile = {
   title: string | null;
@@ -66,34 +42,25 @@ type StaffUser = {
   email: string;
   role: string;
   createdAt: string;
+  lastLoginAt?: string | null;
+  /** From GET /api/staff: setup link sent but never used. */
+  invitePending?: boolean;
   staffProfile: StaffProfile | null;
 };
-
-const PERMISSION_DEFS = PERMISSION_CATALOG.map((p) => ({
-  key: p.key,
-  label: p.label,
-  desc: p.description,
-  levels: p.levels,
-}));
-
-const levelColors: Record<PermissionLevel, string> = {
-  none: "bg-app-bg text-text-muted",
-  view: "bg-brand/10 text-brand",
-  send: "bg-brand/10 text-brand",
-  edit: "bg-orange-accent/10 text-orange-accent",
-  full: "bg-lime-accent text-text-primary",
-};
-
-function defaultPermissions(): Record<string, PermissionLevel> {
-  return { ...DEFAULT_PERMISSIONS };
-}
 
 export default function StaffPage() {
   const [staff, setStaff] = useState<StaffUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [editing, setEditing] = useState<StaffUser | null>(null);
+  const [setupFor, setSetupFor] = useState<StaffUser | null>(null);
+  const [removing, setRemoving] = useState<StaffUser | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const { data: session } = useSession();
+  const isOwner = session?.user?.role === "OWNER";
+  const perms = (session?.user as { permissions?: Record<string, unknown> | null } | undefined)?.permissions ?? null;
+  // Same bar the write routes use (POST /api/staff, setup-link, DELETE): Staff & contractors: full.
+  const canManage = isOwner || hasPermission(perms, "staff", "full");
 
   async function load() {
     setLoading(true);
@@ -105,1502 +72,184 @@ export default function StaffPage() {
 
   useEffect(() => { load(); }, []);
 
-  async function handleRemove(id: string) {
-    if (!confirm("Remove this staff member? They will lose dashboard access.")) return;
-    await fetch(`/api/staff/${id}`, { method: "DELETE" });
+  async function confirmRemove() {
+    if (!removing) return;
+    setRemoveBusy(true);
+    const res = await fetch(`/api/staff/${removing.id}`, { method: "DELETE" });
+    const d = await res.json().catch(() => ({}));
+    setRemoveBusy(false);
+    const name = removing.firstName;
+    setRemoving(null);
+    setNotice(res.ok ? `${name} was removed from the staff.` : (typeof d.error === "string" ? d.error : "Couldn't remove this staff member."));
     load();
   }
 
+  const list = staff.filter((s) => s.id !== session?.user?.id);
+  const owners = list.filter((s) => s.role === "OWNER").length;
+  const countLine = `${list.length} ${list.length === 1 ? "person" : "people"}${owners ? ` · ${owners} ${owners === 1 ? "owner" : "owners"}` : ""} · open anyone to manage their access, pay and schedule`;
+  const smallBtn =
+    "inline-flex min-h-[44px] items-center justify-center rounded-lg px-3 text-[13px] font-medium md:min-h-[32px]";
+
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl">
+    <div className="max-w-[1192px] p-4 pb-32 sm:p-6 md:pb-8 lg:p-8">
       <PageHeader
-        title="Staff"
-        description="Manage coaches and staff, set their roles and permissions."
+        title="Staff directory"
+        description={loading ? "Coaches and staff." : countLine}
         actions={
-          <button
-            onClick={() => setShowAdd(true)}
-            className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover w-full sm:w-auto"
-          >
-            + Add staff
-          </button>
+          canManage ? (
+            <button
+              type="button"
+              onClick={() => setShowAdd(true)}
+              className="hidden min-h-[44px] items-center justify-center rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand-hover md:inline-flex md:min-h-[38px]"
+            >
+              + Add staff
+            </button>
+          ) : undefined
         }
       />
 
+      {notice && (
+        <div role="status" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-app-border bg-surface px-4 py-3 text-[13px] text-text-primary">
+          <span>{notice}</span>
+          <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="-my-2 inline-flex h-11 w-11 items-center justify-center text-text-muted hover:text-text-primary md:h-6 md:w-6">×</button>
+        </div>
+      )}
+
       {loading ? (
-        <div className="bg-white rounded-xl border border-app-border"><SkeletonList rows={4} /></div>
-      ) : staff.length === 0 ? (
+        <div className="rounded-xl border border-app-border bg-surface"><SkeletonList rows={4} /></div>
+      ) : list.length === 0 ? (
         <EmptyState
           icon={<Shield size={26} strokeWidth={1.75} />}
           title="No staff yet"
           description="Add coaches and staff to give them access to the dashboard."
-          action={{ label: "Add your first staff member", onClick: () => setShowAdd(true) }}
-          className="bg-white rounded-xl border border-app-border"
+          action={canManage ? { label: "Add your first staff member", onClick: () => setShowAdd(true) } : undefined}
+          className="rounded-xl border border-app-border bg-surface"
         />
       ) : (
-        <div className="space-y-3">
-          {staff.filter((s) => s.id !== session?.user?.id).map((s) => {
-            const isOwner = s.role === "OWNER";
-            const perms = s.staffProfile?.permissions || {};
-            const activePerms = PERMISSION_DEFS.filter((p) => perms[p.key] && perms[p.key] !== "none");
-            return (
-              <div key={s.id} className="bg-white rounded-xl border border-app-border p-5">
-                {/* flex-wrap: on phones/tablets the action buttons drop to their
-                    own row instead of crushing the name/permission labels. */}
-                <div className="flex items-start gap-4 flex-wrap">
-                  <div className="w-10 h-10 rounded-full bg-app-border flex items-center justify-center text-sm font-medium text-text-primary flex-shrink-0">
-                    {s.firstName[0]}{s.lastName[0]}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                      <h3 className="text-sm font-semibold text-text-primary">
-                        {s.firstName} {s.lastName}
-                      </h3>
-                      {s.staffProfile?.title && (
-                        <span className="text-xs text-text-muted">· {s.staffProfile.title}</span>
-                      )}
-                      {isOwner && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-brand/10 text-brand">Owner</span>
-                      )}
-                    </div>
-                    <p className="text-xs text-text-muted mb-2">{s.email}</p>
-                    <div className="flex flex-wrap gap-1">
-                      {isOwner ? (
-                        <span className="text-xs text-text-muted">Full access (owner)</span>
-                      ) : activePerms.length === 0 ? (
-                        <span className="text-xs text-text-muted">No permissions set</span>
+        <div className="overflow-hidden rounded-xl border border-app-border bg-surface">
+          <div
+            className="hidden grid-cols-[minmax(0,1.3fr)_minmax(0,1.7fr)_110px_auto] gap-4 border-b border-app-border px-5 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-muted md:grid"
+            style={{ background: "var(--color-table-chrome)" }}
+          >
+            <span>Person</span>
+            <span>Access</span>
+            <span>Staff login</span>
+            <span className="sr-only">Actions</span>
+          </div>
+          <ul>
+            {list.map((s) => {
+              const rowIsOwner = s.role === "OWNER";
+              const invited = !!s.invitePending;
+              const href = `/dashboard/staff/${s.id}`;
+              return (
+                <li
+                  key={s.id}
+                  className="grid grid-cols-1 gap-2 border-b px-4 py-3.5 last:border-b-0 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.7fr)_110px_auto] md:items-center md:gap-4 md:px-5"
+                  style={{ borderColor: "var(--color-hairline)" }}
+                >
+                  <Link href={href} className="flex min-h-[44px] min-w-0 items-center gap-3 rounded-lg hover:opacity-90">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-app-border text-[13px] font-semibold text-text-primary">
+                      {s.staffProfile?.photoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={s.staffProfile.photoUrl} alt="" className="h-full w-full object-cover" />
                       ) : (
-                        activePerms.map((p) => {
-                          const lvl = (perms[p.key] || "none") as PermissionLevel;
-                          return (
-                            <span
-                              key={p.key}
-                              className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${levelColors[lvl]}`}
-                            >
-                              {p.label}: {lvl}
-                            </span>
-                          );
-                        })
+                        <>{s.firstName[0]}{s.lastName[0]}</>
                       )}
-                    </div>
-                  </div>
-                  <div className="flex gap-1 flex-shrink-0 w-full justify-end border-t border-app-border pt-2 sm:w-auto sm:border-0 sm:pt-0">
-                    {!isOwner && (
+                    </span>
+                    <span className="min-w-0">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <span className="truncate text-[14px] font-semibold text-text-primary">{s.firstName} {s.lastName}</span>
+                        {rowIsOwner && (
+                          <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[12px] font-medium text-brand">Owner</span>
+                        )}
+                      </span>
+                      <span className="block truncate text-[12.5px] text-text-muted">{s.staffProfile?.title || s.email}</span>
+                    </span>
+                  </Link>
+                  <Link href={href} className="min-w-0 text-[12.5px] text-text-muted hover:text-text-primary md:text-text-primary">
+                    {accessSummary(s.role, s.staffProfile?.permissions ?? null)}
+                  </Link>
+                  <span className="flex items-center gap-1.5 text-[12.5px]">
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ background: invited ? "var(--color-warn-text)" : "var(--color-success-icon)" }}
+                      aria-hidden
+                    />
+                    <span className={invited ? "font-medium" : "text-text-muted"} style={invited ? { color: "var(--color-warn-text)" } : undefined}>
+                      {invited ? "Invited" : "Set up"}
+                    </span>
+                  </span>
+                  <div className="flex flex-wrap items-center justify-end gap-1 border-t pt-2 md:border-0 md:pt-0" style={{ borderColor: "var(--color-hairline)" }}>
+                    {canManage && (
                       <button
-                        onClick={() => setEditing(s)}
-                        className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
+                        type="button"
+                        onClick={() => setSetupFor(s)}
+                        className={`${smallBtn} text-text-muted hover:bg-app-bg hover:text-text-primary`}
+                        title="Create a fresh 14-day setup link"
                       >
-                        Edit
+                        Setup link
                       </button>
                     )}
-                    <button
-                      onClick={async () => {
-                        const res = await fetch(`/api/staff/${s.id}/setup-link`, { method: "POST" });
-                        const d = await res.json().catch(() => ({}));
-                        if (!res.ok) {
-                          window.alert(d.error || "Could not regenerate setup link.");
-                          return;
-                        }
-                        const msg = d.emailed
-                          ? "Setup link emailed. Copy it below in case the email doesn't arrive:\n\n" + d.setupUrl
-                          : "Email failed to send. Copy this link and send it to them manually:\n\n" + d.setupUrl;
-                        window.prompt(msg, d.setupUrl);
-                      }}
-                      className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg"
-                      title="Generate a fresh 14-day setup link"
-                    >
-                      Setup link
-                    </button>
-                    {!isOwner && (
+                    {canManage && !rowIsOwner && (
                       <button
-                        onClick={() => handleRemove(s.id)}
-                        className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded"
+                        type="button"
+                        onClick={() => setRemoving(s)}
+                        className={`${smallBtn} hover:bg-app-bg`}
+                        style={{ color: "var(--color-danger-text)" }}
                       >
                         Remove
                       </button>
                     )}
+                    <Link href={href} className={`${smallBtn} gap-0.5 text-brand hover:bg-app-bg`}>
+                      Open profile <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                    </Link>
                   </div>
-                </div>
-              </div>
-            );
-          })}
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
 
-      {showAdd && (
-        <AddStaffModal
-          onClose={() => setShowAdd(false)}
-          onSaved={() => { setShowAdd(false); load(); }}
-        />
+      {/* Phones: pill FAB above the bottom nav. */}
+      {canManage && (
+        <button
+          type="button"
+          onClick={() => setShowAdd(true)}
+          className="fixed right-4 z-20 inline-flex min-h-[48px] items-center gap-2 rounded-full bg-charcoal px-5 text-[15px] font-semibold text-white shadow-lg md:hidden"
+          style={{ bottom: "calc(78px + env(safe-area-inset-bottom, 0px))" }}
+        >
+          <UserPlus className="h-4 w-4" aria-hidden /> Add staff
+        </button>
       )}
 
-      {editing && (
-        <EditStaffModal
-          staff={editing}
-          onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); load(); }}
-        />
-      )}
-    </div>
-  );
-}
-
-function PermissionRow({
-  def,
-  value,
-  onChange,
-}: {
-  def: typeof PERMISSION_DEFS[0];
-  value: PermissionLevel;
-  onChange: (val: PermissionLevel) => void;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-text-primary">{def.label}</div>
-        <div className="text-xs text-text-muted">{def.desc}</div>
-      </div>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as PermissionLevel)}
-        className="text-xs px-2 py-1.5 border border-app-border rounded-md bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-brand"
-      >
-        {def.levels.map((lvl) => (
-          <option key={lvl} value={lvl}>
-            {lvl.charAt(0).toUpperCase() + lvl.slice(1)}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  // Mode picker: "invite" emails a one-time setup link (recommended);
-  // "temp" lets the owner hand over a temporary password they pick.
-  const [mode, setMode] = useState<"invite" | "temp">("invite");
-  const [title, setTitle] = useState("");
-  const [accountRole, setAccountRole] = useState<"STAFF" | "OWNER">("STAFF");
-  const [permissions, setPermissions] = useState<Record<string, PermissionLevel>>(defaultPermissions());
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  function setLevel(key: string, val: PermissionLevel) {
-    setPermissions((p) => ({ ...p, [key]: val }));
-  }
-
-  const [createdSetupUrl, setCreatedSetupUrl] = useState<string | null>(null);
-  const [createdEmailed, setCreatedEmailed] = useState<boolean>(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    setError("");
-    const body =
-      mode === "invite"
-        ? { firstName, lastName, email, sendSetupLink: true, title, permissions, accountRole }
-        : { firstName, lastName, email, password, title, permissions, accountRole };
-    const res = await fetch("/api/staff", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    setSaving(false);
-    if (!res.ok) {
-      const data = await res.json();
-      setError(data.error?.toString() || "Failed to add staff");
-      return;
-    }
-    const data = await res.json().catch(() => ({}));
-    if (mode === "invite" && data?.setupUrl) {
-      // Show the link inside the modal so the owner can copy it manually
-      // when email isn't reliable. Hitting Done closes the modal.
-      setCreatedSetupUrl(data.setupUrl);
-      setCreatedEmailed(!!data.emailed);
-      return;
-    }
-    onSaved();
-  }
-
-  // After a setup-link invite succeeds we swap the form for a confirmation
-  // panel that surfaces the URL — critical when SMTP isn't configured so
-  // the owner still has a way to deliver the link.
-  if (createdSetupUrl) {
-    return (
-      <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-        <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg p-6 space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold text-text-primary mb-1">Staff member added</h2>
-            <p className="text-sm text-text-muted">
-              {createdEmailed
-                ? "We emailed a one-time setup link. It expires in 14 days."
-                : "Email couldn't be sent (your SMTP may not be configured). Copy this link and send it to them directly:"}
-            </p>
-          </div>
-          <div className="rounded-lg border border-app-border bg-app-bg p-3 text-xs font-mono break-all text-text-primary">
-            {createdSetupUrl}
-          </div>
-          <div className="flex gap-2">
+      <AddStaffSheet open={showAdd} onClose={() => setShowAdd(false)} onAdded={load} />
+      <SetupLinkSheet target={setupFor} onClose={() => setSetupFor(null)} />
+      <Sheet
+        open={!!removing}
+        onClose={() => setRemoving(null)}
+        title={`Remove ${removing?.firstName ?? ""} from the staff?`}
+        description={`${removing?.firstName ?? "They"} won't be able to sign in. Their history (attendance taken, pay records, activity) stays.`}
+        footer={
+          <>
             <button
               type="button"
-              onClick={() => {
-                navigator.clipboard?.writeText(createdSetupUrl).catch(() => {});
-              }}
-              className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg"
+              onClick={() => setRemoving(null)}
+              className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-app-border px-4 text-[13.5px] font-medium text-text-primary hover:bg-app-bg md:min-h-[36px]"
             >
-              Copy link
+              Keep {removing?.firstName}
             </button>
             <button
               type="button"
-              onClick={onSaved}
-              className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover"
+              onClick={confirmRemove}
+              disabled={removeBusy}
+              className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-red-600 px-4 text-[13.5px] font-medium text-white hover:bg-red-700 disabled:opacity-50 md:min-h-[36px]"
             >
-              Done
+              {removeBusy ? "Removing…" : "Remove from staff"}
             </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
-          <h2 className="text-lg font-semibold text-text-primary">Add staff member</h2>
-          <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">First name</label>
-              <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required
-                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">Last name</label>
-              <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} required
-                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Email</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
-              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-          </div>
-
-          <div>
-            <p className="text-sm font-medium text-text-primary mb-2">How should they sign in?</p>
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <button
-                type="button"
-                onClick={() => setMode("invite")}
-                className={`rounded-lg border px-3 py-2 text-left transition ${
-                  mode === "invite"
-                    ? "border-brand bg-brand/5 text-text-primary"
-                    : "border-app-border text-text-muted hover:border-text-muted"
-                }`}
-              >
-                <div className="text-sm font-semibold">Email setup link</div>
-                <div className="text-[11px] mt-0.5 opacity-80">They choose their own password (recommended)</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("temp")}
-                className={`rounded-lg border px-3 py-2 text-left transition ${
-                  mode === "temp"
-                    ? "border-brand bg-brand/5 text-text-primary"
-                    : "border-app-border text-text-muted hover:border-text-muted"
-                }`}
-              >
-                <div className="text-sm font-semibold">Set a temporary password</div>
-                <div className="text-[11px] mt-0.5 opacity-80">You hand it over and they change it later</div>
-              </button>
-            </div>
-            {mode === "temp" ? (
-              <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8}
-                placeholder="At least 8 characters"
-                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-            ) : (
-              <p className="text-xs text-text-muted">
-                We&apos;ll email <strong>{email || "the staff member"}</strong> a one-time setup link
-                that expires in 14 days. They&apos;ll create their own password and land back at the sign-in page.
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Title (optional)</label>
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
-              placeholder="Head Coach, Assistant Coach, Front Desk…"
-              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Account type</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setAccountRole("STAFF")}
-                className={`text-left px-3 py-2 rounded-lg border text-sm ${accountRole === "STAFF" ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-primary hover:bg-app-bg"}`}
-              >
-                <span className="font-medium block">Staff</span>
-                <span className="text-[11px] text-text-muted">Access limited by permissions</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setAccountRole("OWNER")}
-                className={`text-left px-3 py-2 rounded-lg border text-sm ${accountRole === "OWNER" ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-primary hover:bg-app-bg"}`}
-              >
-                <span className="font-medium block">Owner</span>
-                <span className="text-[11px] text-text-muted">Full access, incl. settings &amp; billing</span>
-              </button>
-            </div>
-            {accountRole === "OWNER" && (
-              <p className="text-[11px] text-text-muted mt-1.5">Owners can manage everything, including other staff, settings, and billing.</p>
-            )}
-          </div>
-
-          {accountRole !== "OWNER" && (
-          <div className="pt-2 border-t border-app-border">
-            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">Permissions</p>
-            <div className="space-y-3">
-              {PERMISSION_DEFS.map((def) => (
-                <PermissionRow
-                  key={def.key}
-                  def={def}
-                  value={permissions[def.key] as PermissionLevel}
-                  onChange={(v) => setLevel(def.key, v)}
-                />
-              ))}
-            </div>
-          </div>
-          )}
-
-          {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
-
-          <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose}
-              className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">
-              Cancel
-            </button>
-            <button type="submit" disabled={saving}
-              className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
-              {saving ? "Adding…" : "Add staff member"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function EditStaffModal({
-  staff,
-  onClose,
-  onSaved,
-}: {
-  staff: StaffUser;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const existing = resolvePermissions(staff.staffProfile?.permissions ?? null);
-  // Account fields — owners can edit anything except the password.
-  const [firstName, setFirstName] = useState(staff.firstName || "");
-  const [lastName, setLastName] = useState(staff.lastName || "");
-  const [email, setEmail] = useState(staff.email || "");
-  const [title, setTitle] = useState(staff.staffProfile?.title || "");
-  // Preserved (no longer edited here — pricing now lives on lesson types).
-  const appointmentPrice = staff.staffProfile?.appointmentPrice || "";
-  const [bio, setBio] = useState(staff.staffProfile?.bio || "");
-  const [publicEmail, setPublicEmail] = useState(staff.staffProfile?.publicEmail || "");
-  const [publicPhone, setPublicPhone] = useState(staff.staffProfile?.publicPhone || "");
-  const [photoUrl, setPhotoUrl] = useState<string>(staff.staffProfile?.photoUrl || "");
-  const [showOnPortal, setShowOnPortal] = useState<boolean>(!!staff.staffProfile?.showOnPortal);
-  const [permissions, setPermissions] = useState<Record<string, PermissionLevel>>({ ...existing });
-  // 3L — sub-scope map lives alongside `permissions` under the
-  // messages_subScopes key. Split into its own state slot so the UI
-  // toggle logic is legible.
-  const [subScopes, setSubScopes] = useState<Record<MessagesSubScope, boolean>>(
-    () => resolveMessagesSubScopes(staff.staffProfile?.permissions ?? null),
-  );
-  // 4A — same nested-JSON pattern under billing_subScopes.
-  const [billingSubScopes, setBillingSubScopes] = useState<Record<BillingSubScope, boolean>>(
-    () => resolveBillingSubScopes(staff.staffProfile?.permissions ?? null),
-  );
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  // When a save gets part way, this names what DID land, so the message can say
-  // so rather than implying nothing happened. Reset at the start of each save.
-  const [savedSoFar, setSavedSoFar] = useState<string[]>([]);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-
-  // ── One save means one save ────────────────────────────────────────────────
-  // Until 2026-09-25 this modal had four write boundaries in one scroll:
-  //
-  //   · identity / portal / permissions → the footer "Save changes" button
-  //   · the compensation plan           → its own "Save compensation plan"
-  //   · private lesson types            → written IMMEDIATELY, on every toggle
-  //   · staff documents                 → immediately, on upload
-  //
-  // Two of those were bugs the owner could not see. Toggling a lesson type and
-  // then pressing Cancel KEPT the toggle, because it had already been PATCHed.
-  // Filling in a compensation plan and pressing "Save changes" THREW THE PLAN
-  // AWAY, because the footer button does not know the plan exists. Both fail
-  // silently — the modal closes cleanly either way.
-  //
-  // Now the lesson-type selection and the compensation plan are drafts held
-  // here. Nothing is written until submit, submit writes all three, and Cancel
-  // discards all three. Documents stay immediate because they are file
-  // uploads, and the panel says so out loud.
-  //
-  // The three writes still hit three endpoints, so a real cross-endpoint
-  // transaction is not available from the client. Order is therefore
-  // most-likely-to-fail first (the profile PATCH, where a duplicate email or a
-  // validation error lands); a failure stops the sequence and names what
-  // already saved. All three writes are idempotent, so pressing Save changes
-  // again after a partial failure is safe and simply re-runs them.
-
-  // Private lesson types. `null` while loading.
-  const [lessonTypes, setLessonTypes] = useState<CoachLT[] | null>(null);
-  const [ltInitial, setLtInitial] = useState<string[]>([]);
-  const [ltSelected, setLtSelected] = useState<string[]>([]);
-  const [ltLoadError, setLtLoadError] = useState("");
-
-  // Compensation plan. `null` while loading.
-  const [comp, setComp] = useState<CompDraft | null>(null);
-  const [compInitial, setCompInitial] = useState<string>("");
-  const [compOptions, setCompOptions] = useState<CompOptions>({ classes: [], events: [], memberships: [], lessonTypes: [] });
-  const [compLoadError, setCompLoadError] = useState("");
-
-  useEffect(() => {
-    let alive = true;
-    // A non-ok response has to be distinguished from "no lesson types". Both
-    // used to render as an empty list, so a staff member without the permission
-    // saw a blank section that looked like the club had none.
-    fetch("/api/private-lessons/types")
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d) => {
-        if (!alive) return;
-        const list: CoachLT[] = Array.isArray(d) ? d : [];
-        // The checkbox controls eligibleCoachIds and nothing else, so the
-        // initial selection is read from that field alone. A coach named only
-        // inside a price option is labelled as such by CoachLessonTypes rather
-        // than shown as a ticked box the owner cannot untick.
-        const eligible = list.filter((lt) => (lt.eligibleCoachIds ?? []).includes(staff.id)).map((lt) => lt.id);
-        setLessonTypes(list);
-        setLtInitial(eligible);
-        setLtSelected(eligible);
-      })
-      .catch(() => {
-        if (!alive) return;
-        setLessonTypes([]);
-        setLtLoadError("Could not load lesson types — saving will leave them unchanged.");
-      });
-    return () => {
-      alive = false;
-    };
-  }, [staff.id]);
-
-  useEffect(() => {
-    let alive = true;
-    // Same reasoning as the lesson-type load above, and it matters more here:
-    // this endpoint is gated on finances:view, so a 403 used to render an empty
-    // plan that was indistinguishable from "no plan set". The dirty check keeps
-    // that from being SAVED as empty, but the owner should still be told.
-    fetch(`/api/staff/${staff.id}/compensation`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d) => {
-        if (!alive) return;
-        if (d?.options) setCompOptions(d.options);
-        const draft = compDraftFromPlan(d?.plan ?? null);
-        setComp(draft);
-        setCompInitial(JSON.stringify(draft));
-      })
-      .catch(() => {
-        if (!alive) return;
-        const draft = compDraftFromPlan(null);
-        setComp(draft);
-        setCompInitial(JSON.stringify(draft));
-        setCompLoadError("Could not load the compensation plan — saving will leave it unchanged.");
-      });
-    return () => {
-      alive = false;
-    };
-  }, [staff.id]);
-
-  const profileDirty =
-    firstName !== (staff.firstName || "") ||
-    lastName !== (staff.lastName || "") ||
-    email !== (staff.email || "") ||
-    title !== (staff.staffProfile?.title || "") ||
-    bio !== (staff.staffProfile?.bio || "") ||
-    publicEmail !== (staff.staffProfile?.publicEmail || "") ||
-    publicPhone !== (staff.staffProfile?.publicPhone || "") ||
-    photoUrl !== (staff.staffProfile?.photoUrl || "") ||
-    showOnPortal !== !!staff.staffProfile?.showOnPortal ||
-    JSON.stringify(permissions) !== JSON.stringify(existing) ||
-    JSON.stringify(subScopes) !== JSON.stringify(resolveMessagesSubScopes(staff.staffProfile?.permissions ?? null)) ||
-    JSON.stringify(billingSubScopes) !== JSON.stringify(resolveBillingSubScopes(staff.staffProfile?.permissions ?? null));
-
-  // Only lesson types whose membership for THIS coach changed get a PATCH, so
-  // a staff save never rewrites a lesson type the owner did not touch.
-  const ltChanged = (lessonTypes ?? []).filter(
-    (lt) => ltSelected.includes(lt.id) !== ltInitial.includes(lt.id),
-  );
-  const compDirty = compIsDirty(compInitial, comp);
-  const dirty = profileDirty || ltChanged.length > 0 || compDirty;
-  const stillLoading = lessonTypes === null || comp === null;
-
-  function requestClose() {
-    if (dirty) setConfirmDiscard(true);
-    else onClose();
-  }
-
-  function toggleLessonType(id: string) {
-    setLtSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  }
-
-  function setLevel(key: string, val: PermissionLevel) {
-    setPermissions((p) => ({ ...p, [key]: val }));
-  }
-  function setSubScope(scope: MessagesSubScope, on: boolean) {
-    setSubScopes((s) => ({ ...s, [scope]: on }));
-  }
-  function setBillingSubScope(scope: BillingSubScope, on: boolean) {
-    setBillingSubScopes((s) => ({ ...s, [scope]: on }));
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    setError("");
-    setSavedSoFar([]);
-    const landed: string[] = [];
-
-    // Step 1 — identity, portal profile, permissions. First because this is
-    // where a duplicate email or a validation error surfaces, and a failure
-    // here should leave the other two untouched.
-    const res = await fetch(`/api/staff/${staff.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        email: email.trim().toLowerCase(),
-        title: title || null,
-        appointmentPrice: appointmentPrice ? parseFloat(appointmentPrice) : null,
-        bio: bio || null,
-        publicEmail: publicEmail || null,
-        publicPhone: publicPhone || null,
-        photoUrl: photoUrl || null,
-        showOnPortal,
-        permissions: {
-          ...permissions,
-          // Fold the sub-scope map into the permissions JSON blob under
-          // messages_subScopes. Server-side resolvers read it back with
-          // hasMessagesSubScope() / resolveMessagesSubScopes().
-          messages_subScopes: subScopes,
-          billing_subScopes: billingSubScopes,
-        },
-      }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setSaving(false);
-      setError(data.error?.toString() || "Save failed. Nothing was changed.");
-      return;
-    }
-    landed.push("name, contact and permissions");
-
-    // Step 2 — the compensation plan, only when it actually changed and only
-    // when we managed to read the existing one. Writing a plan we never
-    // successfully loaded would replace the real one with an empty draft, which
-    // is the same class of silent loss this whole change exists to remove.
-    if (compDirty && comp && !compLoadError) {
-      const r2 = await fetch(`/api/staff/${staff.id}/compensation`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(compPayload(comp)),
-      });
-      if (!r2.ok) {
-        const d = await r2.json().catch(() => ({}));
-        setSaving(false);
-        setSavedSoFar(landed);
-        setError(
-          `The compensation plan did not save: ${
-            typeof d.error === "string" ? d.error : "the server rejected it"
-          }. Your edits are still here — press Save changes to try again.`,
-        );
-        return;
-      }
-      landed.push("compensation plan");
-    }
-
-    // Step 3 — lesson-type eligibility, only the rows that changed.
-    for (const lt of ltChanged) {
-      const nowOn = ltSelected.includes(lt.id);
-      const current = lt.eligibleCoachIds ?? [];
-      const next = nowOn ? [...current, staff.id] : current.filter((c) => c !== staff.id);
-      const r3 = await fetch(`/api/private-lessons/types/${lt.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eligibleCoachIds: Array.from(new Set(next)) }),
-      });
-      if (!r3.ok) {
-        const d = await r3.json().catch(() => ({}));
-        setSaving(false);
-        setSavedSoFar(landed);
-        setError(
-          `"${lt.title}" did not save: ${
-            typeof d.error === "string" ? d.error : "the server rejected it"
-          }. Your edits are still here — press Save changes to try again.`,
-        );
-        return;
-      }
-    }
-
-    setSaving(false);
-    onSaved();
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
-          <h2 className="text-lg font-semibold text-text-primary">
-            Edit — {staff.firstName} {staff.lastName}
-          </h2>
-          <button
-            type="button"
-            onClick={requestClose}
-            aria-label="Close without saving"
-            className="w-11 h-11 -mr-2 shrink-0 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-app-bg"
-          >
-            <X size={18} strokeWidth={2} aria-hidden />
-          </button>
-        </div>
-
-        {/* Unsaved-changes guard. Cancel and the close button both route here
-            when something is dirty, because both used to discard silently —
-            and, worse, used to discard only SOME of it. Rendered inline rather
-            than through window.confirm: a WKWebView renders confirm() as a
-            system dialog titled with the app's hostname, which is the single
-            most obvious "this is a website" tell in the native shell. */}
-        {confirmDiscard && (
-          <div
-            role="alertdialog"
-            aria-label="Discard unsaved changes"
-            className="mx-6 mt-4 rounded-lg border px-3 py-2.5"
-            style={{
-              background: "var(--color-warn-surface, #FFF7ED)",
-              borderColor: "var(--color-warn-border, #FED7AA)",
-            }}
-          >
-            <p className="text-[13px] font-medium" style={{ color: "var(--color-warn-text, #B45309)" }}>
-              Close without saving?
-            </p>
-            <p className="text-[12px] mt-0.5" style={{ color: "var(--color-warn-text, #B45309)" }}>
-              {[
-                profileDirty && "name, contact or permissions",
-                compDirty && "the compensation plan",
-                ltChanged.length > 0 &&
-                  `${ltChanged.length} lesson type${ltChanged.length === 1 ? "" : "s"}`,
-              ]
-                .filter(Boolean)
-                .join(", ")}{" "}
-              will be discarded. Uploaded documents are already saved and are not affected.
-            </p>
-            <div className="flex gap-2 mt-2.5">
-              <button
-                type="button"
-                onClick={() => setConfirmDiscard(false)}
-                className="px-3 py-1.5 text-[13px] font-medium rounded-md bg-white border border-app-border text-text-primary hover:bg-app-bg"
-              >
-                Keep editing
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-3 py-1.5 text-[13px] font-medium rounded-md text-white"
-                style={{ background: "var(--color-danger, #A32D2D)" }}
-              >
-                Discard changes
-              </button>
-            </div>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* Account — owner-editable. Password is intentionally NOT here; it
-              is reset by the staff member via Forgot password. */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">First name</label>
-              <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required
-                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">Last name</label>
-              <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} required
-                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Login email</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
-              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-            <p className="text-[11px] text-text-muted mt-1">
-              The email this staff member uses to sign in. Password changes are
-              handled by the staff member via Forgot password — not editable here.
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1">Title</label>
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
-              placeholder="Head Coach, Assistant Coach, Front Desk…"
-              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-          </div>
-
-          <div className="pt-2 border-t border-app-border">
-            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-1">
-              Private lesson types
-            </p>
-            <p className="text-xs text-text-muted mb-3">
-              Pick which lesson types this coach offers. Prices live on the lesson
-              type (and its purchase options) under Purchase Options → Privates.
-            </p>
-            <CoachLessonTypes
-              coachId={staff.id}
-              types={lessonTypes}
-              selected={ltSelected}
-              onToggle={toggleLessonType}
-              loadError={ltLoadError}
-            />
-          </div>
-
-          <div className="pt-2 border-t border-app-border">
-            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">Compensation plan</p>
-            <CompensationBuilder
-              value={comp}
-              opts={compOptions}
-              onChange={setComp}
-              loadError={compLoadError}
-            />
-          </div>
-
-          <div className="pt-2 border-t border-app-border">
-            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">Member portal profile</p>
-            <p className="text-xs text-text-muted mb-3">When enabled, this staff member appears on your member portal's Staff page with their bio and visible contact info.</p>
-
-            <label className="flex items-center gap-3 py-2 mb-3 cursor-pointer">
-              <input type="checkbox" checked={showOnPortal} onChange={(e) => setShowOnPortal(e.target.checked)} className="rounded" />
-              <span className="text-sm text-text-primary">Show on member portal</span>
-            </label>
-
-            {showOnPortal && (
-              <div className="space-y-3">
-                <ImageUpload
-                  label="Profile photo"
-                  value={photoUrl || null}
-                  onChange={setPhotoUrl}
-                  shape="circle"
-                />
-                <div>
-                  <label className="block text-sm font-medium text-text-primary mb-1">Bio</label>
-                  <textarea
-                    value={bio}
-                    onChange={(e) => setBio(e.target.value)}
-                    rows={4}
-                    maxLength={2000}
-                    placeholder="Coaching background, certifications, philosophy…"
-                    className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand resize-y"
-                  />
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-text-primary mb-1">Public email</label>
-                    <input type="email" value={publicEmail} onChange={(e) => setPublicEmail(e.target.value)}
-                      placeholder="coach@club.com"
-                      className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-text-primary mb-1">Public phone</label>
-                    <input type="tel" value={publicPhone} onChange={(e) => setPublicPhone(e.target.value)}
-                      placeholder="(555) 000-0000"
-                      className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-                  </div>
-                </div>
-                <p className="text-xs text-text-muted">Leave blank to hide. Members will only see what you fill in here, not the staff member's login email.</p>
-              </div>
-            )}
-          </div>
-
-          <div className="pt-2 border-t border-app-border">
-            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">Permissions</p>
-            <div className="space-y-3">
-              {PERMISSION_DEFS.map((def) => (
-                <PermissionRow
-                  key={def.key}
-                  def={def}
-                  value={permissions[def.key] as PermissionLevel}
-                  onChange={(v) => setLevel(def.key, v)}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* 3L — Messaging sub-scopes. Only visible when messages is
-              enabled (level != none), because these switches only mean
-              anything on top of a base messages level. */}
-          {permissions.messages && permissions.messages !== "none" && (
-            <div className="pt-2 border-t border-app-border">
-              <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-1">Messaging — advanced</p>
-              <p className="text-xs text-text-muted mb-3">
-                Sub-permissions on top of the Messaging level above. Defaults are
-                safe for coaches — turn on Bulk, Marketing, or Address any member
-                only for staff who should be reaching the whole club.
-              </p>
-              <div className="space-y-2">
-                {MESSAGES_SUBSCOPES.map((s) => (
-                  <label key={s} className="flex items-start gap-2 p-2 rounded-md border border-app-border hover:bg-app-bg cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={!!subScopes[s]}
-                      onChange={(e) => setSubScope(s, e.target.checked)}
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm text-text-primary">{SUBSCOPE_LABELS[s].label}</span>
-                      <span className="block text-[11px] text-text-muted">{SUBSCOPE_LABELS[s].desc}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Billing sub-permissions. Shown whenever the staff member has any
-              billing access — moving a membership between siblings is a narrow
-              correction a front-desk lead may need without billing:full. */}
-          {permissions.billing && permissions.billing !== "none" && (
-            <div className="pt-2 border-t border-app-border">
-              <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-1">Billing — advanced</p>
-              <p className="text-xs text-text-muted mb-3">
-                Extra abilities on top of the Billing level above. Off by default.
-              </p>
-              <label className="flex items-start gap-2 p-2 rounded-md border border-app-border hover:bg-app-bg cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={!!billingSubScopes.transfer_subscription}
-                  onChange={(e) => setBillingSubScope("transfer_subscription", e.target.checked)}
-                />
-                <span className="min-w-0">
-                  <span className="block text-sm text-text-primary">Transfer subscription</span>
-                  <span className="block text-[11px] text-text-muted">
-                    Move a membership to another family member — e.g. a parent bought under their own
-                    profile by mistake. The payer, card and receipt never change. Also allows approving
-                    client transfer requests.
-                  </span>
-                </span>
-              </label>
-            </div>
-          )}
-
-          {error && (
-            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              {savedSoFar.length > 0 && (
-                <span className="block font-medium mb-0.5">Partly saved: {savedSoFar.join(", ")}.</span>
-              )}
-              {error}
-            </div>
-          )}
-
-          <div className="flex gap-2 pt-2">
-            <button type="button" onClick={requestClose}
-              className="flex-1 px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg">
-              Cancel
-            </button>
-            {/* Disabled until the lesson-type list and the compensation plan have
-                loaded. Saving before then would compare the draft against an
-                empty baseline and look like the owner cleared both. */}
-            <button type="submit" disabled={saving || stillLoading}
-              className="flex-1 px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50">
-              {saving ? "Saving…" : stillLoading ? "Loading…" : "Save changes"}
-            </button>
-          </div>
-          <p className="text-[11px] text-text-muted">
-            Save changes writes everything above it: name and contact, lesson types,
-            the compensation plan, the portal profile and permissions. Cancel discards
-            all of it. Documents below save on upload.
-          </p>
-        </form>
-
-        {/* Staff documents (tax docs, contracts, agreements, etc.). Lives outside
-            the main form because these are file uploads — they cannot be held as
-            a draft and replayed on submit the way the rest of the modal now is.
-            The heading says so, so "Save changes" is not read as covering them. */}
-        <div className="px-6 pb-6">
-          <StaffDocsPanel staffUserId={staff.id} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── Modular compensation builder ─────────────────────────────────────────── */
-
-type Opt = { id: string; name: string };
-type CompOptions = { classes: Opt[]; events: Opt[]; memberships: Opt[]; lessonTypes: Opt[] };
-
-
-const BONUS_LABEL: Record<BonusDraft["bonusType"], string> = {
-  ATTENDANCE: "Class growth incentive ($ per kid / per class)",
-  SIGNUP: "Signup bonus (pay on next paycheck)",
-  REVENUE_SHARE: "Revenue share (% of revenue)",
-};
-const BONUS_SCOPES: Record<BonusDraft["bonusType"], ScopeType[]> = {
-  ATTENDANCE: ["CLASS", "EVENT"],
-  SIGNUP: ["CLASS", "MEMBERSHIP"],
-  REVENUE_SHARE: ["CLASS", "EVENT", "MEMBERSHIP", "PRIVATE_LESSON_TYPE"],
-};
-
-function scopeOptions(opts: CompOptions, t: ScopeType): Opt[] {
-  if (t === "CLASS") return opts.classes;
-  if (t === "EVENT") return opts.events;
-  if (t === "MEMBERSHIP") return opts.memberships;
-  return opts.lessonTypes;
-}
-
-function ScopePicker({
-  allowed,
-  opts,
-  scopes,
-  onChange,
-}: {
-  allowed: ScopeType[];
-  opts: CompOptions;
-  scopes: Scope[];
-  onChange: (s: Scope[]) => void;
-}) {
-  function toggle(scopeType: ScopeType, scopeId: string) {
-    const has = scopes.some((s) => s.scopeType === scopeType && s.scopeId === scopeId);
-    onChange(
-      has
-        ? scopes.filter((s) => !(s.scopeType === scopeType && s.scopeId === scopeId))
-        : [...scopes, { scopeType, scopeId }]
-    );
-  }
-  return (
-    <div className="space-y-2">
-      {allowed.map((t) => {
-        const list = scopeOptions(opts, t);
-        if (list.length === 0) return null;
-        return (
-          <div key={t}>
-            <p className="text-[11px] uppercase tracking-wider text-text-muted mb-1">
-              {t === "PRIVATE_LESSON_TYPE" ? "Private lessons" : t.charAt(0) + t.slice(1).toLowerCase() + "s"}
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {list.map((o) => {
-                const active = scopes.some((s) => s.scopeType === t && s.scopeId === o.id);
-                return (
-                  <button
-                    type="button"
-                    key={o.id}
-                    onClick={() => toggle(t, o.id)}
-                    className={`text-xs px-2 py-1 rounded-md border ${
-                      active ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted hover:bg-app-bg"
-                    }`}
-                  >
-                    {o.name}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
-      <p className="text-[11px] text-text-muted">Leave all unselected to apply club-wide / to everything this staff is tied to.</p>
-    </div>
-  );
-}
-
-// Controlled. The draft and the write both live in EditStaffModal — this
-// component renders the plan and reports edits, and deliberately has no save
-// button of its own. It used to own both, which is how "Save changes" at the
-// bottom of the modal could discard a compensation edit without saying so.
-function CompensationBuilder({
-  value,
-  opts,
-  onChange,
-  loadError,
-}: {
-  value: CompDraft | null;
-  opts: CompOptions;
-  onChange: (next: CompDraft) => void;
-  loadError?: string;
-}) {
-  // A failed load renders the reason instead of the form. Showing editable
-  // fields seeded from nothing would invite the owner to "fix" a plan that is
-  // actually fine, and saving that draft would replace it with the blank.
-  if (loadError) return <p className="text-xs text-red-600">{loadError}</p>;
-  if (value === null) return <p className="text-sm text-text-muted">Loading plan…</p>;
-
-  const { baseType, baseAmount, baseScopes, bonuses } = value;
-  const setBaseType = (t: CompDraft["baseType"]) => onChange({ ...value, baseType: t });
-  const setBaseAmount = (a: string) => onChange({ ...value, baseAmount: a });
-  const setBaseScopes = (s: Scope[]) => onChange({ ...value, baseScopes: s });
-
-  function addBonus() {
-    onChange({
-      ...value!,
-      bonuses: [...bonuses, { bonusType: "ATTENDANCE", amount: "", scopes: [], minThreshold: "", maxThreshold: "" }],
-    });
-  }
-  function updateBonus(i: number, patch: Partial<BonusDraft>) {
-    onChange({ ...value!, bonuses: bonuses.map((x, idx) => (idx === i ? { ...x, ...patch } : x)) });
-  }
-  function removeBonus(i: number) {
-    onChange({ ...value!, bonuses: bonuses.filter((_, idx) => idx !== i) });
-  }
-
-
-  return (
-    <div className="space-y-4">
-      {/* Base */}
-      <div>
-        <p className="text-sm font-medium text-text-primary mb-1">Base compensation</p>
-        <div className="grid grid-cols-3 gap-2 mb-2">
-          {(["SALARY", "PER_CLASS", "HOURLY"] as const).map((t) => (
-            <button
-              type="button"
-              key={t}
-              onClick={() => setBaseType(t)}
-              className={`text-xs px-3 py-2 rounded-lg border ${
-                baseType === t ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-primary hover:bg-app-bg"
-              }`}
-            >
-              {t === "SALARY" ? "Salary (monthly)" : t === "PER_CLASS" ? "Per class" : "Hourly"}
-            </button>
-          ))}
-        </div>
-        <label className="block text-xs font-medium text-text-primary mb-1">
-          {baseType === "SALARY" ? "Monthly amount ($)" : baseType === "PER_CLASS" ? "Amount per class ($)" : "Hourly rate ($)"}
-        </label>
-        <input
-          type="number" min="0" step="0.01" value={baseAmount}
-          onChange={(e) => setBaseAmount(e.target.value)} placeholder="0.00"
-          className="w-40 px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-        />
-        {(baseType === "PER_CLASS" || baseType === "HOURLY") && (
-          <div className="mt-2">
-            <p className="text-xs font-medium text-text-primary mb-1">Assigned classes (optional)</p>
-            <ScopePicker allowed={["CLASS"]} opts={opts} scopes={baseScopes} onChange={setBaseScopes} />
-          </div>
-        )}
-      </div>
-
-      {/* Bonuses */}
-      <div className="border-t border-app-border pt-3">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-text-primary">Bonuses (stackable)</p>
-          <button type="button" onClick={addBonus} className="text-xs text-brand hover:underline">+ Add bonus</button>
-        </div>
-        {bonuses.length === 0 && (
-          <p className="text-xs text-text-muted">
-            No bonuses. Add a signup bonus for the next paycheck, or convert growth into a per-kid/per-class incentive.
-          </p>
-        )}
-        <div className="space-y-3">
-          {bonuses.map((b, i) => (
-            <div key={i} className="border border-app-border rounded-lg p-3 space-y-2">
-              <div className="flex items-center gap-2">
-                <select
-                  value={b.bonusType}
-                  onChange={(e) =>
-                    updateBonus(i, { bonusType: e.target.value as BonusDraft["bonusType"], scopes: [] })
-                  }
-                  className="flex-1 px-2 py-1.5 border border-app-border rounded-lg text-sm bg-white"
-                >
-                  {(Object.keys(BONUS_LABEL) as BonusDraft["bonusType"][]).map((t) => (
-                    <option key={t} value={t}>{BONUS_LABEL[t]}</option>
-                  ))}
-                </select>
-                <button type="button" onClick={() => removeBonus(i)} className="text-text-muted hover:text-red-600 text-lg leading-none w-6">×</button>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-text-muted">{b.bonusType === "REVENUE_SHARE" ? "%" : "$"}</span>
-                <input
-                  type="number" min="0" step="0.01" value={b.amount}
-                  onChange={(e) => updateBonus(i, { amount: e.target.value })}
-                  placeholder={b.bonusType === "REVENUE_SHARE" ? "e.g. 10" : "e.g. 5.00"}
-                  className="w-32 px-2 py-1.5 border border-app-border rounded-lg text-sm"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[11px] text-text-muted mb-1">Starts after</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={b.minThreshold}
-                    onChange={(e) => updateBonus(i, { minThreshold: e.target.value })}
-                    placeholder="e.g. 10"
-                    className="w-full px-2 py-1.5 border border-app-border rounded-lg text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] text-text-muted mb-1">Caps at</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={b.maxThreshold}
-                    onChange={(e) => updateBonus(i, { maxThreshold: e.target.value })}
-                    placeholder="e.g. 25"
-                    className="w-full px-2 py-1.5 border border-app-border rounded-lg text-sm"
-                  />
-                </div>
-              </div>
-              <p className="text-[11px] text-text-muted">
-                Bonus only pays for items above the “starts after” count, up to the “caps at” count. Leave blank for no bound.
-              </p>
-
-              <ScopePicker
-                allowed={BONUS_SCOPES[b.bonusType]}
-                opts={opts}
-                scopes={b.scopes}
-                onChange={(s) => updateBonus(i, { scopes: s })}
-              />
-              {b.bonusType === "ATTENDANCE" && (
-                <p className="text-[11px] text-text-muted">
-                  Pays this amount for each attending athlete in the selected classes/events, so growth and retention increase pay automatically.
-                </p>
-              )}
-              {b.bonusType === "SIGNUP" && (
-                <p className="text-[11px] text-text-muted">
-                  Pays once in the selected payroll period for each qualifying signup or purchase.
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* No save button and no error slot here on purpose. The plan is saved by
-          "Save changes" at the bottom of the modal along with everything else,
-          and a save failure is reported there. A second Save button 200px above
-          the first one, with a different scope and no way to tell which was
-          which, is what made the compensation edit vanish. */}
-    </div>
-  );
-}
-
-// ─── CoachLessonTypes ─────────────────────────────────────────────────────────
-// Self-contained: lists the club's private lesson types and toggles whether
-// this coach is eligible (writes to PrivateLessonType.eligibleCoachIds).
-type CoachLT = {
-  id: string;
-  title: string;
-  durationMin: number;
-  basePrice: number;
-  eligibleCoachIds: string[];
-  priceOptions?: { id: string; label: string; price: number; coachIds: string[] }[];
-};
-
-// Controlled. This component used to PATCH the lesson type on every toggle,
-// which is exactly why Cancel did not cancel: by the time the owner pressed it,
-// every box they had clicked was already saved. It now reports the toggle
-// upward and EditStaffModal writes the changed rows on submit.
-function CoachLessonTypes({
-  coachId,
-  types,
-  selected,
-  onToggle,
-  loadError,
-}: {
-  coachId: string;
-  types: CoachLT[] | null;
-  selected: string[];
-  onToggle: (lessonTypeId: string) => void;
-  loadError?: string;
-}) {
-  // The checkbox writes eligibleCoachIds, so that is what it reflects. A coach
-  // named only inside a price option used to render as ticked, and unticking
-  // did nothing visible because the toggle only ever edited eligibleCoachIds
-  // while the price option kept granting the lesson. Say so instead of showing
-  // a box that will not move.
-  function viaPriceOption(lt: CoachLT) {
-    return (lt.priceOptions || []).some((o) => o.coachIds?.includes(coachId));
-  }
-
-  if (loadError) return <p className="text-xs text-red-600">{loadError}</p>;
-  if (types === null) return <p className="text-xs text-text-muted">Loading lesson types…</p>;
-  if (types.length === 0)
-    return (
-      <p className="text-xs text-text-muted">
-        No lesson types yet. Create them under Purchase Options → Privates.
-      </p>
-    );
-
-  return (
-    <div className="space-y-1.5">
-      {types.map((lt) => {
-        const on = selected.includes(lt.id);
-        const alsoViaOption = !on && viaPriceOption(lt);
-        return (
-          <label
-            key={lt.id}
-            className="flex items-center justify-between gap-3 px-3 py-2 border border-app-border rounded-lg cursor-pointer hover:bg-app-bg"
-          >
-            <span className="flex items-center gap-2 text-sm text-text-primary">
-              <input
-                type="checkbox"
-                checked={on}
-                onChange={() => onToggle(lt.id)}
-                className="rounded"
-              />
-              <span>
-                {lt.title}
-                {alsoViaOption && (
-                  <span className="block text-[11px] text-text-muted">
-                    Already offered through one of this lesson&apos;s price options. Change that
-                    option under Purchase Options → Privates.
-                  </span>
-                )}
-              </span>
-            </span>
-            <span className="text-xs text-text-muted">
-              {lt.durationMin}min · ${Number(lt.basePrice).toFixed(2)}
-              {lt.priceOptions && lt.priceOptions.length > 0
-                ? ` · ${lt.priceOptions.length} option${lt.priceOptions.length === 1 ? "" : "s"}`
-                : ""}
-            </span>
-          </label>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Staff Documents Panel (owner-side) ──────────────────────────────────────
-// Lists docs the owner has uploaded to this staff member, with kind + share
-// toggle + delete. Upload uses the existing /api/upload private-file flow.
-
-type StaffDoc = {
-  id: string;
-  title: string;
-  kind: string;
-  fileUrl: string;
-  fileName: string | null;
-  mimeType: string | null;
-  sizeBytes: number | null;
-  notes: string | null;
-  sharedWithStaff: boolean;
-  createdAt: string;
-};
-
-const STAFF_DOC_KINDS = [
-  { v: "W9",            label: "W-9" },
-  { v: "1099",          label: "1099" },
-  { v: "CONTRACT",      label: "Contract" },
-  { v: "AGREEMENT",     label: "Agreement" },
-  { v: "CERTIFICATION", label: "Certification" },
-  { v: "OTHER",         label: "Other" },
-];
-
-function StaffDocsPanel({ staffUserId }: { staffUserId: string }) {
-  const [docs, setDocs] = useState<StaffDoc[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [title, setTitle] = useState("");
-  const [kind, setKind] = useState("OTHER");
-  const [shared, setShared] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState("");
-
-  function load() {
-    setLoading(true);
-    fetch(`/api/staff/${staffUserId}/documents`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((d) => { setDocs(Array.isArray(d) ? d : []); setLoading(false); });
-  }
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [staffUserId]);
-
-  async function upload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    if (files.length === 0) return;
-    if (!title.trim()) { setError("Give the document a title first."); return; }
-    setUploading(true); setError("");
-    try {
-      // Multi-file: each picked file becomes its own StaffDocument row. When
-      // more than one is selected at once, the title is suffixed "(n/total)"
-      // so they stay distinguishable in the list.
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const fd = new FormData();
-        fd.append("file", file);
-        fd.append("kind", "document");
-        const upRes = await fetch("/api/upload", { method: "POST", body: fd });
-        if (!upRes.ok) {
-          const j = await upRes.json().catch(() => ({}));
-          throw new Error(`${file.name}: ${typeof j.error === "string" ? j.error : "upload failed"}`);
+          </>
         }
-        const up = await upRes.json();
-        const t = files.length === 1 ? title.trim() : `${title.trim()} (${i + 1}/${files.length})`;
-        const r = await fetch(`/api/staff/${staffUserId}/documents`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: t,
-            kind,
-            fileUrl: up.url,
-            fileId: up.id ?? null,
-            fileName: file.name,
-            mimeType: file.type || null,
-            sizeBytes: file.size,
-            sharedWithStaff: shared,
-          }),
-        });
-        if (!r.ok) {
-          const j = await r.json().catch(() => ({}));
-          throw new Error(`${file.name}: ${typeof j.error === "string" ? j.error : "save failed"}`);
-        }
-      }
-      setTitle(""); setKind("OTHER"); setShared(false);
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setUploading(false);
-      // Reset the file input so the same files can be re-selected.
-      e.target.value = "";
-    }
-  }
-
-  async function toggleShared(d: StaffDoc) {
-    setDocs((prev) => prev.map((x) => x.id === d.id ? { ...x, sharedWithStaff: !x.sharedWithStaff } : x));
-    await fetch(`/api/staff/${staffUserId}/documents/${d.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sharedWithStaff: !d.sharedWithStaff }),
-    });
-  }
-
-  async function remove(d: StaffDoc) {
-    if (!confirm(`Delete "${d.title}"?`)) return;
-    await fetch(`/api/staff/${staffUserId}/documents/${d.id}`, { method: "DELETE" });
-    load();
-  }
-
-  return (
-    <div className="border-t border-app-border pt-5">
-      <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-1">
-        Documents (tax docs, contracts, agreements)
-      </p>
-      <p className="text-[11px] text-text-muted mb-3">
-        Saved as you upload. These are files, so they are not covered by Save changes
-        above and Cancel does not undo them.
-      </p>
-
-      {/* Upload */}
-      <div className="bg-app-bg rounded-lg p-3 mb-3 space-y-2">
-        <div className="grid grid-cols-2 gap-2">
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Document title (e.g. 2026 W-9)"
-            className="px-3 py-2 border border-app-border rounded-lg text-sm"
-          />
-          <select
-            value={kind}
-            onChange={(e) => setKind(e.target.value)}
-            className="px-3 py-2 border border-app-border rounded-lg text-sm bg-white"
-          >
-            {STAFF_DOC_KINDS.map((k) => <option key={k.v} value={k.v}>{k.label}</option>)}
-          </select>
-        </div>
-        <label className="flex items-center gap-2 text-xs text-text-muted">
-          <input
-            type="checkbox"
-            checked={shared}
-            onChange={(e) => setShared(e.target.checked)}
-            className="rounded"
-          />
-          Let this staff member see &amp; download it
-        </label>
-        <label className="block">
-          <span className="sr-only">Choose file</span>
-          <input
-            type="file"
-            multiple
-            onChange={upload}
-            disabled={uploading}
-            className="block w-full text-xs file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-brand file:text-white file:font-medium hover:file:bg-brand-hover disabled:opacity-50"
-          />
-        </label>
-        {error && <p className="text-xs text-red-600">{error}</p>}
-      </div>
-
-      {/* List */}
-      {loading ? (
-        <div className="py-2"><SkeletonList rows={2} /></div>
-      ) : docs.length === 0 ? (
-        <p className="text-xs text-text-muted">No documents yet.</p>
-      ) : (
-        <div className="space-y-2">
-          {docs.map((d) => (
-            <div key={d.id} className="flex items-start gap-3 p-3 border border-app-border rounded-lg">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted font-medium">
-                    {STAFF_DOC_KINDS.find((k) => k.v === d.kind)?.label ?? d.kind}
-                  </span>
-                  <a
-                    href={d.fileUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm font-medium text-text-primary hover:underline truncate"
-                  >
-                    {d.title}
-                  </a>
-                </div>
-                <p className="text-[11px] text-text-muted">
-                  {d.fileName ? `${d.fileName} · ` : ""}
-                  {new Date(d.createdAt).toLocaleDateString()}
-                </p>
-              </div>
-              <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                <label className="flex items-center gap-1.5 text-[11px] text-text-muted cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={d.sharedWithStaff}
-                    onChange={() => toggleShared(d)}
-                    className="rounded"
-                  />
-                  Visible to staff
-                </label>
-                <button
-                  onClick={() => remove(d)}
-                  className="text-[11px] text-red-600 hover:bg-red-50 px-2 py-0.5 rounded"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      />
     </div>
   );
 }

@@ -73,7 +73,7 @@ export default function DashboardBottomNav({
                   className="w-full h-full flex flex-col items-center justify-center gap-1 py-2 text-white/60 hover:text-white"
                 >
                   <Icon size={22} strokeWidth={2} />
-                  <span className="text-[10px] font-medium">{item.label}</span>
+                  <span className="text-[12px] font-medium">{item.label}</span>
                 </button>
               </li>
             );
@@ -93,7 +93,7 @@ export default function DashboardBottomNav({
                   strokeWidth={2}
                   style={{ color: active ? "var(--color-lime-accent, #A3E635)" : undefined }}
                 />
-                <span className="text-[10px] font-medium">{item.label}</span>
+                <span className="text-[12px] font-medium">{item.label}</span>
               </Link>
             </li>
           );

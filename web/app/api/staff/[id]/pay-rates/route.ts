@@ -3,14 +3,18 @@ import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermissionLive } from "@/lib/apiGuard";
+import { selfRule, SELF_DENY_MESSAGE } from "@/lib/staffSelf";
+
 import { prisma } from "@/lib/prisma";
 
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "finances", "view");
+  const denied = selfRule(session.user.role, session.user.id, params.id, "view_pay") === "allow"
+    ? null
+    : await requirePermissionLive(session, "finances", "view");
   if (denied) return denied;
 
   const rates = await prisma.privateLessonPayRate.findMany({
@@ -31,7 +35,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "finances", "full");
+  if (selfRule(session.user.role, session.user.id, params.id, "edit_pay") === "deny") {
+    return NextResponse.json({ error: SELF_DENY_MESSAGE.edit_pay }, { status: 403 });
+  }
+  const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
 
   try {
@@ -61,7 +68,10 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "finances", "full");
+  if (selfRule(session.user.role, session.user.id, params.id, "edit_pay") === "deny") {
+    return NextResponse.json({ error: SELF_DENY_MESSAGE.edit_pay }, { status: 403 });
+  }
+  const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
 
   const { searchParams } = new URL(req.url);

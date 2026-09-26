@@ -164,18 +164,24 @@ export function ProfileTabs({
   active,
   counts,
   problems,
+  dirty,
+  tabs = PROFILE_TABS,
   onSelect,
 }: {
   active: string;
   counts?: Partial<Record<string, number>>;
   /** Tabs carrying an unresolved problem get a 6px red dot (e.g. missing waiver). */
   problems?: string[];
+  /** Tabs holding unsaved changes get a 6px brand dot (B21 staff profile). */
+  dirty?: string[];
+  /** Defaults to the member tabs; the staff profile passes its own. */
+  tabs?: ReadonlyArray<{ key: string; label: string }>;
   onSelect: (key: string) => void;
 }) {
   return (
     <div role="tablist" className="-mx-4 overflow-x-auto border-b border-app-border px-4 md:mx-0 md:px-0">
       <div className="flex min-w-max gap-1">
-        {PROFILE_TABS.map((t) => {
+        {tabs.map((t) => {
           const isActive = active === t.key;
           return (
             <button
@@ -189,6 +195,9 @@ export function ProfileTabs({
             >
               {t.label}
               {counts?.[t.key] != null && <span className="ml-1 text-[11px] opacity-70">{counts[t.key]}</span>}
+              {dirty?.includes(t.key) && !problems?.includes(t.key) && (
+                <span aria-label="Unsaved changes" className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-brand align-middle" />
+              )}
               {problems?.includes(t.key) && (
                 <span
                   aria-label="Needs attention"
