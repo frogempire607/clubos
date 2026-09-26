@@ -59,6 +59,7 @@
     "test:member-ui": "tsx --tsconfig scripts/tsconfig.render.json scripts/member-ui-tests.ts",
     "test:product-bulk-pricing": "tsx scripts/product-bulk-pricing-tests.ts",
     "test:reports-mobile": "TZ=America/New_York tsx scripts/reports-mobile-guard.ts",
+    "test:dashboard-nav": "tsx scripts/dashboard-nav-tests.ts",
     "test:accepted-plans": "tsx scripts/accepted-plans-tests.ts",
     "test:member-duplicates": "tsx scripts/member-duplicates-tests.ts",
     "test:door-access": "tsx scripts/door-access-tests.ts",
