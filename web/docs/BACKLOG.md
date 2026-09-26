@@ -15,6 +15,9 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   (panel on Colton / Orson look-only / a cash member / nobody; product tiles), then A3.
 - **Deploy rhythm (Netlify credits):** each merge to `main` = 1 production deploy (15 credits). Branch pushes are free.
   Work a phase on ONE branch, push freely, merge to main once per phase. Docs-only merges skip the build (netlify.toml).
+- **Check-in order (filed 09-26 from the staff dashboard audit):** B17, B18, B19 MERGED 09-26 → B24 build-chain
+  follow-up commit (unblocked) → B25 audit which tests really gate the build → B20 IA renames → B21 staff profiles → B22 App Store 4.2 (own project,
+  gates submission) → B23 Claude Design mockups after B20. Section D below.
 - **Next Claude session (after 09-25):** B3 slices 1–2, B10, B13, B16 all built/shipped. B5 and B7 done 09-25. Remaining: B2 (waits on A3); B6 built 09-26 (device regression pass left). Julian: A8 worksheet, duplicates review, A3 guardians.
 - **Julian, after that merge:** Finger Lakes → Edit → Roster & entries → "Match rosters to position names" → check the chips → Save.
 - **Julian, after shipping B13 slice 3:** try Change plan on one cash member (look at the preview, cancel) and one Stripe
@@ -272,7 +275,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   BOTH vocabularies + exclusion rules + sessions keep their ids (409 if a removed session has paid
   registrations), register route DROP_IN + sessionIds[] = per-session purchase via quoteSessions, public
   route/register read signupAccess. Money rule honoured: no existing registration is touched.
-  SLICE 2b BUILT 2026-09-23 (on disk, same branch): components/events/EventEditor.tsx replaces EventModal
+  SLICE 2a + 2b MERGED (2b = 138139c on main; checked 09-26): components/events/EventEditor.tsx replaces EventModal
   (events page 4,458 → ~3,000 lines): seven collapsible cards with derived summaries, phone sheet /
   desktop 1fr+316px with "What a family sees" preview + conflict panel, pricing-model cards, per-session
   prices on session rows, exclusion rules live, bundle sanity, tournament host/attend sets the model.
@@ -321,6 +324,101 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   SLICE 3 BUILT 2026-09-25 on the branch (no migration). B16 is complete — merge to main once. Then: Finger Lakes →
   editor → Roster & entries → "Build the roster from your dropdowns" → capacities → (optional) allow 2 entries → Save. Useful before Finger Lakes (cards charged Nov 14, event Nov 21).
 
+## D — Staff dashboard audit (filed 2026-09-26)
+
+Source: `docs/improvement/staff-dashboard-ia-and-design-audit.md` (1,040 lines, commit 69e4197 on
+`claude/ui-design-spree`). Worked in THIS order. Three findings that change the picture:
+the Capacitor shell already ships (iOS + Android committed, drawer + bottom nav wired), so phone defects are
+live, not future; App Store 4.2 is a configuration problem, not a design one (B22); Edit Staff has a live data bug (B18).
+
+- [x] **B17 · Sport-terms guard scans `lib/`** · MERGED 2026-09-26 (b5276b5 lib/ added + 2f8927d guard now FIRST in
+  `npm run build`). Before this the guard was never in the build chain (only `test:phase5` or by hand), so it protected
+  nothing for weeks. One live hit had reached production: a stock email template telling every club about weigh-ins,
+  seeded into each club on first open of the templates page — code fixed.
+  OPEN: the fix changes the template for clubs that haven't opened the page yet; copies ALREADY SEEDED into existing
+  clubs keep the old text. Check the saved templates rows for "weigh" and correct them (read-only query first).
+  `scripts/sport-terms-guard.ts` SCAN_DIRS = app/dashboard, app/member, app/e, components — `lib/` is not scanned,
+  but every nav label lives there (`dashboardNav.ts`) plus `payouts.ts` labels, `permissions.ts` PERMISSION_CATALOG,
+  `reportsRevenue.ts` row labels. Add `lib` (comments are already stripped) or an allowlist of copy-bearing files
+  (`eventCategories.ts` keeps its existing exception). Must land BEFORE B20.
+
+- [x] **B18 · Edit Staff modal: one save boundary per section** · MERGED 2026-09-26 (6ce92f8) — check live: toggle a lesson
+  type then Cancel; edit comp then Save changes. `report:staff-save-damage` looks for damage the old bug already did.
+  Was: LIVE BUG (audit §4.2) · verified in code 09-26
+  `app/dashboard/staff/page.tsx` EditStaffModal has four write boundaries in one scroll: identity/portal/permissions
+  on Save changes (PATCH /api/staff/:id); compensation on its own "Save compensation plan" (:1064); private-lesson
+  toggles write IMMEDIATELY (:1112, PATCH /api/private-lessons/types/:id); staff documents on upload.
+  Result: Cancel persists lesson toggles; Save changes silently discards an unsaved compensation plan.
+  Minimum fix now (before B21): say "saves as you toggle" on lessons, warn/block Save changes when the comp plan is
+  dirty (or save both), dirty-state guard on close. Also stop round-tripping dead `appointmentPrice` (:500, :543).
+
+- [x] **B19 · One URL per screen: `purchase-options/*` alias** · MERGED 2026-09-26 (08d3302, tests `test:dashboard-nav`)
+  Was: Critical (audit §3.2(1)) · no design
+  `app/dashboard/purchase-options/{memberships,privates,products}/page.tsx` re-export the bare pages, so each screen
+  is mounted twice. Global search, reportsRevenue drill-downs, classes, calendar and actionCenter link the bare
+  path → sidebar shows no active item. Pick one path, redirect the other (next.config), repoint the links;
+  products children (`/dashboard/products/inventory|bookings`) must sit under the same parent.
+
+- [ ] **B24 · Build-chain follow-up: wire the new checks into `npm run build`** · one commit · UNBLOCKED (all three
+  branches merged 09-26) · kept out of the three branches on purpose so they didn't each edit the same build line.
+  Add `test:staff-comp-draft` (B18) and `test:dashboard-nav` (B19). Decide on `report:staff-save-damage` separately:
+  it queries the production database and exits 1 when it finds something, so in the build it would make every deploy
+  depend on a DB read and block on a data finding — probably run it once by hand rather than gate on it.
+
+- [ ] **B25 · Audit: which `test:*` scripts actually gate the build** · after B24
+  The sport-terms guard was believed to gate the build and didn't. Check every test the backlog/handoffs describe as
+  gating. Today `build` runs 4 of 45 `test:*` scripts: sport-terms, subscription-truth, permission-boundary,
+  attendance-billing. The group scripts (`test:phase45`, `test:phase5`, `test:phase6`) and every per-feature suite
+  (B6, door-access, app-links, accepted-plans, member-duplicates, option-facts, …) run only by hand. For each: in the
+  build, deliberately by hand, or dead. Watch the order — `build` runs the tests BEFORE `prisma generate`; suites that
+  import `lib/prisma` rely on `postinstall` having generated the client (members-list-b6 exits 1 without it).
+  Output: a list, then one commit to the build line. Grep the docs for "gates the build" claims and correct them.
+
+- [ ] **B20 · IA renames** · after B17 (audit §1.2, §3.1, §3.2(2))
+  - Plan & Billing (club → AthletixOS) vs "Stripe"/"Payments"/"Payments & billing" (members → club) vs diagnostics'
+    "ClubOS billing": two money flows, name each by the job, drop the vendor name; kill the last rendered "ClubOS".
+  - App Design / Branded App / Branded mobile app / Branded app editor → one name for `/settings/branded-app`.
+  - `/dashboard/schedule` — orphan titled "Staff Schedule" editing the same availability data as
+    `/dashboard/staff/availability` → redirect it there.
+  - Payroll page `<h1>` says "Payroll & Payouts" and its tile "Total payout" → "Payroll"; add a handoff link from a
+    computed figure to "record it" on Payouts. Do not merge the two (calculator vs ledger).
+
+- [ ] **B21 · Staff profiles at `/dashboard/team/[id]` with tabs** · replaces the Edit Staff modal (audit §4.5)
+  Model on the member profile: route not modal, `?tab=` in the URL, reuse ProfileTabs, Overview curated.
+  Tabs: Overview · Personal info · Access · Pay · Schedule · Lessons · Portal profile · Documents. New
+  `lib/staffEditableFields.ts` mirroring `lib/memberEditableFields.ts`. One save boundary per tab, stated in the tab.
+  Access gets a plain-words confirm ("Jordan will see every member's payment methods") + write attribution.
+  Locked block for password. Keep a light Add-staff modal. Fixes 5 unguarded grids, 10px/11px type on staff pages.
+
+- [ ] **B22 · App Store Guideline 4.2 compliance** · its own project · GATES App Store submission (audit §6)
+  Configuration (no design): (a) `server.url` points at the live origin — binary ships no web assets, Airplane Mode
+  on first launch shows "Can't reach AthletixOS"; bundle the shell, keep data on /api. (b) one plugin
+  (`@capacitor/app`), zero device capabilities, no `plugins` block. (c) `limitsNavigationsToAppBoundDomains: false`.
+  (d) camera/photo usage strings declared for features nothing uses natively.
+  Interaction: 71 `confirm()`/`alert()` calls → system dialog titled with the hostname → ConfirmDialog for truly
+  destructive actions + Undo toast for the rest, and a `no-native-dialogs` guard; hamburger AND tab bar at once,
+  25 of 29 destinations drawer-only → one persistent tab bar (never hides on scroll), More = pushed list screen;
+  no swipe-back / swipe-to-dismiss / pull-to-refresh anywhere; BackButton is web chrome and its
+  `document.referrer` gate jumps home in WKWebView; Android `backButton` unhandled; deep links hard-reload
+  (`window.location.href` → `router.push`); splash + status bar + keyboard plugins; 43 bare "Loading…" pages.
+  Native feature that answers 4.2 cheapest: **native QR scanner at the door** — door codes (`/c/[id]`),
+  Universal Links and the camera permission string already exist; it also justifies NSCameraUsageDescription.
+  Next: push notifications (actionCenter already computes the queue), offline check-in, haptics, biometric unlock.
+  **Modal primitive:** `DashboardMobileDrawer` is already correct (role="dialog", aria-modal, Escape, backdrop,
+  scroll lock) — EXTRACT it as `components/Sheet.tsx` (+ grabber, swipe-to-dismiss) and move the 30 hand-rolled
+  modals onto it (only 1 of 30 has role="dialog"). Don't design a new one.
+  Folded in from `docs/APP-STORE-LAUNCH.md`: account deletion (member portal has it at /member/profile — confirm
+  staff/owner accounts have a path too), in-app link to the privacy policy (athletix-os.com/privacy), reviewer
+  demo credentials (test member at Frog Empire), App Review notes explaining the native features.
+  Also fail CLOSED when /api/me errors (staff briefly see full nav today); `100vh` → `min-h-dvh`.
+
+- [ ] **B23 · Claude Design mockups** · AFTER B20 lands (audit §9 "What to hand Claude Design")
+  Hand over in the `design_handoff_*` format: the §3.3 nav tree, the §4.5 staff profile, §6.6 native navigation,
+  Staff Schedule below md (needs 1,070px today — one day or one person at a time), Settings with its own
+  layout.tsx, merged Check-in (Attendance + Front desk as one destination, two modes), sidebar child contrast
+  (3.79:1 → ≥4.5:1, 13px), `text-brand` in dark mode (3.76:1), `:focus-visible` in the nav, PageHeader on every page.
+  Remaining Tier 3 items (audit §9) ride along or get their own lines later.
+
 ## C — Done, don't resurrect
 
 - [x] Class-time duplicate bug + the `(classId, date)` unique constraint (Phase 10)
@@ -329,4 +427,4 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 - [x] Phase 9 spec — merged, decisions settled
 
 ---
-_Last reviewed: 2026-09-24 night (events sign-in + questions fix; B10 s2, B12, B13 s1–2 are shipped)_
+_Last reviewed: 2026-09-26 (staff dashboard audit filed as B17–B23); before that 2026-09-24 night (events sign-in + questions fix; B10 s2, B12, B13 s1–2 are shipped)_

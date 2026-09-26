@@ -44,8 +44,9 @@ Publishing as **MC Technologies Group LLC** needs a free **D-U-N-S number** for 
 6. Submit for review.
 
 **Review risk to know about:** Apple sometimes rejects "a website in an app" (guideline 4.2).
-What we have in our favour: door-QR deep links, camera uploads, sign-in with club accounts,
-check-in. If they push back, the usual answer is native push notifications — a follow-up slice.
+UPDATE 2026-09-26: the staff dashboard audit (§6) found the current build is the shape 4.2 rejects —
+remote `server.url`, one plugin, no native capabilities (photo upload is a web file input, not native).
+Do not submit until backlog **B22** is done; the native QR scanner is the first feature to build.
 
 ## Google (Play)
 
