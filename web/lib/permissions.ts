@@ -235,6 +235,10 @@ export const PATH_PERMISSIONS: { prefix: string; rule: NavRule }[] = [
   { prefix: "/dashboard/members", rule: { key: "members", level: "view" } },
   { prefix: "/dashboard/classes", rule: { key: "classes", level: "view" } },
   { prefix: "/dashboard/events", rule: { key: "events", level: "view" } },
+  // Redirect-only since 2026-09-26: these three screens are canonical at the
+  // bare paths below. The rule stays, so a STAFF member without events:view is
+  // refused at the old URL rather than being sent through a redirect that then
+  // refuses them, and an old bookmark gets the same answer it always got.
   { prefix: "/dashboard/purchase-options", rule: { key: "events", level: "view" } },
   { prefix: "/dashboard/memberships", rule: { key: "events", level: "view" } },
   { prefix: "/dashboard/privates", rule: { key: "events", level: "view" } },

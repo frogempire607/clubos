@@ -62,7 +62,7 @@ export default function ProductBookingsPage() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
-      <Link href="/dashboard/purchase-options/products" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary mb-3"><ArrowLeft size={15} /> Products</Link>
+      <Link href="/dashboard/products" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary mb-3"><ArrowLeft size={15} /> Products</Link>
       <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
         <div>
           <h1 className="text-[20px] font-semibold text-text-primary">Rentals & parties</h1>

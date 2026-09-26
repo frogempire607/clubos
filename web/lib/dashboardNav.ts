@@ -57,10 +57,27 @@ export const NAV: NavItem[] = [
     id: "purchase-options",
     label: "Purchase Options",
     icon: ShoppingCart,
+    // Canonical URLs, 2026-09-26. These three screens were mounted at TWO
+    // addresses: app/dashboard/purchase-options/memberships/page.tsx was a
+    // one-line re-export of app/dashboard/memberships/page.tsx, and the same
+    // for privates and products. One component, two URLs, and the app disagreed
+    // with itself about which to link — global search, the revenue drill-downs,
+    // the action centre, the calendar and the classes page all used the bare
+    // path while the nav and the home tiles used the purchase-options one.
+    //
+    // The bare path is canonical because the child routes already live under
+    // it: /dashboard/products/inventory, /dashboard/products/bookings and
+    // /dashboard/products/[id]/tags. Making purchase-options canonical would
+    // have left those children hanging off a different parent, so the nav could
+    // never highlight them. This way isItemActive's descendant match lights
+    // Products up on every one of them for free.
+    //
+    // The purchase-options paths now redirect here, so old links and bookmarks
+    // keep working.
     children: [
-      { id: "memberships", label: "Memberships", href: "/dashboard/purchase-options/memberships" },
-      { id: "privates", label: "Privates", href: "/dashboard/purchase-options/privates" },
-      { id: "products", label: "Products", href: "/dashboard/purchase-options/products" },
+      { id: "memberships", label: "Memberships", href: "/dashboard/memberships" },
+      { id: "privates", label: "Privates", href: "/dashboard/privates" },
+      { id: "products", label: "Products", href: "/dashboard/products" },
     ],
   },
   {
@@ -114,12 +131,20 @@ export const BOTTOM_NAV: BottomNavItem[] = [
 
 export function isGroupActive(item: NavItem, pathname: string): boolean {
   if ("children" in item && item.children) {
-    return item.children.some((c) => pathname.startsWith(c.href));
+    // isItemActive, not a bare startsWith. A bare prefix test matched across a
+    // path separator, so "/dashboard/memberships".startsWith("/dashboard/members")
+    // was true and visiting Memberships lit up the MEMBERS group. The sidebar
+    // pointed at the wrong section rather than at no section, which is both
+    // harder to notice and worse to act on.
+    return item.children.some((c) => isItemActive(c.href, pathname));
   }
   return false;
 }
 
 export function isItemActive(href: string, pathname: string): boolean {
   if (href === "/dashboard") return pathname === "/dashboard";
+  // The `+ "/"` is what makes this segment-aware: an exact hit, or a genuine
+  // descendant. /dashboard/products matches /dashboard/products/inventory and
+  // does not match a sibling that merely shares a prefix.
   return pathname === href || pathname.startsWith(href + "/");
 }
