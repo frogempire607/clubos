@@ -4,6 +4,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { recordStaffActivity, actorFrom } from "@/lib/staffActivity";
 
 // /api/staff/[id]/documents — OWNER only. Documents the owner uploads to a
 // staff member's profile (tax docs, contracts, W-9s, agreements, etc.).
@@ -77,6 +78,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       sharedWithStaff: data.sharedWithStaff ?? false,
       uploadedById: session.user.id,
     },
+  });
+  // B21 — Recent activity on the staff profile (best-effort, after the write).
+  await recordStaffActivity({
+    clubId: session.user.clubId,
+    staffUserId: userId,
+    ...actorFrom(session),
+    kind: "DOCUMENTS",
+    summary: `Uploaded ${doc.title}`,
   });
   return NextResponse.json(doc, { status: 201 });
 }

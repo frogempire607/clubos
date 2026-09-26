@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isValidPrivateDuration } from "@/lib/privateLessonRules";
 import { requirePermission } from "@/lib/apiGuard";
+import { recordStaffActivity, actorFrom } from "@/lib/staffActivity";
 
 const priceOption = z.object({
   id: z.string().min(1),
@@ -46,6 +47,22 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   try {
     const data = schema.parse(await req.json());
     const updated = await prisma.privateLessonType.update({ where: { id: params.id }, data });
+
+    // B21 — a coach added to / removed from this lesson type shows in that
+    // coach's Recent activity. After the write; best-effort (never fails the save).
+    if (data.eligibleCoachIds !== undefined) {
+      const before = new Set(Array.isArray(type.eligibleCoachIds) ? (type.eligibleCoachIds as unknown[]).map(String) : []);
+      const after = new Set(data.eligibleCoachIds);
+      const name = updated.title;
+      const base = { clubId: session!.user.clubId, ...actorFrom(session), kind: "LESSONS" as const };
+      for (const id of Array.from(after)) {
+        if (!before.has(id)) await recordStaffActivity({ ...base, staffUserId: id, summary: `Added to ${name}` });
+      }
+      for (const id of Array.from(before)) {
+        if (!after.has(id)) await recordStaffActivity({ ...base, staffUserId: id, summary: `Removed from ${name}` });
+      }
+    }
+
     return NextResponse.json(updated);
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: formatZodError(err) }, { status: 400 });

@@ -4,6 +4,8 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { requirePermission } from "@/lib/apiGuard";
+import { recordStaffActivity, actorFrom } from "@/lib/staffActivity";
+
 import { prisma } from "@/lib/prisma";
 
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
@@ -21,6 +23,10 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   });
 
   return NextResponse.json(exceptions);
+}
+
+function dayLabel(d: Date): string {
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 const schema = z.object({
@@ -55,6 +61,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       },
     });
 
+    await recordStaffActivity({
+      clubId: session.user.clubId,
+      staffUserId: params.id,
+      ...actorFrom(session),
+      kind: "TIME_OFF",
+      summary: `${data.type === "PARTIAL" ? "Set modified hours for" : "Added time off"} ${dayLabel(exception.date)}${session.user.id === params.id ? " from their own profile" : ""}`,
+    });
+
     return NextResponse.json(exception, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: formatZodError(err) }, { status: 400 });
@@ -81,5 +95,12 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   await prisma.staffAvailabilityException.delete({ where: { id: exceptionId } });
+  await recordStaffActivity({
+    clubId: session.user.clubId,
+    staffUserId: params.id,
+    ...actorFrom(session),
+    kind: "TIME_OFF",
+    summary: `Removed the ${dayLabel(existing.date)} exception${session.user.id === params.id ? " from their own profile" : ""}`,
+  });
   return new NextResponse(null, { status: 204 });
 }

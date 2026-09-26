@@ -392,7 +392,17 @@ live, not future; App Store 4.2 is a configuration problem, not a design one (B2
   - Payroll page `<h1>` says "Payroll & Payouts" and its tile "Total payout" → "Payroll"; add a handoff link from a
     computed figure to "record it" on Payouts. Do not merge the two (calculator vs ledger).
 
-- [ ] **B21 · Staff profiles at `/dashboard/team/[id]` with tabs** · replaces the Edit Staff modal (audit §4.5)
+- [x] **B21 · Staff profiles** · BUILT 2026-09-26 on `claude/b21-staff-profile` · migration `20261003000000_staff_profile_b21`
+  (additive: staff_profiles.phone + staff_activity table with RLS). Route `/dashboard/staff/[id]` (+ `/dashboard/my-profile`
+  for a staff member's own, reachable with no permissions, "My profile" in the user menu). 8 tabs per
+  `docs/improvement/staff-profile-handoff/`. Edit Staff modal removed; Add staff is a Sheet; directory rows open profiles.
+  Julian's rule: staff can NEVER change their own pay or access — enforced server-side (lib/staffSelf.ts) on
+  compensation, pay-rates, staff PATCH/DELETE; self can edit name/phone, portal profile, weekly hours, time off.
+  Also fixed: /api/staff sent passwordHash + resetToken (owner account takeover risk) — now SAFE_USER_SELECT;
+  billing_subScopes (transfer a membership) was silently dropped on save. Recent activity on every change.
+  Tests: test:staff-profile (39, in build), test:staff-schedule-fit (45), test:staff-access-ui (67).
+  Not built (no backing code): live pay-period estimate, "Ask to update hours" action, document Request email.
+  Was: Staff profiles at `/dashboard/team/[id]` with tabs · replaces the Edit Staff modal (audit §4.5)
   Model on the member profile: route not modal, `?tab=` in the URL, reuse ProfileTabs, Overview curated.
   Tabs: Overview · Personal info · Access · Pay · Schedule · Lessons · Portal profile · Documents. New
   `lib/staffEditableFields.ts` mirroring `lib/memberEditableFields.ts`. One save boundary per tab, stated in the tab.

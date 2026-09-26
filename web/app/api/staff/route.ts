@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
+import { SAFE_USER_SELECT, invitePending } from "@/lib/safeUser";
 import { sendStaffInviteEmail } from "@/lib/email";
 import { resolvePermissions } from "@/lib/permissions";
 import { getAppBaseUrl } from "@/lib/baseUrl";
@@ -24,11 +25,14 @@ export async function GET(req: Request) {
       role: includeOwners ? { in: ["OWNER" as const, "STAFF" as const] } : "STAFF",
       deletedAt: null,
     },
-    include: { staffProfile: true },
+    // Explicit select: never passwordHash / resetToken (see lib/safeUser.ts).
+    select: { ...SAFE_USER_SELECT, resetToken: true, staffProfile: true },
     orderBy: { createdAt: "asc" },
   });
 
-  return NextResponse.json(staff);
+  return NextResponse.json(
+    staff.map(({ resetToken, ...u }) => ({ ...u, invitePending: invitePending({ resetToken, lastLoginAt: u.lastLoginAt }) })),
+  );
 }
 
 const permissionLevel = z.enum(["none", "view", "edit", "full", "send"]);
@@ -172,8 +176,14 @@ export async function POST(req: Request) {
       console.error("Staff invite email failed:", emailErr);
     }
 
+    // The setup link itself is returned on purpose (the inviter can copy it);
+    // the raw row's secrets are not.
+    const { passwordHash: _ph, resetToken: _rt, resetExpires: _re, ...safeUser } = user as typeof user & {
+      passwordHash?: string; resetToken?: string | null; resetExpires?: Date | null;
+    };
+    void _ph; void _rt; void _re;
     return NextResponse.json(
-      { ...user, setupUrl, emailed, emailError },
+      { ...safeUser, setupUrl, emailed, emailError },
       { status: 201 },
     );
   } catch (err) {

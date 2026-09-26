@@ -84,6 +84,10 @@
   --color-pending-surface: rgba(99, 91, 255, 0.22);
   --color-pending-text:    #C7C2FF;
 
+  /* B21 — "edit / send" permission level. */
+  --color-edit-surface: rgba(255, 106, 0, 0.16);
+  --color-edit-text:    #FB923C;
+
   /* Row dividers: subtler than --color-border, so DARKER than it here —
      the light-mode relationship (#F1F1F3 vs #E5E7EB) inverts. */
   --color-hairline: #232329;
@@ -227,6 +231,11 @@
   /* Pending · not charged. */
   --color-pending-surface: #EDEBFF;
   --color-pending-text: #4F46E5;
+
+  /* B21 — "edit / send" permission level (Access tab segmented control and
+     the directory's orange edit chips). Orange, but quieter than warn. */
+  --color-edit-surface: #FFF1E6;
+  --color-edit-text: #C2410C;
 
   /* Hairline inside cards — lighter than --color-border, for row dividers. */
   --color-hairline: #F1F1F3;

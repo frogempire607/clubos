@@ -4,6 +4,8 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { requirePermission } from "@/lib/apiGuard";
+import { recordStaffActivity, actorFrom } from "@/lib/staffActivity";
+
 import { prisma } from "@/lib/prisma";
 
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
@@ -62,6 +64,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         })),
       }),
     ]);
+
+    await recordStaffActivity({
+      clubId: session.user.clubId,
+      staffUserId: params.id,
+      ...actorFrom(session),
+      kind: "HOURS",
+      summary: session.user.id === params.id ? "Updated their weekly hours from their own profile" : "Updated weekly hours",
+    });
 
     const result = await prisma.staffAvailability.findMany({
       where: { userId: params.id, clubId: session.user.clubId },

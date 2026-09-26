@@ -646,12 +646,35 @@ model StaffProfile {
   publicPhone      String?
   photoUrl         String?
   showOnPortal     Boolean  @default(false)
+  // Private contact number — owner/staff-manager visible only, never shown in
+  // the member portal (that is publicPhone). B21.
+  phone            String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("staff_profiles")
+}
+
+// B21 — "Recent activity" on a staff profile. Every change made to a staff
+// member's record (access, pay, hours, time off, personal info, portal
+// profile, lessons, documents) is recorded here with who made it. Plain ids,
+// no relations: the log must outlive the rows it describes. Append-only by
+// convention; nothing updates or deletes these rows.
+model StaffActivity {
+  id          String   @id @default(cuid())
+  clubId      String
+  staffUserId String   // whose profile this appears on
+  actorUserId String?  // who made the change (null = system)
+  actorName   String?  // snapshot of the actor's name at the time
+  kind        String   // ACCESS | PAY | HOURS | TIME_OFF | PERSONAL | PORTAL | LESSONS | DOCUMENTS | ASSIGNMENT | ACCOUNT
+  summary     String   // one plain-English line, e.g. "Changed Billing management from None to Full"
+  selfMade    Boolean  @default(false) // true when the staff member changed their own record
+  createdAt   DateTime @default(now())
+
+  @@index([clubId, staffUserId, createdAt])
+  @@map("staff_activity")
 }
 
 model Member {

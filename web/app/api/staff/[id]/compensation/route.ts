@@ -3,7 +3,10 @@ import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermissionLive } from "@/lib/apiGuard";
+import { selfRule, SELF_DENY_MESSAGE } from "@/lib/staffSelf";
+import { recordStaffActivity, actorFrom } from "@/lib/staffActivity";
+
 import { prisma } from "@/lib/prisma";
 
 const SCOPE_TYPES = ["CLASS", "EVENT", "MEMBERSHIP", "PRIVATE_LESSON_TYPE"] as const;
@@ -44,8 +47,11 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "finances", "view");
-  if (denied) return denied;
+  // B21: a staff member may always SEE their own pay plan (read-only).
+  if (selfRule(session.user.role, session.user.id, id, "view_pay") !== "allow") {
+    const denied = await requirePermissionLive(session, "finances", "view");
+    if (denied) return denied;
+  }
   const staff = await requireStaff(id, session.user.clubId);
   if (!staff) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -114,7 +120,11 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "finances", "full");
+  // B21: nobody changes their own pay, whatever permissions they hold.
+  if (selfRule(session.user.role, session.user.id, id, "edit_pay") === "deny") {
+    return NextResponse.json({ error: SELF_DENY_MESSAGE.edit_pay }, { status: 403 });
+  }
+  const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
   const staff = await requireStaff(id, session.user.clubId);
   if (!staff) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -186,6 +196,14 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 
+  await recordStaffActivity({
+    clubId: session.user.clubId,
+    staffUserId: id,
+    ...actorFrom(session),
+    kind: "PAY",
+    summary: `Updated the pay plan (${data.baseType === "SALARY" ? "salary" : data.baseType === "PER_CLASS" ? "per class" : "hourly"} base${data.bonuses.length ? `, ${data.bonuses.length} bonus${data.bonuses.length === 1 ? "" : "es"}` : ""})`,
+  });
+
   return NextResponse.json({ ok: true });
 }
 
@@ -194,7 +212,11 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "finances", "full");
+  // B21: nobody changes their own pay, whatever permissions they hold.
+  if (selfRule(session.user.role, session.user.id, id, "edit_pay") === "deny") {
+    return NextResponse.json({ error: SELF_DENY_MESSAGE.edit_pay }, { status: 403 });
+  }
+  const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
   await prisma.staffCompensation.deleteMany({
     where: { userId: id, clubId: session.user.clubId },

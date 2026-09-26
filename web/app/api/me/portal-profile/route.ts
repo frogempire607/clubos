@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { recordStaffActivity, actorFrom } from "@/lib/staffActivity";
 
 // Self-service member-portal profile for OWNER and STAFF.
 //
@@ -64,6 +65,15 @@ export async function PATCH(req: Request) {
       update: data,
       select: PORTAL_SELECT,
     });
+    if (session.user.role === "STAFF" && Object.keys(data).length) {
+      await recordStaffActivity({
+        clubId: session.user.clubId,
+        staffUserId: session.user.id,
+        ...actorFrom(session),
+        kind: "PORTAL",
+        summary: "Updated their member-portal profile",
+      });
+    }
     return NextResponse.json(sp);
   } catch (err) {
     if (err instanceof z.ZodError) {
