@@ -11,6 +11,7 @@ import {
   FileText,
   Settings,
   Menu,
+  ScanLine,
   type LucideIcon,
 } from "lucide-react";
 
@@ -87,6 +88,7 @@ export const NAV: NavItem[] = [
       { id: "unsubscribes", label: "Unsubscribes", href: "/dashboard/communication/unsubscribes" },
     ],
   },
+  { id: "front-desk", label: "Front desk", icon: ScanLine, href: "/dashboard/front-desk" },
   { id: "attendance", label: "Attendance", icon: CheckSquare, href: "/dashboard/attendance" },
   { id: "financials", label: "Financials", icon: DollarSign, href: "/dashboard/financials" },
   { id: "reports", label: "Reports", icon: BarChart3, href: "/dashboard/reports" },
@@ -103,7 +105,9 @@ export type BottomNavItem =
 export const BOTTOM_NAV: BottomNavItem[] = [
   { id: "home", label: "Home", icon: LayoutGrid, href: "/dashboard", kind: "link" },
   { id: "members", label: "Members", icon: Users, href: "/dashboard/members", kind: "link" },
-  { id: "classes", label: "Classes", icon: Calendar, href: "/dashboard/classes", kind: "link" },
+  // Front desk replaced Classes here (2026-09-25): checking people in happens
+  // every practice; editing classes lives one tap away under More.
+  { id: "front-desk", label: "Desk", icon: ScanLine, href: "/dashboard/front-desk", kind: "link" },
   { id: "money", label: "Money", icon: DollarSign, href: "/dashboard/financials", kind: "link" },
   { id: "more", label: "More", icon: Menu, kind: "more" },
 ];

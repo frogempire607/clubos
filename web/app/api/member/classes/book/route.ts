@@ -28,6 +28,12 @@ const schema = z.object({
   classSessionId: z.string(),
   memberId: z.string().optional(),
   discountCode: z.string().max(50).optional().nullable(),
+  // The attendance-QR check-in page pays the drop-in through here and wants
+  // the athlete back on the check-in screen, not My Bookings. Only that one
+  // path shape is accepted — never an arbitrary redirect target.
+  returnTo: z.string().regex(/^\/member\/checkin\/[A-Za-z0-9_-]{1,64}$/).optional(),
+  // The door rule quoted the DROP-IN; charge exactly that tier.
+  forceDropIn: z.boolean().optional(),
 });
 
 type PricingOption =
@@ -46,7 +52,7 @@ export async function POST(req: Request) {
   if (!rl.allowed) return rateLimitedResponse(rl, "Too many booking attempts. Try again in a moment.");
 
   try {
-    const { classSessionId, memberId, discountCode } = schema.parse(await req.json().catch(() => ({})));
+    const { classSessionId, memberId, discountCode, returnTo, forceDropIn } = schema.parse(await req.json().catch(() => ({})));
 
     // Resolve the booking member (self or linked child)
     const user = await prisma.user.findUnique({
@@ -249,7 +255,9 @@ export async function POST(req: Request) {
     // tier (they are not entitled TODAY) and never the upgrade 403 below. They
     // are on the right membership on the wrong day; telling them to contact the
     // club about upgrading is a phone call the club has to take for no reason.
-    if (dayMismatch) {
+    if (forceDropIn && dropInPrice) {
+      priced = { price: dropInPrice.price, label: "Drop-in", pricingType: "DROP_IN" };
+    } else if (dayMismatch) {
       if (dropInPrice)        priced = { price: dropInPrice.price,    label: "Drop-in",    pricingType: "DROP_IN" };
       else if (nonMemberPrice) priced = { price: nonMemberPrice.price, label: "Non-member", pricingType: "NON_MEMBER" };
     } else if (eligibleForMemberPrice && memberPrice) {
@@ -395,8 +403,8 @@ export async function POST(req: Request) {
           },
           ...(feeItem ? [feeItem] : []),
         ],
-        success_url: `${baseUrl}/member/bookings?paid=true`,
-        cancel_url: `${baseUrl}/member/schedule?canceled=true`,
+        success_url: returnTo ? `${baseUrl}${returnTo}?paid=1` : `${baseUrl}/member/bookings?paid=true`,
+        cancel_url: returnTo ? `${baseUrl}${returnTo}?canceled=1` : `${baseUrl}/member/schedule?canceled=true`,
         payment_intent_data: {
           application_fee_amount: platformFee,
           metadata: {

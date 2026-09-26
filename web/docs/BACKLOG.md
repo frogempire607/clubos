@@ -191,6 +191,18 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   only; club logo on /p now uses the public logo route). Tests `npm run test:product-bulk-pricing` (39).
 
 - [ ] **B6 · Phase 4.5 backlog: 13 partial, 16 missing** · needs Capacitor shell
+  **Group 1 (front desk on a phone) BUILT 2026-09-25** on `claude/front-desk-app` (no migration):
+  `/dashboard/front-desk` (today's class auto-picked → search / New walk-in → door rule → Check in · Start free
+  trial · drop-in by card on file / cash / check / emailed link / collect later); sticky "Check in · Billing" bar on
+  member profiles (phones); "Walk-in" pill FAB on Members (phones); "Desk" replaces Classes in the phone bottom nav.
+  **Door rule** `lib/doorAccess.ts` (Julian 09-25): no covering membership → free trial if still available, else
+  pay the drop-in. Applied to the QR self check-in too: it now starts the trial or asks for the drop-in
+  ("Pay $X now" via Stripe → back to check-in, or "I'll pay cash at the desk" → flagged). Before, anyone without a
+  plan was silently checked in as TRIAL for free. Tests `test:door-access` (23).
+  **App store prep:** Universal Links / App Links (door QR opens the app), `/.well-known` routes, iOS entitlements,
+  Android intent filter, `@capacitor/app` deep-link router, camera/photo permission strings, store badges on /c/.
+  Julian's steps: `docs/APP-STORE-LAUNCH.md`. Tests `test:app-links` (14).
+  Still open in B6: quick-action bottom sheet, profile 2×2 fact grid, groups 2–4.
   Mostly the mobile-native layer.
 
 - [x] **B7 · Phase 8 Steps 6–9 — collapse the commitment plans** · DONE 2026-09-25 — steps 6/7/8 applied, step 9 ✓ fully collapsed for both plans (Maximus, Blake → MS/HS; chase → Jr Frogs; both commitment plans active=false, off every class). Code shipped fc15c75 on `claude/b7-option-acceptance`

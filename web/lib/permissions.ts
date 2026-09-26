@@ -244,6 +244,7 @@ export const PATH_PERMISSIONS: { prefix: string; rule: NavRule }[] = [
   { prefix: "/dashboard/messages", rule: { key: "messages", level: "view" } },
   { prefix: "/dashboard/announcements", rule: { key: "messages", level: "view" } },
   { prefix: "/dashboard/attendance", rule: { key: "attendance", level: "edit" } },
+  { prefix: "/dashboard/front-desk", rule: { key: "attendance", level: "edit" } },
   { prefix: "/dashboard/financials", rule: { key: "finances", level: "view" } },
   { prefix: "/dashboard/reports", rule: { key: "reports", level: "view" } },
   { prefix: "/dashboard/documents", rule: { key: "documents", level: "view" } },

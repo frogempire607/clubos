@@ -30,7 +30,7 @@
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
@@ -41,6 +41,15 @@
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
+	<!-- Photo uploads (profile photos, documents) use the web file picker,
+	     which offers Camera and Photo Library. iOS kills the app without these. -->
+	<key>NSCameraUsageDescription</key>
+	<string>AthletixOS uses the camera so you can take a profile photo or photograph a document to upload.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>AthletixOS lets you choose a photo to upload as a profile picture or document.</string>
+	<!-- Only standard HTTPS — answers App Store Connect's export-compliance question. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<!-- App Transport Security exceptions.

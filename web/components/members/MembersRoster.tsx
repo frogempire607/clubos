@@ -621,7 +621,7 @@ export default function MembersRoster({
   const allOnPageSelected = members.length > 0 && members.every((m) => selected.has(m.id));
 
   return (
-    <div className="flex flex-col gap-[18px] px-4 pb-10 pt-4 sm:px-6 lg:px-8">
+    <div className="flex flex-col gap-[18px] px-4 pb-28 md:pb-10 pt-4 sm:px-6 lg:px-8">
       <PageHeader
         title="Members"
         description={
@@ -1186,6 +1186,16 @@ export default function MembersRoster({
           }}
         />
       )}
+      {/* Phones: pill FAB above the bottom nav (B6 §1j) — a walk-in goes
+          straight to the front desk, which adds them and applies the door
+          rule (trial or drop-in). */}
+      <Link
+        href="/dashboard/front-desk?new=1"
+        className="md:hidden fixed right-4 z-20 inline-flex min-h-[48px] items-center gap-2 rounded-full bg-charcoal px-5 text-[15px] font-semibold text-white shadow-lg"
+        style={{ bottom: "calc(78px + env(safe-area-inset-bottom, 0px))" }}
+      >
+        <UserPlus className="h-4 w-4" /> Walk-in
+      </Link>
     </div>
   );
 }
