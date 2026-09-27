@@ -401,6 +401,8 @@ live, not future; App Store 4.2 is a configuration problem, not a design one (B2
   Also fixed: /api/staff sent passwordHash + resetToken (owner account takeover risk) — now SAFE_USER_SELECT;
   billing_subScopes (transfer a membership) was silently dropped on save. Recent activity on every change.
   Tests: test:staff-profile (39, in build), test:staff-schedule-fit (45), test:staff-access-ui (67).
+  FIX 09-26 (`claude/b21-tab-freeze-fix`): page froze after the first tab click — tab ↔ shell update loop (dirty/problem
+  state returned a new array on every no-op report). Reproduced in jsdom (old build hangs; fixed build clicks all 8 tabs).
   Not built (no backing code): live pay-period estimate, "Ask to update hours" action, document Request email.
   Was: Staff profiles at `/dashboard/team/[id]` with tabs · replaces the Edit Staff modal (audit §4.5)
   Model on the member profile: route not modal, `?tab=` in the URL, reuse ProfileTabs, Overview curated.

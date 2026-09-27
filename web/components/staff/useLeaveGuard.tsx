@@ -10,9 +10,21 @@ export function useLeaveGuard() {
   const pending = useRef<null | (() => void)>(null);
   const [asking, setAsking] = useState<string | null>(null);
 
+  // Return the SAME array when nothing changed. Tabs report their dirty state
+  // on every render; a fresh array each time re-rendered the shell, which
+  // handed the tab new callbacks, which re-reported… an endless loop that
+  // froze the page after the first tab click (B21 fix, 2026-09-26).
   const setTabDirty = useCallback((tab: string, dirty: boolean) => {
-    setDirtyTabs((cur) => (dirty ? (cur.includes(tab) ? cur : [...cur, tab]) : cur.filter((t) => t !== tab)));
+    setDirtyTabs((cur) => {
+      const has = cur.includes(tab);
+      if (dirty === has) return cur;
+      return dirty ? [...cur, tab] : cur.filter((t) => t !== tab);
+    });
   }, []);
+
+  // Read the latest dirty list through a ref so `guard` keeps one identity.
+  const dirtyRef = useRef<string[]>(dirtyTabs);
+  dirtyRef.current = dirtyTabs;
 
   useEffect(() => {
     if (dirtyTabs.length === 0) return;
@@ -27,14 +39,14 @@ export function useLeaveGuard() {
   /** Run `go` now, or ask first when `fromTab` has unsaved changes. */
   const guard = useCallback(
     (fromTab: string, tabLabel: string, go: () => void) => {
-      if (!dirtyTabs.includes(fromTab)) return go();
+      if (!dirtyRef.current.includes(fromTab)) return go();
       pending.current = () => {
         setTabDirty(fromTab, false);
         go();
       };
       setAsking(tabLabel);
     },
-    [dirtyTabs, setTabDirty],
+    [setTabDirty],
   );
 
   const dialog = (

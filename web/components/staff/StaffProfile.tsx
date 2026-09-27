@@ -76,22 +76,22 @@ export default function StaffProfile({ staffId, selfRoute = false }: { staffId: 
     [tab, guard, router, basePath],
   );
 
-  const setProblemFor = useCallback(
-    (key: StaffTabKey) => (p: boolean) =>
-      setProblems((cur) => (p ? (cur.includes(key) ? cur : [...cur, key]) : cur.filter((k) => k !== key))),
-    [],
+  // Stable per-tab callbacks (identity changes only when the tab changes) and
+  // no-op state updates when nothing changed — see useLeaveGuard for why.
+  const setDirty = useCallback((d: boolean) => setTabDirty(tab, d), [setTabDirty, tab]);
+  const setProblem = useCallback(
+    (p: boolean) =>
+      setProblems((cur) => {
+        const has = cur.includes(tab);
+        if (p === has) return cur;
+        return p ? [...cur, tab] : cur.filter((k) => k !== tab);
+      }),
+    [tab],
   );
 
   const tabProps = useMemo<StaffTabProps | null>(
-    () =>
-      data && {
-        data,
-        reload,
-        setDirty: (d: boolean) => setTabDirty(tab, d),
-        goTo,
-        setProblem: setProblemFor(tab),
-      },
-    [data, reload, setTabDirty, tab, goTo, setProblemFor],
+    () => data && { data, reload, setDirty, goTo, setProblem },
+    [data, reload, setDirty, goTo, setProblem],
   );
 
   if (error) {
