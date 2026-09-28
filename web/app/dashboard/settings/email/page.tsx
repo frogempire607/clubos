@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import PageHeader from "@/components/PageHeader";
 
 type Data = {
   configured: boolean;
@@ -84,11 +85,13 @@ export default function EmailSettingsPage() {
           <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} /> Settings
         </Link>
       </div>
-      <h1 className="text-2xl font-semibold text-text-primary mb-1">Email</h1>
-      <p className="text-sm text-text-muted mb-6">
+      <PageHeader
+        title="Email"
+        description={<>
         Control the name members see on emails (activation links, receipts,
         announcements) and where their replies go.
-      </p>
+        </>}
+      />
 
       {/* Connection status */}
       <div
@@ -111,7 +114,7 @@ export default function EmailSettingsPage() {
             </p>
             <div className="flex flex-wrap items-end gap-2">
               <div className="flex-1 min-w-[200px]">
-                <label className="block text-[11px] font-medium text-text-muted mb-1">
+                <label className="block text-[12px] font-medium text-text-muted mb-1">
                   Send test to (leave blank to use your login email)
                 </label>
                 <input

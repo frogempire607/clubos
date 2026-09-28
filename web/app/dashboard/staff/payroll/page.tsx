@@ -215,7 +215,7 @@ export default function StaffPayrollPage() {
       ) : (
         <>
           {/* Totals */}
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
             <Total label="Base pay" value={formatMoney(data.totals.base)} />
             <Total label="Bonus pay" value={formatMoney(data.totals.bonus)} />
             <Total label="Total pay" value={formatMoney(data.totals.total)} accent />

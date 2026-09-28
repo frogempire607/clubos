@@ -14,6 +14,7 @@ import {
   type BonusType,
   type ScopeType,
 } from "@/lib/compensation";
+import { effectiveClassStaff } from "@/lib/staffAssignments";
 
 /**
  * The period bounds the Payroll page has always used: `from` at 00:00:00.000
@@ -59,6 +60,8 @@ export async function computePayroll(
           id: true,
           startsAt: true,
           endsAt: true,
+          // Per-day substitute: the person who actually coached is paid for it.
+          staffOverride: true,
           recurringClass: { select: { id: true, name: true, assignedStaffIds: true, pricingOptions: true } },
         },
       }),
@@ -109,12 +112,9 @@ export async function computePayroll(
     const comp = s.compensation;
 
     const taughtSessions: TaughtSession[] = classSessions
-      .filter((cs) => {
-        const ids = Array.isArray(cs.recurringClass.assignedStaffIds)
-          ? (cs.recurringClass.assignedStaffIds as string[])
-          : [];
-        return ids.includes(s.id);
-      })
+      .filter((cs) =>
+        effectiveClassStaff(cs.recurringClass.assignedStaffIds, cs.staffOverride).staffIds.includes(s.id),
+      )
       .map((cs) => ({
         sessionId: cs.id,
         classId: cs.recurringClass.id,

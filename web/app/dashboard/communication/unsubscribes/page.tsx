@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Search, RotateCcw, X, History } from "lucide-react";
+import PageHeader from "@/components/PageHeader";
 
 interface OptOutRow {
   id: string;
@@ -102,15 +103,15 @@ export default function UnsubscribesPage() {
         </Link>
       </div>
 
-      <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-text-primary mb-1">Unsubscribes</h1>
-        <p className="text-sm text-text-muted max-w-2xl">
+      <PageHeader
+        title="Unsubscribes"
+        description={<>
           Every address on this list is opted out of marketing (default),
           transactional, or all non-essential email from your club. Members
           who opted themselves out via a footer link are labeled UNSUBSCRIBE_LINK.
           Every change here writes an audit row.
-        </p>
-      </div>
+        </>}
+      />
 
       <div className="mb-4 flex items-center gap-3">
         <div className="relative flex-1 max-w-md">
@@ -227,7 +228,7 @@ export default function UnsubscribesPage() {
                         }`}>
                           {h.action === "SUBSCRIBE" ? "Resubscribed" : "Unsubscribed"} — {h.scope}
                         </span>
-                        <span className="text-[11px] text-text-muted">{new Date(h.createdAt).toLocaleString()}</span>
+                        <span className="text-[12px] text-text-muted">{new Date(h.createdAt).toLocaleString()}</span>
                       </div>
                       <div className="text-xs text-text-muted">
                         via {h.source}

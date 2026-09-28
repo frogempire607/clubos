@@ -92,7 +92,7 @@ export default function RevenueTab({ range, customFrom, customTo }: { range: Ran
         >
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-text-primary">Recurring revenue metrics</span>
-            <span className="hidden sm:inline text-[11px] text-text-muted italic">SaaS-style: MRR, ARR, ARPA</span>
+            <span className="hidden sm:inline text-[12px] text-text-muted italic">SaaS-style: MRR, ARR, ARPA</span>
           </div>
           {recurringOpen ? <ChevronUp size={16} className="text-text-muted" /> : <ChevronDown size={16} className="text-text-muted" />}
         </button>
@@ -156,7 +156,7 @@ function ByItemCard({ rows }: { rows: ByItem[] }) {
           <ScrollTable className="hidden md:block">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-[11px] text-text-muted uppercase tracking-wide font-semibold border-b border-app-border">
+                <tr className="text-[12px] text-text-muted uppercase tracking-wide font-semibold border-b border-app-border">
                   <th className="text-left py-2 pr-3">Item</th>
                   <th className="text-left py-2 pr-3">Kind</th>
                   <th className="text-right py-2 pr-3">Units</th>
@@ -187,11 +187,11 @@ function ByItemCard({ rows }: { rows: ByItem[] }) {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-text-primary truncate">{r.label}</p>
-                      <p className="text-[11px] text-text-muted uppercase mt-0.5">{r.kind} · {r.units} unit{r.units === 1 ? "" : "s"}</p>
+                      <p className="text-[12px] text-text-muted uppercase mt-0.5">{r.kind} · {r.units} unit{r.units === 1 ? "" : "s"}</p>
                     </div>
                     <div className="text-right flex-shrink-0">
                       <p className="text-sm font-semibold text-text-primary tabular-nums">{moneyExact(r.amount)}</p>
-                      <p className="text-[11px] text-text-muted tabular-nums">{r.percentOfTotal.toFixed(1)}%</p>
+                      <p className="text-[12px] text-text-muted tabular-nums">{r.percentOfTotal.toFixed(1)}%</p>
                     </div>
                   </div>
                 </Link>
@@ -294,7 +294,7 @@ function BySourceCard({ rows }: { rows: BySource[] }) {
           >
             <span className={`inline-block w-2 h-2 rounded-full ${dotColors[r.source] ?? "bg-gray-300"}`} />
             <span className="text-xs text-text-primary font-semibold">{moneyExact(r.amount)}</span>
-            <span className="text-[11px] text-text-muted">
+            <span className="text-[12px] text-text-muted">
               {r.label} · {r.percentOfTotal.toFixed(0)}%
             </span>
           </div>
@@ -307,7 +307,7 @@ function BySourceCard({ rows }: { rows: BySource[] }) {
 function RecurringBlock({ r }: { r: Response["recurring"] }) {
   return (
     <div className="border-t border-app-border p-5">
-      <p className="text-[11px] text-text-muted italic mb-3 sm:hidden">SaaS-style: MRR, ARR, ARPA</p>
+      <p className="text-[12px] text-text-muted italic mb-3 sm:hidden">SaaS-style: MRR, ARR, ARPA</p>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <MetricTile label="MRR" value={moneyExact(r.mrr)} hint="Monthly recurring revenue" />
         <MetricTile label="ARR" value={money(r.arr)} hint="Annualized run rate" />
@@ -321,7 +321,7 @@ function RecurringBlock({ r }: { r: Response["recurring"] }) {
         <MetricTile label="Upgrades" value={String(r.upgrades)} hint="Est." />
         <MetricTile label="Downgrades" value={String(r.downgrades)} hint="Est." />
       </div>
-      <p className="text-[11px] text-text-muted mt-3">
+      <p className="text-[12px] text-text-muted mt-3">
         Recurring revenue is {money(r.amount)} — {r.percentOfTotal.toFixed(0)}% of total.
         Upgrade/downgrade counts are estimated until subscription-event history ships (Phase 4.5).
       </p>
@@ -332,9 +332,9 @@ function RecurringBlock({ r }: { r: Response["recurring"] }) {
 function MetricTile({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
     <div>
-      <p className="text-[11px] text-text-muted uppercase tracking-wide font-semibold">{label}</p>
+      <p className="text-[12px] text-text-muted uppercase tracking-wide font-semibold">{label}</p>
       <p className="text-lg font-semibold text-text-primary tabular-nums">{value}</p>
-      <p className="text-[11px] text-text-muted">{hint}</p>
+      <p className="text-[12px] text-text-muted">{hint}</p>
     </div>
   );
 }

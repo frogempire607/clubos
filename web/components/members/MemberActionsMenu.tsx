@@ -201,7 +201,7 @@ export function MemberActionsMenu({
         <span className="flex-1 truncate">{it.label}</span>
         {!ok && it.requires && (
           <span
-            className="rounded-[4px] px-1 text-[10px] font-semibold uppercase"
+            className="rounded-[4px] px-1 text-[12px] font-semibold uppercase"
             style={{ background: "var(--color-chip-surface)", color: "var(--color-chip-text)" }}
           >
             {ROLE_BADGE[it.requires]}

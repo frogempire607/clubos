@@ -112,7 +112,7 @@ export default function SellModal({ product, onClose, onSold }: { product: Sella
                     >
                       <span className={`block text-sm font-semibold leading-tight ${sel ? "text-brand" : "text-text-primary"}`}>{v.label}</span>
                       <span className="block text-xs text-text-muted mt-0.5">{money(price)}{v.sku ? ` · ${v.sku}` : ""}</span>
-                      <span className={`block text-[11px] mt-1 font-medium ${st === "OUT" ? "text-red-600" : st === "LOW" ? "text-amber-700" : "text-text-muted"}`}>
+                      <span className={`block text-[12px] mt-1 font-medium ${st === "OUT" ? "text-red-600" : st === "LOW" ? "text-amber-700" : "text-text-muted"}`}>
                         {st === "OUT" ? "Sold out" : `${v.stock} in stock`}
                       </span>
                     </button>

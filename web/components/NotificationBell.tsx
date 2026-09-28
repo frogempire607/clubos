@@ -82,7 +82,7 @@ export default function NotificationBell({
         <Bell className="h-5 w-5" strokeWidth={2} />
         {badge > 0 && (
           <span
-            className="absolute top-1 right-1 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center text-white tabular-nums"
+            className="absolute top-1 right-1 min-w-[16px] h-4 px-1 rounded-full text-[12px] font-bold flex items-center justify-center text-white tabular-nums"
             style={{ background: "var(--color-warning, #FF6A00)" }}
           >
             {badge > 99 ? "99+" : badge}

@@ -101,7 +101,7 @@ function StepRail({ step, onGoTo }: { step: number; onGoTo: (s: number) => void 
                 isCurrent ? "bg-app-bg font-semibold text-text-primary" : "text-text-muted hover:text-text-primary"
               }`}
             >
-              <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-semibold ${
+              <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[12px] font-semibold ${
                 isCurrent ? "bg-brand text-white" :
                 isDone ? "bg-lime-accent text-charcoal" :
                 "bg-app-bg text-text-muted border border-app-border"
@@ -196,7 +196,7 @@ function StepMatch({ batch, onNext, onReload }: { batch: Batch; onNext: () => vo
       <div className="bg-surface border border-app-border rounded-xl overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-[11px] text-text-muted uppercase tracking-wide border-b border-app-border">
+            <tr className="text-[12px] text-text-muted uppercase tracking-wide border-b border-app-border">
               <th className="text-left py-2 pl-4 pr-3">Your column</th>
               <th className="text-left py-2 pr-3">Example</th>
               <th className="text-left py-2 pr-3">Imports as</th>
@@ -274,7 +274,7 @@ function StepProblems({ batch, onBack, onNext, onReload }: { batch: Batch; onBac
           >
             <Download size={12} /> Download errors CSV
           </a>
-          <p className="text-[11px] text-text-muted mt-2">Fix and re-upload only the errored rows.</p>
+          <p className="text-[12px] text-text-muted mt-2">Fix and re-upload only the errored rows.</p>
         </div>
       )}
       {data.warnings.length > 0 && (
@@ -308,7 +308,7 @@ function StepPreview({ batch, onBack, onNext }: { batch: Batch; onBack: () => vo
       <div className="bg-surface border border-app-border rounded-xl overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-[11px] text-text-muted uppercase border-b border-app-border">
+            <tr className="text-[12px] text-text-muted uppercase border-b border-app-border">
               <th className="text-left py-2 pl-3 pr-2 sticky left-0 bg-app-bg">#</th>
               <th className="text-left py-2 pr-3 sticky left-8 bg-app-bg">Outcome</th>
               {headers.map((h) => (
@@ -345,7 +345,7 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
     outcome === "SKIPPED" ? "bg-app-bg text-text-muted" :
     outcome === "MERGED" ? "bg-brand/20 text-brand" :
     "bg-app-bg text-text-muted";
-  return <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded ${cls}`}>{outcome.replace("_", " ")}</span>;
+  return <span className={`text-[12px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded ${cls}`}>{outcome.replace("_", " ")}</span>;
 }
 
 // ── STEP 5: Review matches ─────────────────────────────────────────
@@ -415,11 +415,11 @@ function StepReview({ batch, onBack, onNext }: { batch: Batch; onBack: () => voi
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-y md:divide-y-0 md:divide-x divide-app-border">
                 <div className="p-4">
-                  <p className="text-[11px] uppercase tracking-wide font-semibold text-text-muted mb-2">From your file</p>
+                  <p className="text-[12px] uppercase tracking-wide font-semibold text-text-muted mb-2">From your file</p>
                   <MemberSummary data={item.input} />
                 </div>
                 <div className="p-4 bg-app-bg/40">
-                  <p className="text-[11px] uppercase tracking-wide font-semibold text-text-muted mb-2">Already in AthletixOS ({item.candidates.length})</p>
+                  <p className="text-[12px] uppercase tracking-wide font-semibold text-text-muted mb-2">Already in AthletixOS ({item.candidates.length})</p>
                   <ul className="space-y-2">
                     {item.candidates.map((c) => (
                       <li key={c.memberId} className="border border-app-border rounded-lg p-2 bg-surface">
@@ -456,10 +456,10 @@ function MemberSummary({ data }: { data: Record<string, string | null> }) {
   return (
     <div>
       <p className="text-sm font-medium text-text-primary">{[data.firstName, data.lastName].filter(Boolean).join(" ") || "Unknown"}</p>
-      {data.email && <p className="text-[11px] text-text-muted">{data.email}</p>}
-      {data.phone && <p className="text-[11px] text-text-muted">{data.phone}</p>}
-      {data.dateOfBirth && <p className="text-[11px] text-text-muted">DOB {data.dateOfBirth}</p>}
-      {data.externalMemberId && <p className="text-[11px] text-text-muted">Legacy ID {data.externalMemberId}</p>}
+      {data.email && <p className="text-[12px] text-text-muted">{data.email}</p>}
+      {data.phone && <p className="text-[12px] text-text-muted">{data.phone}</p>}
+      {data.dateOfBirth && <p className="text-[12px] text-text-muted">DOB {data.dateOfBirth}</p>}
+      {data.externalMemberId && <p className="text-[12px] text-text-muted">Legacy ID {data.externalMemberId}</p>}
     </div>
   );
 }
@@ -550,7 +550,7 @@ function StepDone({ batch, onReload }: { batch: Batch; onReload: () => void }) {
           <StatCard label="Skipped" value={batch.skippedCount} accent="neutral" />
           <StatCard label="Errors" value={batch.errorCount} accent={batch.errorCount > 0 ? "warn" : "ok"} />
         </ul>
-        <p className="text-[11px] text-text-muted mt-3">
+        <p className="text-[12px] text-text-muted mt-3">
           Rollback available until {batch.rollbackExpiresAt ? new Date(batch.rollbackExpiresAt).toLocaleDateString() : "—"}.
         </p>
       </div>
@@ -575,14 +575,14 @@ function StepDone({ batch, onReload }: { batch: Batch; onReload: () => void }) {
             <button
               key={f || "all"}
               onClick={() => setFilter(f)}
-              className={`text-[11px] px-2 py-1 rounded ${filter === f ? "bg-charcoal text-white" : "bg-app-bg text-text-muted"}`}
+              className={`text-[12px] px-2 py-1 rounded ${filter === f ? "bg-charcoal text-white" : "bg-app-bg text-text-muted"}`}
             >
               {f || "All"}
             </button>
           ))}
           <a
             href={`/api/reports/imports/${batch.id}/log?format=csv`}
-            className="text-[11px] px-2 py-1 rounded bg-app-bg text-text-muted flex items-center gap-1"
+            className="text-[12px] px-2 py-1 rounded bg-app-bg text-text-muted flex items-center gap-1"
           >
             <Download size={11} /> CSV
           </a>
@@ -595,7 +595,7 @@ function StepDone({ batch, onReload }: { batch: Batch; onReload: () => void }) {
         <div className="bg-surface border border-app-border rounded-xl overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-[11px] text-text-muted uppercase border-b border-app-border">
+              <tr className="text-[12px] text-text-muted uppercase border-b border-app-border">
                 <th className="text-left py-2 pl-3 pr-2">Row</th>
                 <th className="text-left py-2 pr-3">Outcome</th>
                 <th className="text-left py-2 pr-3">Signal</th>
@@ -633,7 +633,7 @@ function StatCard({ label, value, accent }: { label: string; value: number; acce
     "text-text-primary";
   return (
     <div className="border border-app-border rounded-lg p-3">
-      <p className="text-[10px] text-text-muted uppercase tracking-wide">{label}</p>
+      <p className="text-[12px] text-text-muted uppercase tracking-wide">{label}</p>
       <p className={`text-2xl font-semibold tabular-nums ${cls}`}>{value}</p>
     </div>
   );

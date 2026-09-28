@@ -125,7 +125,7 @@ export function Pill({
       : {};
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${TONE_CLASS[tone]} ${className}`}
+      className={`inline-flex items-center gap-1 text-[12px] font-semibold px-2 py-0.5 rounded-full ${TONE_CLASS[tone]} ${className}`}
       style={accentStyle}
     >
       {children}
@@ -325,7 +325,7 @@ export function StatTile({
             {icon}
           </span>
         )}
-        <p className="text-[11px] text-stone-500 uppercase tracking-wide font-medium">{label}</p>
+        <p className="text-[12px] text-stone-500 uppercase tracking-wide font-medium">{label}</p>
       </div>
       <p
         className="text-[15px] font-semibold leading-tight"

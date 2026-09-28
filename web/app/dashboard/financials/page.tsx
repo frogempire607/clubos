@@ -220,7 +220,7 @@ export default function FinancialsPage() {
         }
       />
 
-      <p className="text-[11px] text-text-muted mb-5">{FINANCIAL_DISCLAIMER}</p>
+      <p className="text-[12px] text-text-muted mb-5">{FINANCIAL_DISCLAIMER}</p>
 
       <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-6 w-fit flex-wrap">
         {TABS.map((t) => (
@@ -608,7 +608,7 @@ function MoneyOutTab({ entity, entities, bank, bankConnections }: { entity: stri
               {expenses.map((e) => (
                 <tr key={e.id} className="border-b border-app-border last:border-0 hover:bg-app-bg">
                   <Td><span className="text-xs text-text-muted">{new Date(e.date).toLocaleDateString()}</span></Td>
-                  <Td><span className="text-sm text-text-primary">{e.description}</span>{e.reimbursable && <span className="ml-1 text-[10px] text-brand">reimbursable</span>}</Td>
+                  <Td><span className="text-sm text-text-primary">{e.description}</span>{e.reimbursable && <span className="ml-1 text-[12px] text-brand">reimbursable</span>}</Td>
                   <Td><span className="text-xs text-text-muted">{e.vendor || "—"}</span></Td>
                   <Td><span className="text-xs text-text-primary">{expenseCategoryLabel(e.category)}</span></Td>
                   <Td><span className="text-xs text-text-muted">{e.legalEntity?.name || "—"}</span></Td>
@@ -1190,10 +1190,10 @@ function CashOfflineTab({ qs, entities, initialAwaitingOnly = false }: { qs: str
                     </div>
                     <div className="text-right flex-shrink-0">
                       <div className="text-sm font-semibold text-text-primary tabular-nums">{money(t.amount)}</div>
-                      <div className="text-[11px] text-text-muted">{new Date(t.txDate || t.createdAt).toLocaleDateString()}</div>
+                      <div className="text-[12px] text-text-muted">{new Date(t.txDate || t.createdAt).toLocaleDateString()}</div>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between text-[11px]">
+                  <div className="flex items-center justify-between text-[12px]">
                     <div className="flex gap-2 items-center">
                       <span className={`px-2 py-0.5 rounded-full ${state.cls}`}>{state.label}</span>
                       <span className="text-text-muted">{t.paymentSource ?? t.paymentMethod}</span>
@@ -1350,12 +1350,12 @@ function OfflineTxManageModal({ tx, entities, onClose, onSaved }: { tx: Tx; enti
             <input type="checkbox" checked={markRefunded} onChange={(e) => setMarkRefunded(e.target.checked)} />
             <span className="text-text-primary">Mark as refunded / reversed</span>
           </label>
-          <p className="text-[11px] text-text-muted mt-1">
+          <p className="text-[12px] text-text-muted mt-1">
             Owner-declared flag — this does not process a Stripe refund. For Stripe
             refunds, use the Stripe dashboard.
           </p>
           {markRefunded && (
-            <div className="grid grid-cols-2 gap-3 mt-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
               <Field label="Refund amount">
                 <input type="number" step="0.01" min={0} max={Number(tx.amount)}
                   value={refundAmt} onChange={(e) => setRefundAmt(e.target.value)}
@@ -1451,7 +1451,7 @@ function ReconciliationCard() {
                   {m.fee != null ? ` · fee ${money(m.fee)}` : ""}
                 </p>
               ))}
-              <p className="text-[11px] text-orange-700 mt-1">
+              <p className="text-[12px] text-orange-700 mt-1">
                 Recovered only via the owner-approved backfill (dedup-safe) — never created automatically.
               </p>
             </div>
@@ -1466,7 +1466,7 @@ function ReconciliationCard() {
                   {new Date(u.createdAt).toLocaleDateString()} · {money(u.amount)} · {u.description || u.transactionId}
                 </p>
               ))}
-              <p className="text-[11px] text-red-700 mt-1">These claim Stripe money AthletixOS can&apos;t verify — review before counting them.</p>
+              <p className="text-[12px] text-red-700 mt-1">These claim Stripe money AthletixOS can&apos;t verify — review before counting them.</p>
             </div>
           )}
           {report.duplicates.length > 0 && (
@@ -1758,7 +1758,7 @@ function BankTab({ initialNeedsReviewOnly = false }: { initialNeedsReviewOnly?: 
                   <div className="min-w-0">
                     <div className="text-text-primary font-medium truncate">{display}</div>
                     {c.institutionName && c.label && (
-                      <div className="text-[11px] text-text-muted">{c.institutionName}</div>
+                      <div className="text-[12px] text-text-muted">{c.institutionName}</div>
                     )}
                   </div>
                   <div className="flex gap-1 flex-shrink-0">
@@ -1979,7 +1979,7 @@ function BankRow({ tx, onReload }: { tx: BankTx; onReload: () => void }) {
           <div>
             <span className="text-sm text-text-primary">{tx.name}</span>
             {tx.merchantName && tx.merchantName !== tx.name && (
-              <span className="text-[11px] text-text-muted block">{tx.merchantName}</span>
+              <span className="text-[12px] text-text-muted block">{tx.merchantName}</span>
             )}
           </div>
         </Td>
@@ -2111,7 +2111,7 @@ function BankRowManageModal({ tx, onClose, onSaved }: { tx: BankTx; onClose: () 
               {EXPENSE_CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
             </select>
             {tx.suggestedCategory && !tx.categoryOverride && (
-              <p className="text-[11px] text-text-muted mt-1">
+              <p className="text-[12px] text-text-muted mt-1">
                 Suggested from vendor: {expenseCategoryLabel(tx.suggestedCategory)}
               </p>
             )}
@@ -2121,7 +2121,7 @@ function BankRowManageModal({ tx, onClose, onSaved }: { tx: BankTx; onClose: () 
               <input type="checkbox" checked={markTransfer} onChange={(e) => setMarkTransfer(e.target.checked)} />
               <span className="text-text-primary">Transfer between accounts</span>
             </label>
-            <p className="text-[11px] text-text-muted ml-6">
+            <p className="text-[12px] text-text-muted ml-6">
               Transfers between the club&apos;s own accounts are neither income nor expense.
             </p>
             <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -2168,7 +2168,7 @@ function BankRowManageModal({ tx, onClose, onSaved }: { tx: BankTx; onClose: () 
                 <li key={s.id} className="p-3 flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <div className="text-sm text-text-primary truncate">{s.label}</div>
-                    <div className="text-[11px] text-text-muted">
+                    <div className="text-[12px] text-text-muted">
                       {new Date(s.date + "T00:00:00").toLocaleDateString()} · {money(s.amount)} · {(s.score * 100).toFixed(0)}% match
                     </div>
                   </div>

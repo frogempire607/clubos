@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import PageHeader from "@/components/PageHeader";
 
 type EventRow = {
   id: string;
@@ -75,20 +76,18 @@ export default function StripeDiagnosticsPage() {
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
-      <div className="mb-6 flex items-end justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Stripe Diagnostics</h1>
-          <p className="text-sm text-text-muted mt-1">
-            Verify Stripe is wired correctly and inspect recent webhook activity.
-          </p>
-        </div>
+      <PageHeader
+        title="Stripe Diagnostics"
+        description="Verify Stripe is wired correctly and inspect recent webhook activity."
+        actions={<>
         <button
           onClick={load}
           className="text-sm px-3 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
         >
           Refresh
         </button>
-      </div>
+        </>}
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <Stat label="Events 24h" value={String(counts.last24h)} />
@@ -136,7 +135,7 @@ export default function StripeDiagnosticsPage() {
         {recentEvents.length === 0 ? (
           <div className="text-center py-8">
             <p className="text-sm text-text-muted mb-2">No webhook events received yet.</p>
-            <p className="text-[11px] text-text-muted">
+            <p className="text-[12px] text-text-muted">
               To test locally, run <code className="bg-app-bg px-1.5 py-0.5 rounded">stripe listen --forward-to localhost:3000/api/stripe/webhook</code>
             </p>
           </div>
@@ -144,7 +143,7 @@ export default function StripeDiagnosticsPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="text-left text-[10px] uppercase tracking-wider text-text-muted border-b border-app-border">
+                <tr className="text-left text-[12px] uppercase tracking-wider text-text-muted border-b border-app-border">
                   <th className="pb-2 font-medium">When</th>
                   <th className="pb-2 font-medium">Type</th>
                   <th className="pb-2 font-medium">Source</th>
@@ -163,7 +162,7 @@ export default function StripeDiagnosticsPage() {
                     <td className="py-2 text-text-primary">
                       {e.type}
                       {e.livemode && (
-                        <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-red-50 text-red-600">LIVE</span>
+                        <span className="ml-1.5 text-[12px] px-1 py-0.5 rounded bg-red-50 text-red-600">LIVE</span>
                       )}
                     </td>
                     <td className="py-2 text-text-muted">{e.source}</td>
@@ -178,7 +177,7 @@ export default function StripeDiagnosticsPage() {
                         <span className="text-text-muted">Pending</span>
                       )}
                     </td>
-                    <td className="py-2 text-text-muted font-mono text-[10px]">
+                    <td className="py-2 text-text-muted font-mono text-[12px]">
                       {e.stripeEventId.slice(0, 18)}…
                     </td>
                   </tr>
@@ -189,7 +188,7 @@ export default function StripeDiagnosticsPage() {
         )}
       </Card>
 
-      <p className="text-[11px] text-text-muted mt-4">
+      <p className="text-[12px] text-text-muted mt-4">
         Webhook URL: <code className="bg-app-bg px-1 py-0.5 rounded">{env.nextAuthUrl ?? "<NEXTAUTH_URL>"}/api/stripe/webhook</code>
         {" — "}point your Stripe webhook endpoint here and copy the signing secret into <code className="bg-app-bg px-1 py-0.5 rounded">STRIPE_WEBHOOK_SECRET</code>.
       </p>

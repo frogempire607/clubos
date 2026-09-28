@@ -108,7 +108,7 @@ export default function GlobalSearch() {
           placeholder="Search members, classes, events, documents…"
           className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none"
         />
-        <kbd className="hidden sm:inline text-[10px] text-text-muted border border-app-border rounded px-1.5 py-0.5">
+        <kbd className="hidden sm:inline text-[12px] text-text-muted border border-app-border rounded px-1.5 py-0.5">
           Ctrl K
         </kbd>
       </div>
@@ -117,7 +117,7 @@ export default function GlobalSearch() {
         <div className="absolute z-50 mt-1.5 left-0 right-0 bg-surface border border-app-border rounded-lg shadow-lg max-h-[70vh] overflow-y-auto">
           {showRecent ? (
             <div className="p-2">
-              <p className="text-[10px] uppercase tracking-wider text-text-muted px-2 py-1">Recent searches</p>
+              <p className="text-[12px] uppercase tracking-wider text-text-muted px-2 py-1">Recent searches</p>
               {recent.map((r) => (
                 <button
                   key={r}
@@ -136,7 +136,7 @@ export default function GlobalSearch() {
             <div className="p-2">
               {groups.map((g) => (
                 <div key={g.type} className="mb-1.5 last:mb-0">
-                  <p className="text-[10px] uppercase tracking-wider text-text-muted px-2 py-1">{g.label}</p>
+                  <p className="text-[12px] uppercase tracking-wider text-text-muted px-2 py-1">{g.label}</p>
                   {g.items.map((it) => (
                     <button
                       key={`${g.type}-${it.id}`}

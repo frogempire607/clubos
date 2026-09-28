@@ -1,5 +1,6 @@
 "use client";
 
+import PageHeader from "@/components/PageHeader";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -68,16 +69,18 @@ export default function MemberFormSettingsPage() {
 
   return (
     <div className="p-8 max-w-3xl">
-      <div className="mb-6">
+      <div className="mb-1">
         <Link href="/dashboard/members" className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-primary">
           <ArrowLeft className="h-3 w-3" strokeWidth={2} /> Back to Members
         </Link>
-        <h1 className="text-3xl font-semibold text-text-primary mt-1 mb-1">Member intake form</h1>
-        <p className="text-sm text-text-muted">
+      </div>
+      <PageHeader
+        title="Member intake form"
+        description={<>
           Choose which fields appear when you add a new member or import a CSV. Athlete name and email are always
           included — toggle the rest to fit your club.
-        </p>
-      </div>
+        </>}
+      />
 
       {loading ? (
         <div className="text-sm text-text-muted">Loading…</div>
@@ -102,10 +105,10 @@ export default function MemberFormSettingsPage() {
                 <div>
                   <div className="text-sm font-medium text-text-primary">{FIELD_LABELS[k]}</div>
                   {isAlwaysOn && (
-                    <div className="text-[11px] text-text-muted">Always shown</div>
+                    <div className="text-[12px] text-text-muted">Always shown</div>
                   )}
                   {k === "isMinor" && (
-                    <div className="text-[11px] text-text-muted">Reveals guardian fields when checked</div>
+                    <div className="text-[12px] text-text-muted">Reveals guardian fields when checked</div>
                   )}
                 </div>
 

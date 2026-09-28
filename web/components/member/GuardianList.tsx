@@ -89,7 +89,7 @@ export default function GuardianList({
                     </Pill>
                   )}
                 </p>
-                <p className="text-[11.5px] text-stone-500 truncate">
+                <p className="text-[12px] text-stone-500 truncate">
                   {g.isPrimary
                     ? `Sets the controls for ${childName ?? "this athlete"}`
                     : `Co-guardian${g.relationship ? ` · ${g.relationship}` : ""}`}
@@ -113,7 +113,7 @@ export default function GuardianList({
                     <span
                       key={p.key}
                       title={on ? `Can ${p.label.toLowerCase()}` : `Cannot ${p.label.toLowerCase()}`}
-                      className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                      className={`text-[12px] px-1.5 py-0.5 rounded font-medium ${
                         on ? "bg-lime-100 text-stone-800" : "bg-stone-100 text-stone-400 line-through"
                       }`}
                     >
@@ -124,7 +124,7 @@ export default function GuardianList({
                 return (
                   <label
                     key={p.key}
-                    className="inline-flex items-center gap-1 text-[10px] text-stone-700 cursor-pointer"
+                    className="inline-flex items-center gap-1 text-[12px] text-stone-700 cursor-pointer"
                   >
                     <input
                       type="checkbox"
@@ -138,7 +138,7 @@ export default function GuardianList({
                 );
               })}
               {g.isYou && canEditAccess && (
-                <span className="text-[10px] text-stone-400">· your own access is set by the club</span>
+                <span className="text-[12px] text-stone-400">· your own access is set by the club</span>
               )}
             </div>
           </div>

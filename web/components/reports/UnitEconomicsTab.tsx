@@ -90,9 +90,9 @@ export default function UnitEconomicsTab({ range, customFrom, customTo }: { rang
 function KpiCard({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
     <div className="bg-surface border border-app-border rounded-xl p-4">
-      <p className="text-[11px] text-text-muted uppercase tracking-wide font-semibold">{label}</p>
+      <p className="text-[12px] text-text-muted uppercase tracking-wide font-semibold">{label}</p>
       <p className="text-2xl font-semibold text-text-primary tabular-nums mt-1 break-words">{value}</p>
-      <p className="text-[11px] text-text-muted mt-0.5">{hint}</p>
+      <p className="text-[12px] text-text-muted mt-0.5">{hint}</p>
     </div>
   );
 }
@@ -105,7 +105,7 @@ function BreakEvenCard({ breakEven }: { breakEven: Response["breakEven"] }) {
     <div className="bg-surface border border-app-border rounded-xl p-5">
       <div className="flex items-center gap-2 mb-3">
         <p className="text-xs text-text-muted uppercase tracking-wide font-semibold">Break-even</p>
-        <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-app-bg text-text-muted">
+        <span className="text-[12px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-app-bg text-text-muted">
           Estimated
         </span>
       </div>
@@ -152,11 +152,11 @@ function BreakEvenCard({ breakEven }: { breakEven: Response["breakEven"] }) {
 
       {/* Formula block */}
       <div className="bg-app-bg rounded-lg p-3">
-        <p className="text-[11px] text-text-muted uppercase tracking-wide font-semibold mb-2">{breakEven.formula.label}</p>
+        <p className="text-[12px] text-text-muted uppercase tracking-wide font-semibold mb-2">{breakEven.formula.label}</p>
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm">
           <div>
             <p className="text-lg font-semibold text-text-primary tabular-nums">{moneyRound(breakEven.formula.monthlyFixedCosts)}</p>
-            <p className="text-[10px] text-text-muted uppercase tracking-wide">Monthly fixed</p>
+            <p className="text-[12px] text-text-muted uppercase tracking-wide">Monthly fixed</p>
           </div>
           <div className="text-lg text-text-muted">÷</div>
           <div>
@@ -164,7 +164,7 @@ function BreakEvenCard({ breakEven }: { breakEven: Response["breakEven"] }) {
               breakEven.formula.contributionMarginPerAthlete == null || breakEven.formula.contributionMarginPerAthlete <= 0
                 ? "text-red-700" : "text-text-primary"
             }`}>{money(breakEven.formula.contributionMarginPerAthlete)}</p>
-            <p className="text-[10px] text-text-muted uppercase tracking-wide">Contribution margin / athlete</p>
+            <p className="text-[12px] text-text-muted uppercase tracking-wide">Contribution margin / athlete</p>
           </div>
         </div>
       </div>
@@ -189,7 +189,7 @@ function AcquisitionCard({ acquisition }: { acquisition: Response["acquisition"]
     <div className="bg-surface border border-app-border rounded-xl p-5">
       <div className="flex items-center gap-2 mb-3">
         <p className="text-xs text-text-muted uppercase tracking-wide font-semibold">Acquisition</p>
-        <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-app-bg text-text-muted">
+        <span className="text-[12px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-app-bg text-text-muted">
           Estimated
         </span>
       </div>

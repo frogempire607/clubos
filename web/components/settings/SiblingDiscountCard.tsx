@@ -89,12 +89,12 @@ export default function SiblingDiscountCard() {
                   <span className="text-xs text-text-primary w-24 shrink-0">{ordinalWord(i + 2)}{i === tiers.length - 1 ? " & on" : ""} athlete</span>
                   <AmountInput value={t} onChange={(nt) => set({ tiers: tiers.map((x, j) => (j === i ? nt : x)) })} />
                   {tiers.length > 1 && (
-                    <button type="button" onClick={() => set({ tiers: tiers.filter((_, j) => j !== i) })} className="text-[11px] text-text-muted hover:text-red-600">Remove</button>
+                    <button type="button" onClick={() => set({ tiers: tiers.filter((_, j) => j !== i) })} className="text-[12px] text-text-muted hover:text-red-600">Remove</button>
                   )}
                 </div>
               ))}
               {tiers.length < 6 && (
-                <button type="button" onClick={() => set({ tiers: [...tiers, { ...tiers[tiers.length - 1] }] })} className="text-[11px] text-brand">+ Add the {ordinalWord(tiers.length + 2)} athlete</button>
+                <button type="button" onClick={() => set({ tiers: [...tiers, { ...tiers[tiers.length - 1] }] })} className="text-[12px] text-brand">+ Add the {ordinalWord(tiers.length + 2)} athlete</button>
               )}
             </div>
           )}
@@ -104,7 +104,7 @@ export default function SiblingDiscountCard() {
               <button type="button" onClick={() => set({ discountWhich: "CHEAPER" })} className={chip(cfg.discountWhich === "CHEAPER")}>The cheaper memberships</button>
               <button type="button" onClick={() => set({ discountWhich: "PRICIER" })} className={chip(cfg.discountWhich === "PRICIER")}>The pricier memberships</button>
             </div>
-            <p className="text-[11px] text-text-muted mt-1">
+            <p className="text-[12px] text-text-muted mt-1">
               {cfg.discountWhich === "CHEAPER"
                 ? "The priciest membership in the family pays full price."
                 : "The cheapest membership in the family pays full price."}{" "}

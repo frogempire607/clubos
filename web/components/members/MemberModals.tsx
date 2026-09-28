@@ -921,7 +921,7 @@ function FinalReviewModal(props: {
                 placeholder={expected}
                 className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface font-mono"
               />
-              <p className="text-[11px] text-text-muted mt-1">
+              <p className="text-[12px] text-text-muted mt-1">
                 Extra step above {TYPED_CONFIRM_THRESHOLD} recipients — this is a real broadcast.
               </p>
             </div>
@@ -949,7 +949,7 @@ function FinalReviewModal(props: {
 function ReviewRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[11px] text-text-muted uppercase tracking-wider">{label}</div>
+      <div className="text-[12px] text-text-muted uppercase tracking-wider">{label}</div>
       <div className="text-sm text-text-primary break-words">{value}</div>
     </div>
   );
@@ -1209,7 +1209,7 @@ export function MemberModal({ member, customFields, formConfig, onClose, onSaved
               <label className="block text-sm font-medium text-text-primary mb-1">
                 Date of birth {fieldRequired("dateOfBirth") && <span className="text-red-500">*</span>}
                 {isEdit && member?.birthdayLockedAt && (
-                  <span className="ml-2 text-[10px] uppercase tracking-wider text-amber-700 font-semibold">
+                  <span className="ml-2 text-[12px] uppercase tracking-wider text-amber-700 font-semibold">
                     Locked by parent
                   </span>
                 )}
@@ -1232,7 +1232,7 @@ export function MemberModal({ member, customFields, formConfig, onClose, onSaved
                   status only and cannot edit a locked DOB. Copy mirrors
                   what the member sees on /member/profile. */}
               {isEdit && member?.birthdayLockedAt && (
-                <p className="text-[11px] text-amber-700 mt-1">
+                <p className="text-[12px] text-amber-700 mt-1">
                   Parent-confirmed DOB is locked for athlete safety and
                   eligibility integrity.
                 </p>
@@ -1251,7 +1251,7 @@ export function MemberModal({ member, customFields, formConfig, onClose, onSaved
           {isMinor && (
             <div className="space-y-3 p-4 bg-orange-accent/10 border border-orange-accent/30 rounded-lg">
               <p className="text-xs font-medium text-text-primary uppercase tracking-wider">Guardian / Parent Information</p>
-              <p className="text-[11px] text-text-muted -mt-1">For minors we contact the guardian — a guardian name and email are required. The athlete&apos;s own email and phone are optional.</p>
+              <p className="text-[12px] text-text-muted -mt-1">For minors we contact the guardian — a guardian name and email are required. The athlete&apos;s own email and phone are optional.</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className={fieldEnabled("guardianRelationship") ? "" : "col-span-2"}>
                   <label className="block text-xs font-medium text-text-primary mb-1">Guardian name <span className="text-red-500">*</span></label>

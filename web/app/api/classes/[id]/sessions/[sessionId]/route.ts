@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
+import { staffOverrideValue } from "@/lib/staffAssignmentsServer";
 
 // PATCH /api/classes/[id]/sessions/[sessionId]
 //
@@ -90,7 +91,9 @@ export async function PATCH(
       ...(endsAt !== undefined ? { endsAt } : {}),
       ...(data.canceled !== undefined ? { canceled: data.canceled } : {}),
       ...(data.staffOverride !== undefined
-        ? { staffOverride: data.staffOverride ?? undefined }
+        ? // null clears the substitute (inherit the series) — it used to be
+          // turned into `undefined`, i.e. silently ignored.
+          { staffOverride: staffOverrideValue(data.staffOverride) }
         : {}),
       ...(data.note !== undefined ? { note: data.note ?? null } : {}),
       // Any per-occurrence edit pins this row so series regeneration

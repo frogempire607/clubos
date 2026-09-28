@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Plus, Save, X, Trash2, Users, RefreshCw } from "lucide-react";
 import type { AudienceFilter, AudienceRule, Op } from "@/lib/audienceFilters";
+import PageHeader from "@/components/PageHeader";
 
 // Owner-facing labels for the parseable field ids. Keep in sync with
 // lib/audienceFilters.ts AUDIENCE_FIELDS. Fields marked as "future"
@@ -104,16 +105,14 @@ export default function AudiencesPage() {
         </Link>
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary mb-1">Audiences</h1>
-          <p className="text-sm text-text-muted max-w-2xl">
+      <PageHeader
+        title="Audiences"
+        description={<>
             Reusable recipient groups. Dynamic audiences re-evaluate at send time — a new
             member who now matches will get the message, someone who no longer matches
             won&apos;t. Static audiences freeze the exact list when you save them.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        </>}
+        actions={<>
           <button
             type="button"
             onClick={() => setShowArchived((v) => !v)}
@@ -128,8 +127,8 @@ export default function AudiencesPage() {
           >
             <Plus className="h-4 w-4" strokeWidth={2} /> New audience
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       {err && (
         <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">{err}</div>
@@ -149,10 +148,10 @@ export default function AudiencesPage() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <h3 className="text-sm font-semibold text-text-primary truncate">{a.name}</h3>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${a.isDynamic ? "bg-lime-accent/20 text-charcoal" : "bg-app-bg text-text-muted"}`}>
+                    <span className={`text-[12px] px-1.5 py-0.5 rounded-full font-medium ${a.isDynamic ? "bg-lime-accent/20 text-charcoal" : "bg-app-bg text-text-muted"}`}>
                       {a.isDynamic ? "Dynamic" : "Static"}
                     </span>
-                    {a.archivedAt && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-app-bg text-text-muted">Archived</span>}
+                    {a.archivedAt && <span className="text-[12px] px-1.5 py-0.5 rounded-full bg-app-bg text-text-muted">Archived</span>}
                   </div>
                   <p className="text-xs text-text-muted mt-1 line-clamp-2">{a.description || `${a.filters.rules?.length ?? 0} rules`}</p>
                 </div>
@@ -372,7 +371,7 @@ function AudienceEditor({
                 {preview.sample.map((m) => (
                   <li key={m.id}>
                     {m.firstName} {m.lastName}
-                    {m.isMinor && <span className="text-[10px] ml-1.5 text-text-muted">(minor)</span>}
+                    {m.isMinor && <span className="text-[12px] ml-1.5 text-text-muted">(minor)</span>}
                     {m.email && <span className="text-text-muted"> · {m.email}</span>}
                   </li>
                 ))}
@@ -452,7 +451,7 @@ function RuleRow({ rule, onChange, onRemove }: { rule: AudienceRule; onChange: (
         <input type="text" value={String(rule.value ?? "")} onChange={(e) => onChange({ value: e.target.value })} placeholder="value" className="text-xs px-2 py-1.5 border border-app-border rounded-md flex-1 min-w-[8rem] bg-surface" />
       )}
 
-      {def.future && <span className="text-[10px] text-orange-accent">{def.future}</span>}
+      {def.future && <span className="text-[12px] text-orange-accent">{def.future}</span>}
 
       <button type="button" onClick={onRemove} className="text-xs p-1.5 text-text-muted hover:text-red-600 ml-auto" aria-label="Remove rule">
         <Trash2 className="h-3 w-3" strokeWidth={2} />

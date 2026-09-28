@@ -115,13 +115,13 @@ export function MigrationFunnel({
                   background: last ? "rgba(163,230,53,.10)" : undefined,
                 }}
               >
-                <div className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+                <div className="text-[12px] font-semibold uppercase tracking-[0.05em] text-text-muted">
                   {s.step} · {s.label}
                 </div>
                 <div className="mt-0.5 text-[22px] font-semibold leading-none tabular-nums text-text-primary">
                   {s.count.toLocaleString()}
                 </div>
-                <div className="mt-1 h-[14px] text-[11px]" style={{ color: "var(--color-warn-text)" }}>
+                <div className="mt-1 h-[14px] text-[12px]" style={{ color: "var(--color-warn-text)" }}>
                   {s.subline ?? ""}
                 </div>
               </button>
@@ -139,7 +139,7 @@ export function MigrationFunnel({
             ) : null,
           )}
         </div>
-        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-text-muted">
+        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-text-muted">
           {bars.map((b) => (
             <span key={b.key} className="inline-flex items-center gap-1.5">
               <span className="inline-block h-2 w-2 rounded-full" style={{ background: b.color }} />
@@ -172,7 +172,7 @@ export function MigrationFunnel({
               When can I stop paying for my previous system?
             </div>
             <p className="mt-0.5 text-[12.5px] text-text-primary">{advisory.headline}</p>
-            <p className="mt-1 text-[11.5px] text-text-muted">
+            <p className="mt-1 text-[12px] text-text-muted">
               Nobody is charged in AthletixOS until they activate, so running both for a few weeks costs you the old
               subscription and nothing here.
             </p>

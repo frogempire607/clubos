@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { addEventStaffIfMissing } from "@/lib/staffAssignmentsServer";
 import {
   COMP_METHODS,
   COMP_BASES,
@@ -215,6 +216,14 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
           });
     }),
   ]);
+
+  // Pay follows the roster: a staff member being paid for this event works
+  // it, so they are put on "Staff on this event" (schedule, calendar, payroll
+  // all read that). Removing them from the event later deletes their unpaid
+  // comp row — lib/staffAssignmentsServer.removeEventStaff.
+  for (const uid of new Set(userIds)) {
+    if (userById.has(uid)) await addEventStaffIfMissing(clubId, event.id, uid);
+  }
 
   const fresh = await loadEvent(id, clubId);
   return NextResponse.json(await compPayload(clubId, fresh!));

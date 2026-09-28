@@ -73,13 +73,13 @@ export default function NoMembershipPanel({
             className="w-full text-left px-2 py-1.5 rounded border border-app-border hover:bg-app-bg disabled:opacity-50"
           >
             <span className="block text-xs font-medium text-text-primary">Start {trial.name}</span>
-            <span className="block text-[11px] text-text-muted">
+            <span className="block text-[12px] text-text-muted">
               {trial.days} day{trial.days === 1 ? "" : "s"} free, active like a membership, then it ends on
               its own.
               {trial.renewable ? "" : " One per client — it can't be renewed later."}
             </span>
           </button>
-          <label className="flex items-center gap-1.5 text-[11px] text-text-muted pl-2">
+          <label className="flex items-center gap-1.5 text-[12px] text-text-muted pl-2">
             <input
               type="checkbox"
               checked={emailReceipt}
@@ -91,7 +91,7 @@ export default function NoMembershipPanel({
         </div>
       ) : (
         trial.unavailableReason && (
-          <p className="text-[11px] text-text-muted bg-app-bg border border-app-border rounded px-2 py-1">
+          <p className="text-[12px] text-text-muted bg-app-bg border border-app-border rounded px-2 py-1">
             {trial.unavailableReason}
           </p>
         )
@@ -108,7 +108,7 @@ export default function NoMembershipPanel({
             {/* THIS class's drop-in price, or no price at all — never a default. */}
             Charge a drop-in{dropInPrice == null ? "" : ` — $${fmtMoney(dropInPrice)}`}
           </span>
-          <span className="block text-[11px] text-text-muted">
+          <span className="block text-[12px] text-text-muted">
             Take the payment now: cash, card, comp or invoice.
           </span>
         </button>
@@ -123,7 +123,7 @@ export default function NoMembershipPanel({
         <span className="block text-xs font-medium text-text-primary">
           {busy ? "Recording…" : `Mark ${verb} anyway`}
         </span>
-        <span className="block text-[11px] text-text-muted">
+        <span className="block text-[12px] text-text-muted">
           No charge. {first} stays in &ldquo;Attending, no active membership&rdquo; until they&apos;re on a
           plan.
         </span>
@@ -134,7 +134,7 @@ export default function NoMembershipPanel({
       <button
         type="button"
         onClick={onCancel}
-        className="text-[11px] text-text-muted hover:text-text-primary underline"
+        className="text-[12px] text-text-muted hover:text-text-primary underline"
       >
         Cancel
       </button>

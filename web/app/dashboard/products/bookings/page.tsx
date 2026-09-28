@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import PageHeader from "@/components/PageHeader";
 
 type Opt = { key: string; label: string; mins: number; price: number; tierName: string | null };
 type Booking = {
@@ -63,18 +64,16 @@ export default function ProductBookingsPage() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
       <Link href="/dashboard/products" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary mb-3"><ArrowLeft size={15} /> Products</Link>
-      <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
-        <div>
-          <h1 className="text-[20px] font-semibold text-text-primary">Rentals & parties</h1>
-          <p className="text-sm text-text-muted">{data ? `${live.length} this week · ${data.pendingTotal} waiting on you` : "Loading…"}</p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title={<>Rentals & parties</>}
+        description={<>{data ? `${live.length} this week · ${data.pendingTotal} waiting on you` : "Loading…"}</>}
+        actions={<>
           <button type="button" aria-label="Previous week" onClick={() => setWeek((w) => new Date(w.getFullYear(), w.getMonth(), w.getDate() - 7))} className="w-9 h-9 rounded-lg border border-app-border flex items-center justify-center hover:bg-app-bg"><ChevronLeft size={16} /></button>
           <span className="text-sm text-text-primary tabular-nums min-w-[150px] text-center">{week.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – {new Date(week.getFullYear(), week.getMonth(), week.getDate() + 6).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
           <button type="button" aria-label="Next week" onClick={() => setWeek((w) => new Date(w.getFullYear(), w.getMonth(), w.getDate() + 7))} className="w-9 h-9 rounded-lg border border-app-border flex items-center justify-center hover:bg-app-bg"><ChevronRight size={16} /></button>
           <button type="button" onClick={() => setAdding(true)} disabled={!data?.products.length} className="inline-flex items-center gap-1 px-3 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover disabled:opacity-50"><Plus size={14} /> Add booking</button>
-        </div>
-      </div>
+        </>}
+      />
       {msg && <div className="text-sm rounded-lg px-3 py-2 mb-3 bg-brand/5 border border-brand/25 text-text-primary">{msg}</div>}
       {err && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">{err}</div>}
       {data && data.products.length === 0 && (
@@ -89,11 +88,11 @@ export default function ProductBookingsPage() {
               const items = (data?.bookings ?? []).filter((b) => dayIndex(b.startsAt) === i).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
               return (
                 <div key={d}>
-                  <div className="text-[11px] font-semibold uppercase tracking-[.05em] text-text-muted mb-1.5">{d} {date.getDate()}</div>
+                  <div className="text-[12px] font-semibold uppercase tracking-[.05em] text-text-muted mb-1.5">{d} {date.getDate()}</div>
                   <div className="space-y-1.5 min-h-[120px] rounded-lg p-1" style={{ border: "1px dashed var(--color-inset-dashed)" }}>
-                    {items.length === 0 && <div className="text-[11px] text-text-muted px-1 py-2">Open</div>}
+                    {items.length === 0 && <div className="text-[12px] text-text-muted px-1 py-2">Open</div>}
                     {items.map((b) => (
-                      <div key={b.id} className="rounded-lg px-2 py-1.5 text-[11.5px]" style={(STATUS[b.status] ?? STATUS.CONFIRMED).style}>
+                      <div key={b.id} className="rounded-lg px-2 py-1.5 text-[12px]" style={(STATUS[b.status] ?? STATUS.CONFIRMED).style}>
                         <div className="font-semibold tabular-nums">{fmt(b.startsAt, { hour: "numeric", minute: "2-digit" })}</div>
                         <div className="truncate">{b.productName}</div>
                         <div className="truncate opacity-80">{b.who}</div>
@@ -104,7 +103,7 @@ export default function ProductBookingsPage() {
               );
             })}
           </div>
-          <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-text-muted">
+          <div className="flex flex-wrap gap-3 mt-3 text-[12px] text-text-muted">
             {["CONFIRMED", "PENDING", "PENDING_PAYMENT", "CANCELED"].map((k) => <span key={k} className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded" style={STATUS[k].style} /> {STATUS[k].label}</span>)}
           </div>
         </div>
@@ -123,15 +122,15 @@ export default function ProductBookingsPage() {
                     <div className="text-[12px] text-text-muted">{b.productName}{b.tierName ? ` · ${b.tierName}` : ""} · {b.guests} guest{b.guests === 1 ? "" : "s"}</div>
                     <div className="text-[12px] text-text-muted tabular-nums">{fmt(b.startsAt, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}–{fmt(b.endsAt, { hour: "numeric", minute: "2-digit" })}</div>
                   </div>
-                  <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={(STATUS[b.status] ?? STATUS.CONFIRMED).style}>{(STATUS[b.status] ?? { label: b.status }).label}</span>
+                  <span className="text-[12px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={(STATUS[b.status] ?? STATUS.CONFIRMED).style}>{(STATUS[b.status] ?? { label: b.status }).label}</span>
                 </div>
                 <div className="text-[12px] text-text-primary mt-1 tabular-nums">
                   {money(b.amountTotal)} total · {money(b.amountPaid)} paid{owed > 0 && !closed ? ` · ${money(owed)} owed` : ""}
                 </div>
-                {b.addOns.length > 0 && <div className="text-[11.5px] text-text-muted">+ {b.addOns.map((a) => a.label).join(", ")}</div>}
-                {Object.keys(b.answers ?? {}).length > 0 && <div className="text-[11.5px] text-text-muted">{Object.entries(b.answers).map(([k, v]) => `${k}: ${v}`).join(" · ")}</div>}
-                {b.notes && <div className="text-[11.5px] text-text-muted whitespace-pre-wrap">{b.notes}</div>}
-                {(b.email || b.phone) && <div className="text-[11.5px] text-text-muted">{[b.email, b.phone].filter(Boolean).join(" · ")}</div>}
+                {b.addOns.length > 0 && <div className="text-[12px] text-text-muted">+ {b.addOns.map((a) => a.label).join(", ")}</div>}
+                {Object.keys(b.answers ?? {}).length > 0 && <div className="text-[12px] text-text-muted">{Object.entries(b.answers).map(([k, v]) => `${k}: ${v}`).join(" · ")}</div>}
+                {b.notes && <div className="text-[12px] text-text-muted whitespace-pre-wrap">{b.notes}</div>}
+                {(b.email || b.phone) && <div className="text-[12px] text-text-muted">{[b.email, b.phone].filter(Boolean).join(" · ")}</div>}
                 {!closed && (
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     {b.status === "PENDING" && (
@@ -199,7 +198,7 @@ function AddBooking({ data, onClose, onDone }: { data: Payload; onClose: () => v
           <input inputMode="numeric" value={guests} onChange={(e) => setGuests(e.target.value.replace(/[^0-9]/g, ""))} placeholder="Guests" className={input} />
         </div>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className={input} />
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (optional)" className={input} />
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone (optional)" className={input} />
         </div>

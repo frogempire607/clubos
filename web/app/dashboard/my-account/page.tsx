@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import ImageUpload from "@/components/ImageUpload";
+import PageHeader from "@/components/PageHeader";
 
 type Me = {
   role: string;
@@ -148,14 +149,14 @@ export default function MyAccountPage() {
 
   return (
     <div className="p-8 max-w-3xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-text-primary mb-1">My account</h1>
-        <p className="text-sm text-text-muted">
+      <PageHeader
+        title="My account"
+        description={<>
           Manage your own profile and password. Your{" "}
           {me?.role === "OWNER" ? "owner" : "staff"} access to other club settings
           is controlled by {me?.role === "OWNER" ? "your subscription" : "the club owner"}.
-        </p>
-      </div>
+        </>}
+      />
 
       <div className="space-y-4">
         {/* Account snapshot */}

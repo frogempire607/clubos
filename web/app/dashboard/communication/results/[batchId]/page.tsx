@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { EmailResultsView, type ResultCounts, type ResultRow } from "@/components/emails/EmailResultsView";
 import { batchStateLabel, type BatchState } from "@/lib/emailResults";
+import PageHeader from "@/components/PageHeader";
 
 interface Batch {
   sendBatchId: string;
@@ -49,8 +50,9 @@ export default function BatchResultsPage({ params }: { params: { batchId: string
         </Link>
       </div>
 
-      <h1 className="text-2xl font-semibold text-text-primary mb-1">{b.subject}</h1>
-      <p className="text-sm text-text-muted mb-6">
+      <PageHeader
+        title={b.subject}
+        description={<>
         {batchStateLabel(data.state)} · started {new Date(b.startedAt).toLocaleString()}
         {b.sentByName && <> · sent by {b.sentByName}</>}
         {" · "}{b.kind}
@@ -62,7 +64,8 @@ export default function BatchResultsPage({ params }: { params: { batchId: string
             </Link>
           </>
         )}
-      </p>
+        </>}
+      />
 
       <EmailResultsView counts={data.counts} rows={data.rows} />
     </div>

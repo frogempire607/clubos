@@ -130,7 +130,7 @@ export default function MembershipTab({ range, customFrom, customTo }: { range: 
               <li key={m.id} className="flex items-center justify-between text-sm border border-app-border rounded-lg px-3 py-2.5 min-h-[44px]">
                 <div className="min-w-0">
                   <p className="text-text-primary truncate">{m.name}</p>
-                  <p className="text-[11px] text-text-muted">
+                  <p className="text-[12px] text-text-muted">
                     +{m.newCount} new, −{m.canceledCount} canceled
                   </p>
                 </div>
@@ -158,7 +158,7 @@ export default function MembershipTab({ range, customFrom, customTo }: { range: 
             <ScrollTable className="hidden md:block">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-[11px] text-text-muted uppercase tracking-wide font-semibold border-b border-app-border">
+                  <tr className="text-[12px] text-text-muted uppercase tracking-wide font-semibold border-b border-app-border">
                     <th className="text-left py-2 pr-3">Plan</th>
                     <th className="text-right py-2 pr-3">Active</th>
                     <th className="text-right py-2 pr-3">Lost</th>
@@ -188,15 +188,15 @@ export default function MembershipTab({ range, customFrom, customTo }: { range: 
                   </div>
                   <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
                     <div>
-                      <p className="text-[10px] text-text-muted uppercase">Active</p>
+                      <p className="text-[12px] text-text-muted uppercase">Active</p>
                       <p className="text-text-primary font-semibold tabular-nums">{row.active}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] text-text-muted uppercase">Lost</p>
+                      <p className="text-[12px] text-text-muted uppercase">Lost</p>
                       <p className="text-text-primary font-semibold tabular-nums">{row.lost}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] text-text-muted uppercase">Churn</p>
+                      <p className="text-[12px] text-text-muted uppercase">Churn</p>
                       <p className="text-text-primary font-semibold tabular-nums">{fmtPct(row.churnRate)}</p>
                     </div>
                   </div>
@@ -232,12 +232,12 @@ function MovementBox({ label, value, tone, note }: { label: string; value: numbe
     : "text-text-primary";
   return (
     <div>
-      <p className="text-[11px] text-text-muted uppercase tracking-wide font-semibold">{label}</p>
+      <p className="text-[12px] text-text-muted uppercase tracking-wide font-semibold">{label}</p>
       <p className={`text-2xl font-semibold tabular-nums ${cls}`}>
         {tone === "signed" && value > 0 ? "+" : ""}
         {value}
       </p>
-      {note && <p className="text-[11px] text-text-muted">{note}</p>}
+      {note && <p className="text-[12px] text-text-muted">{note}</p>}
     </div>
   );
 }
@@ -252,7 +252,7 @@ function RatesCard({ rates }: { rates: Response["rates"]; formula: Response["for
         <MetricTile label="Revenue churn" value={fmtPct(rates.revenueChurnRate)} />
         <MetricTile label="Trial → paid" value={rates.trialToPaidRate == null ? "—" : fmtPct(rates.trialToPaidRate)} />
       </div>
-      <p className="text-[11px] text-text-muted mt-3">
+      <p className="text-[12px] text-text-muted mt-3">
         Trial conversion + duration + LTV precision ships with the subscription-event history in Phase 4.5.
       </p>
     </div>
@@ -268,19 +268,19 @@ function FormulaCard({ formula }: { formula: Response["formula"] }) {
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 text-center">
           <div className="flex-1">
             <p className="text-2xl font-semibold text-text-primary tabular-nums">{formula.numerator}</p>
-            <p className="text-[11px] text-text-muted uppercase tracking-wide">Lost</p>
+            <p className="text-[12px] text-text-muted uppercase tracking-wide">Lost</p>
           </div>
           <div className="text-2xl text-text-muted">÷</div>
           <div className="flex-1">
             <p className="text-2xl font-semibold text-text-primary tabular-nums">{formula.denominator}</p>
-            <p className="text-[11px] text-text-muted uppercase tracking-wide">Starting active</p>
+            <p className="text-[12px] text-text-muted uppercase tracking-wide">Starting active</p>
           </div>
           <div className="text-2xl text-text-muted hidden sm:block">=</div>
           <div className="flex-1 border-t sm:border-t-0 sm:border-l border-app-border pt-2 sm:pt-0 sm:pl-3">
             <p className={`text-2xl font-semibold tabular-nums ${
               formula.result != null && formula.result > 5 ? "text-red-700" : "text-text-primary"
             }`}>{fmtPct(formula.result)}</p>
-            <p className="text-[11px] text-text-muted uppercase tracking-wide">Churn</p>
+            <p className="text-[12px] text-text-muted uppercase tracking-wide">Churn</p>
           </div>
         </div>
       </div>
@@ -325,7 +325,7 @@ function MetricTile({ label, value, accent }: { label: string; value: string; ac
   const cls = accent === "warn" ? "text-red-700" : accent === "ok" ? "text-green-700" : "text-text-primary";
   return (
     <div>
-      <p className="text-[11px] text-text-muted uppercase tracking-wide font-semibold">{label}</p>
+      <p className="text-[12px] text-text-muted uppercase tracking-wide font-semibold">{label}</p>
       <p className={`text-2xl font-semibold tabular-nums ${cls}`}>{value}</p>
     </div>
   );

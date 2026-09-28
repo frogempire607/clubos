@@ -42,6 +42,7 @@ export default function ThemeToggle() {
     <button
       type="button"
       onClick={flip}
+      className="sidebar-focus"
       title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
       style={{
         display: "flex",

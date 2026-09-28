@@ -16,7 +16,7 @@ export default function BulkPriceNote({ breaks, unit, quantity, onPick }: { brea
   const next = useful.find((b) => b.minQty > quantity) ?? null;
   return (
     <div className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-sm">
-      <div className="text-[11px] font-semibold uppercase tracking-[.05em] text-stone-500 mb-1.5">Buy more, save</div>
+      <div className="text-[12px] font-semibold uppercase tracking-[.05em] text-stone-500 mb-1.5">Buy more, save</div>
       <div className="flex flex-wrap gap-1.5">
         {useful.map((b) => {
           const on = active?.minQty === b.minQty;

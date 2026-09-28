@@ -60,14 +60,14 @@ export function RoleChips({
       {shown.map((r) => (
         <span
           key={r.role}
-          className="inline-flex items-center rounded-[5px] px-1.5 py-[1px] text-[10.5px] font-semibold uppercase tracking-[0.04em]"
+          className="inline-flex items-center rounded-[5px] px-1.5 py-[1px] text-[12px] font-semibold uppercase tracking-[0.04em]"
           style={{ background: "var(--color-chip-surface)", color: "var(--color-chip-text)" }}
         >
           {r.label}
         </span>
       ))}
       {hidden > 0 && (
-        <span className="text-[10.5px] font-semibold" style={{ color: "var(--color-chip-text)" }}>
+        <span className="text-[12px] font-semibold" style={{ color: "var(--color-chip-text)" }}>
           +{hidden}
         </span>
       )}
@@ -109,12 +109,12 @@ export function MembershipPill({
   return (
     <span className="inline-flex flex-col gap-0.5">
       <span
-        className="inline-flex w-fit items-center rounded-full px-2 py-[2px] text-[11.5px] font-medium"
+        className="inline-flex w-fit items-center rounded-full px-2 py-[2px] text-[12px] font-medium"
         style={style}
       >
         {label}
       </span>
-      {detail && <span className="text-[11px] text-text-muted">{detail}</span>}
+      {detail && <span className="text-[12px] text-text-muted">{detail}</span>}
     </span>
   );
 }
@@ -164,7 +164,7 @@ export function AccountSetupCell({
       {showMeter && meter?.applicable && (
         <span className="inline-flex flex-col gap-0.5">
           <MigrationMeterBar meter={meter} />
-          <span className="text-[11px] text-text-muted">
+          <span className="text-[12px] text-text-muted">
             Step {meter.step} of {meter.total} · {WAITING_ON_LABELS[meter.waitingOn]}
           </span>
         </span>
@@ -273,7 +273,7 @@ export function WaitingOnPill({ waitingOn }: { waitingOn: WaitingOn }) {
   const s = WAITING_STYLE[waitingOn];
   return (
     <span
-      className="inline-flex items-center rounded-full px-2 py-[2px] text-[11.5px] font-medium"
+      className="inline-flex items-center rounded-full px-2 py-[2px] text-[12px] font-medium"
       style={{ background: s.background, color: s.color }}
     >
       {s.label}
@@ -336,7 +336,7 @@ export function NextActionButton({
       {action.label}
       {locked && requiredRoleLabel && (
         <span
-          className="ml-0.5 rounded-[4px] px-1 text-[10px] font-semibold uppercase"
+          className="ml-0.5 rounded-[4px] px-1 text-[12px] font-semibold uppercase"
           style={{ background: "var(--color-chip-surface)", color: "var(--color-chip-text)" }}
         >
           {requiredRoleLabel}

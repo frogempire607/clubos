@@ -108,7 +108,7 @@ export default function ImportsHistoryPage() {
                       <p className="text-sm font-medium text-text-primary truncate">
                         {b.fileName} · {b.kind === "MEMBERS" ? "Members" : "Transactions"}
                       </p>
-                      <p className="text-[11px] text-text-muted mt-0.5">
+                      <p className="text-[12px] text-text-muted mt-0.5">
                         {b.sourceLabel ? `From: ${b.sourceLabel} · ` : ""}
                         Uploaded {new Date(b.createdAt).toLocaleString()}
                       </p>
@@ -124,7 +124,7 @@ export default function ImportsHistoryPage() {
                     <Stat label="Errors" value={b.errorCount} />
                   </div>
                   {b.status === "COMPLETED" && b.rollbackExpiresAt && (
-                    <p className="text-[11px] text-text-muted mt-2 flex items-center gap-1">
+                    <p className="text-[12px] text-text-muted mt-2 flex items-center gap-1">
                       <RotateCcw size={11} />
                       Rollback available until {new Date(b.rollbackExpiresAt).toLocaleDateString()}
                     </p>
@@ -147,13 +147,13 @@ function StatusBadge({ status }: { status: string }) {
     status === "FAILED" ? "bg-red-100 text-red-700" :
     status === "ROLLED_BACK" ? "bg-red-50 text-red-600" :
     "bg-brand/20 text-brand";
-  return <span className={`text-[11px] font-semibold px-2 py-1 rounded ${cls}`}>{status.replace("_", " ")}</span>;
+  return <span className={`text-[12px] font-semibold px-2 py-1 rounded ${cls}`}>{status.replace("_", " ")}</span>;
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div>
-      <p className="text-[10px] text-text-muted uppercase tracking-wide">{label}</p>
+      <p className="text-[12px] text-text-muted uppercase tracking-wide">{label}</p>
       <p className="text-sm font-semibold text-text-primary tabular-nums">{value}</p>
     </div>
   );
@@ -212,7 +212,7 @@ function NewImportModal({
               placeholder="e.g. our previous class-tracking software"
               className="w-full h-11 min-h-[44px] px-3 border border-app-border rounded-lg text-sm"
             />
-            <p className="text-[11px] text-text-muted mt-1">Free text. Shown to your staff on every imported row so they know where it came from.</p>
+            <p className="text-[12px] text-text-muted mt-1">Free text. Shown to your staff on every imported row so they know where it came from.</p>
           </div>
           <div>
             <label className="text-sm font-medium text-text-primary block mb-1">CSV file (max 20 MB / 50,000 rows)</label>

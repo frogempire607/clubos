@@ -127,7 +127,7 @@ export default function SignaturePad({
         <div className="pointer-events-none absolute left-4 right-4" style={{ bottom: 34, borderTop: "1px dashed #e7e5e4" }} />
       </div>
       <div className="flex items-center justify-between mt-2">
-        <p className="text-[11px] text-stone-400">Draw your signature above.</p>
+        <p className="text-[12px] text-stone-400">Draw your signature above.</p>
         <button
           type="button"
           onClick={clear}

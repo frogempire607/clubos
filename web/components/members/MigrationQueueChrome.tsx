@@ -135,7 +135,7 @@ export function MigrationWaitingOnPill({ waitingOn }: { waitingOn: string }) {
   const p = PILL[waitingOn] ?? PILL.NOBODY;
   return (
     <span
-      className="inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[10.5px] font-medium"
+      className="inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[12px] font-medium"
       style={p.style}
       title={waitingOn === "STAFF" ? "Waiting on you" : waitingOn === "MEMBER" ? "Waiting on the member" : undefined}
     >

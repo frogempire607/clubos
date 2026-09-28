@@ -176,7 +176,7 @@ function CustomInputs({
       {/* Native date inputs; stacked on phones so neither is squeezed. */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-2">
         <label className="flex-1 min-w-0">
-          <span className="sm:sr-only block text-[11px] text-text-muted mb-0.5">From</span>
+          <span className="sm:sr-only block text-[12px] text-text-muted mb-0.5">From</span>
           <input
             type="date"
             aria-label="From"
@@ -187,7 +187,7 @@ function CustomInputs({
         </label>
         <span className="hidden sm:inline text-xs text-text-muted">to</span>
         <label className="flex-1 min-w-0">
-          <span className="sm:sr-only block text-[11px] text-text-muted mb-0.5">To</span>
+          <span className="sm:sr-only block text-[12px] text-text-muted mb-0.5">To</span>
           <input
             type="date"
             aria-label="To"

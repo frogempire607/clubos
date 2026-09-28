@@ -82,7 +82,7 @@ export default function ReliabilityStrip({
         );
       })}
       {ago != null && (
-        <span className="sm:ml-auto py-1.5 sm:py-0 text-[11px] text-text-muted">
+        <span className="sm:ml-auto py-1.5 sm:py-0 text-[12px] text-text-muted">
           Updated {ago === 0 ? "just now" : `${ago}m ago`}
         </span>
       )}

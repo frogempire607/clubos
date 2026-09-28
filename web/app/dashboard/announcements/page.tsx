@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Megaphone, Smartphone, Mail, Bell, Send, X as XIcon, BarChart3, type LucideIcon } from "lucide-react";
 import DateTimeField from "@/components/DateTimeField";
+import PageHeader from "@/components/PageHeader";
 
 type Announcement = {
   id: string;
@@ -147,18 +148,18 @@ export default function AnnouncementsPage() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-4xl">
       {/* 3M — header stacks on mobile so the CTA doesn't crowd out the title. */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-semibold text-text-primary mb-1">Announcements</h1>
-          <p className="text-sm text-text-muted">Broadcast messages to all members</p>
-        </div>
+      <PageHeader
+        title="Announcements"
+        description="Broadcast messages to all members"
+        actions={<>
         <button
           onClick={() => { setEditing(null); setShowModal(true); }}
           className="w-full sm:w-auto px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover transition-colors"
         >
           + New announcement
         </button>
-      </div>
+        </>}
+      />
 
       {/* 3M — filter chips scroll horizontally on mobile so the 5-item
           set doesn't wrap and blow out the header row. */}

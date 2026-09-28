@@ -24,13 +24,13 @@ export default function ProfileSwitcher() {
     <div className="mb-4 pfade">
       <div className="pcard px-3 py-3">
         <div className="flex items-center justify-between mb-2 px-0.5">
-          <span className="text-[11px] uppercase tracking-wider text-stone-500 font-semibold">
+          <span className="text-[12px] uppercase tracking-wider text-stone-500 font-semibold">
             Managing
           </span>
           {familyOn ? (
-            <span className="text-[11px] text-stone-400">Everyone</span>
+            <span className="text-[12px] text-stone-400">Everyone</span>
           ) : active ? (
-            <span className="text-[11px] text-stone-400">
+            <span className="text-[12px] text-stone-400">
               {active.kind === "self" ? "Your account" : "Child account"}
             </span>
           ) : null}
@@ -48,7 +48,7 @@ export default function ProfileSwitcher() {
               }`}
             >
               <span
-                className="flex h-[26px] w-[26px] items-center justify-center rounded-full text-[10px] font-bold"
+                className="flex h-[26px] w-[26px] items-center justify-center rounded-full text-[12px] font-bold"
                 style={{ background: "var(--club-accent)", color: "var(--club-accent-contrast)" }}
               >
                 {profiles.length}
@@ -73,7 +73,7 @@ export default function ProfileSwitcher() {
                 <span className="text-sm font-semibold whitespace-nowrap">
                   {p.name}
                   {p.kind === "self" && (
-                    <span className={`ml-1.5 text-[10px] font-medium ${isActive ? "opacity-70" : "text-stone-400"}`}>
+                    <span className={`ml-1.5 text-[12px] font-medium ${isActive ? "opacity-70" : "text-stone-400"}`}>
                       You
                     </span>
                   )}

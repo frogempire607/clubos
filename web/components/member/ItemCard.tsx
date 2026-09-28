@@ -48,7 +48,7 @@ export default function ItemCard({
     >
       <span className="flex items-center justify-between gap-2">
         <span
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-[11px] font-extrabold flex-shrink-0"
+          className="w-10 h-10 rounded-xl flex items-center justify-center text-[12px] font-extrabold flex-shrink-0"
           style={chip}
           aria-hidden
         >
@@ -58,7 +58,7 @@ export default function ItemCard({
           <Pill tone="accent">{k.label}</Pill>
         ) : (
           <span
-            className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full"
+            className="inline-flex items-center text-[12px] font-semibold px-2 py-0.5 rounded-full"
             style={{ background: `${color || k.bg}1F`, color: color || k.bg }}
           >
             {k.label}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { range12h, to12h } from "@/lib/time12";
 
 type Staff = {
   id: string;
@@ -85,7 +86,7 @@ export default function StaffAvailabilityPage() {
     // Validate
     for (const s of slots) {
       if (s.startTime >= s.endTime) {
-        setError(`Invalid time range on ${DAY_NAMES[s.dayOfWeek]}: ${s.startTime} – ${s.endTime}`);
+        setError(`Check ${DAY_NAMES[s.dayOfWeek]}: ${to12h(s.startTime)} – ${to12h(s.endTime)} ends before it starts.`);
         setSaving(false);
         return;
       }
@@ -145,7 +146,7 @@ export default function StaffAvailabilityPage() {
   const selected = staff.find((s) => s.id === selectedId);
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-text-primary">Availability</h1>
         <p className="text-sm text-text-muted mt-1">
@@ -175,7 +176,7 @@ export default function StaffAvailabilityPage() {
                   <li key={s.id}>
                     <button
                       onClick={() => setSelectedId(s.id)}
-                      className={`w-full text-left px-4 py-3 border-b border-app-border last:border-0 transition ${
+                      className={`w-full min-h-[44px] text-left px-4 py-3 border-b border-app-border last:border-0 transition ${
                         selectedId === s.id ? "bg-brand/10" : "hover:bg-app-bg"
                       }`}
                     >
@@ -207,12 +208,12 @@ export default function StaffAvailabilityPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      {saved && <span className="text-xs text-green-700">Saved</span>}
-                      {error && <span className="text-xs text-red-600">{error}</span>}
+                      {saved && <span className="text-xs" style={{ color: "var(--color-success-text)" }}>Saved</span>}
+                      {error && <span className="text-xs" style={{ color: "var(--color-danger-text)" }}>{error}</span>}
                       <button
                         onClick={saveSlots}
                         disabled={saving}
-                        className="text-sm px-4 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                        className="min-h-[44px] md:min-h-[36px] text-sm px-4 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
                       >
                         {saving ? "Saving…" : "Save"}
                       </button>
@@ -223,28 +224,29 @@ export default function StaffAvailabilityPage() {
                     {DAY_NAMES.map((dayName, dayIdx) => {
                       const daySlots = slots.map((s, i) => ({ slot: s, idx: i })).filter((x) => x.slot.dayOfWeek === dayIdx);
                       return (
-                        <div key={dayIdx} className="flex items-start gap-3 py-2 border-b border-app-border last:border-0">
+                        <div key={dayIdx} className="flex flex-wrap sm:flex-nowrap items-start gap-3 py-2 border-b border-app-border last:border-0">
                           <div className="w-20 pt-2 text-sm font-medium text-text-primary">{dayName}</div>
                           <div className="flex-1 space-y-1.5">
                             {daySlots.length === 0 && (
                               <p className="text-xs text-text-muted py-2">Off</p>
                             )}
                             {daySlots.map(({ slot, idx }) => (
-                              <div key={idx} className="flex items-center gap-2">
+                              <div key={idx} className="flex flex-wrap items-center gap-2">
                                 <input
                                   type="time"
                                   value={slot.startTime}
                                   onChange={(e) => updateSlot(idx, { startTime: e.target.value })}
-                                  className="px-2 py-1 border border-app-border rounded text-sm bg-surface"
+                                  className="min-h-[44px] md:min-h-[36px] px-2 py-1 border border-app-border rounded text-sm bg-surface text-text-primary"
                                 />
                                 <span className="text-text-muted text-sm">–</span>
                                 <input
                                   type="time"
                                   value={slot.endTime}
                                   onChange={(e) => updateSlot(idx, { endTime: e.target.value })}
-                                  className="px-2 py-1 border border-app-border rounded text-sm bg-surface"
+                                  className="min-h-[44px] md:min-h-[36px] px-2 py-1 border border-app-border rounded text-sm bg-surface text-text-primary"
                                 />
-                                <label className="flex items-center gap-1 text-xs text-text-muted">
+                                <span className="text-xs text-text-muted tabular-nums">{range12h(slot.startTime, slot.endTime)}</span>
+                                <label className="flex min-h-[44px] md:min-h-0 items-center gap-1 text-xs text-text-muted">
                                   <input
                                     type="checkbox"
                                     checked={slot.active}
@@ -254,7 +256,7 @@ export default function StaffAvailabilityPage() {
                                 </label>
                                 <button
                                   onClick={() => removeSlot(idx)}
-                                  className="text-xs text-red-600 px-2 py-1 rounded hover:bg-red-50"
+                                  className="min-h-[44px] md:min-h-[32px] text-xs px-2 py-1 rounded hover:bg-app-bg" style={{ color: "var(--color-danger-text)" }}
                                 >
                                   Remove
                                 </button>
@@ -263,7 +265,7 @@ export default function StaffAvailabilityPage() {
                           </div>
                           <button
                             onClick={() => addSlot(dayIdx)}
-                            className="text-xs text-brand hover:underline pt-2 flex-shrink-0"
+                            className="min-h-[44px] md:min-h-0 text-xs text-brand hover:underline pt-2 flex-shrink-0"
                           >
                             + Add slot
                           </button>
@@ -320,20 +322,20 @@ function ExceptionsCard({
 
       <div className="flex flex-wrap items-end gap-2 mb-4 pb-4 border-b border-app-border">
         <div>
-          <label className="block text-[11px] uppercase tracking-wider text-text-muted mb-1">Date</label>
+          <label className="block text-xs uppercase tracking-wider text-text-muted mb-1">Date</label>
           <input
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="px-2 py-1.5 border border-app-border rounded text-sm bg-surface"
+            className="min-h-[44px] md:min-h-[36px] px-2 py-1.5 border border-app-border rounded text-sm bg-surface text-text-primary"
           />
         </div>
         <div>
-          <label className="block text-[11px] uppercase tracking-wider text-text-muted mb-1">Type</label>
+          <label className="block text-xs uppercase tracking-wider text-text-muted mb-1">Type</label>
           <select
             value={type}
             onChange={(e) => setType(e.target.value as "UNAVAILABLE" | "PARTIAL")}
-            className="px-2 py-1.5 border border-app-border rounded text-sm bg-surface"
+            className="min-h-[44px] md:min-h-[36px] px-2 py-1.5 border border-app-border rounded text-sm bg-surface text-text-primary"
           >
             <option value="UNAVAILABLE">Unavailable</option>
             <option value="PARTIAL">Modified hours</option>
@@ -342,39 +344,39 @@ function ExceptionsCard({
         {type === "PARTIAL" && (
           <>
             <div>
-              <label className="block text-[11px] uppercase tracking-wider text-text-muted mb-1">From</label>
+              <label className="block text-xs uppercase tracking-wider text-text-muted mb-1">From</label>
               <input
                 type="time"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
-                className="px-2 py-1.5 border border-app-border rounded text-sm bg-surface"
+                className="min-h-[44px] md:min-h-[36px] px-2 py-1.5 border border-app-border rounded text-sm bg-surface text-text-primary"
               />
             </div>
             <div>
-              <label className="block text-[11px] uppercase tracking-wider text-text-muted mb-1">To</label>
+              <label className="block text-xs uppercase tracking-wider text-text-muted mb-1">To</label>
               <input
                 type="time"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
-                className="px-2 py-1.5 border border-app-border rounded text-sm bg-surface"
+                className="min-h-[44px] md:min-h-[36px] px-2 py-1.5 border border-app-border rounded text-sm bg-surface text-text-primary"
               />
             </div>
           </>
         )}
         <div className="flex-1 min-w-[120px]">
-          <label className="block text-[11px] uppercase tracking-wider text-text-muted mb-1">Note (optional)</label>
+          <label className="block text-xs uppercase tracking-wider text-text-muted mb-1">Note (optional)</label>
           <input
             type="text"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="e.g. Vacation"
-            className="w-full px-2 py-1.5 border border-app-border rounded text-sm bg-surface"
+            className="w-full min-h-[44px] md:min-h-[36px] px-2 py-1.5 border border-app-border rounded text-sm bg-surface text-text-primary"
           />
         </div>
         <button
           onClick={submit}
           disabled={!date}
-          className="text-sm px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+          className="min-h-[44px] md:min-h-[36px] text-sm px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
         >
           Add
         </button>
@@ -391,17 +393,19 @@ function ExceptionsCard({
             >
               <div>
                 <p className="text-sm text-text-primary">
-                  {new Date(e.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                  {/* Exception dates are stored at UTC midnight — read them in UTC
+                      or US viewers see the day before. */}
+                  {new Date(e.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}
                   {" — "}
-                  <span className={`text-xs ${e.type === "UNAVAILABLE" ? "text-red-700" : "text-orange-accent"}`}>
-                    {e.type === "UNAVAILABLE" ? "Unavailable" : `Modified ${e.startTime}–${e.endTime}`}
+                  <span className="text-xs" style={{ color: e.type === "UNAVAILABLE" ? "var(--color-danger-text)" : "var(--color-warn-text)" }}>
+                    {e.type === "UNAVAILABLE" ? "Unavailable" : `Modified ${range12h(e.startTime, e.endTime)}`}
                   </span>
                 </p>
                 {e.note && <p className="text-xs text-text-muted">{e.note}</p>}
               </div>
               <button
                 onClick={() => onDelete(e.id)}
-                className="text-xs text-red-600 px-2 py-1 rounded hover:bg-red-50"
+                className="min-h-[44px] md:min-h-[32px] text-xs px-2 py-1 rounded hover:bg-app-bg" style={{ color: "var(--color-danger-text)" }}
               >
                 Remove
               </button>

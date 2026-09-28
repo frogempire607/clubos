@@ -278,7 +278,7 @@ export default function MemberBillingPage() {
 
       <div className="mt-3 mb-5 flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary">
+          <h1 className="text-xl sm:text-2xl font-semibold text-text-primary leading-tight tracking-tight">
             {m.firstName} {m.lastName} <span className="text-text-muted font-normal">· Advanced billing</span>
           </h1>
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
@@ -537,7 +537,7 @@ export default function MemberBillingPage() {
                   {data.reactivation.changeRequest?.note && (
                     <p className="text-xs text-amber-700 mt-0.5 italic">&ldquo;{data.reactivation.changeRequest.note}&rdquo;</p>
                   )}
-                  <p className="text-[11px] text-amber-700 mt-1">
+                  <p className="text-[12px] text-amber-700 mt-1">
                     Approve or deny it from <a href="/dashboard/members/approvals" className="underline">Approvals</a> —
                     approving regenerates a new offer version from the current setup.
                   </p>
@@ -1003,15 +1003,15 @@ function CompToggle({
           is stored but changes nothing today. Say so rather than let a
           coach think this is what is keeping them active. */}
       {comped && turningOn ? (
-        <span className="text-[11px] text-text-muted max-w-[13rem] text-right">
+        <span className="text-[12px] text-text-muted max-w-[13rem] text-right">
           Owner set a $0 price — looks like a comp
         </span>
       ) : prepaid && turningOn ? (
-        <span className="text-[11px] text-orange-accent max-w-[13rem] text-right">
+        <span className="text-[12px] text-orange-accent max-w-[13rem] text-right">
           Looks prepaid, not comped{endDate ? ` — term ends ${fmtDate(endDate)}` : ""}
         </span>
       ) : sub.billingType === "MANUAL" ? (
-        <span className="text-[11px] text-text-muted">Cash membership — counts either way</span>
+        <span className="text-[12px] text-text-muted">Cash membership — counts either way</span>
       ) : null}
     </div>
   );
@@ -1212,7 +1212,7 @@ function PlanChangeModal({ data, memberId, subscriptionId, initialOptionId, onCl
               </option>
             ))}
           </select>
-          <span className="block text-[11px] text-text-muted mt-1">
+          <span className="block text-[12px] text-text-muted mt-1">
             {sub.hasStripe
               ? `Options billed ${periodWord(sub.billingPeriod)} swap in place at the next invoice. A different cycle (e.g. monthly → 3 months upfront) ends this subscription at its period end and starts the new one that day on the same card.`
               : "Paid-through stays as it is; the next payment is at the new price."}
@@ -1378,7 +1378,7 @@ function EditBillingModal({ data, memberId, onClose, onSaved }: { data: Data; me
                 </select>
               </label>
             )}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block text-xs text-text-muted">Price override ($)
                 <input type="number" min="0" step="0.01" value={priceOverride} disabled={markFree} onChange={(e) => setPriceOverride(e.target.value)} placeholder="none" className="mt-1 w-full border border-app-border rounded-lg px-2 py-1.5 text-sm bg-surface text-text-primary" />
               </label>
@@ -1407,10 +1407,10 @@ function EditBillingModal({ data, memberId, onClose, onSaved }: { data: Data; me
                 <option value="CHECK">Check</option>
               </select>
               {(payPref === "CASH" || payPref === "CHECK") && (
-                <span className="block mt-1 text-[11px] text-text-muted">{offlineRuleLabel(data.offlineActivationPolicy)}</span>
+                <span className="block mt-1 text-[12px] text-text-muted">{offlineRuleLabel(data.offlineActivationPolicy)}</span>
               )}
             </label>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label className="block text-xs text-text-muted">Start date
                 <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="mt-1 w-full border border-app-border rounded-lg px-2 py-1.5 text-sm bg-surface text-text-primary" />
               </label>

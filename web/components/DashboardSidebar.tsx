@@ -21,6 +21,14 @@ const SIDEBAR_HOVER = "var(--color-sidebar-hover)";
 const SIDEBAR_BORDER = "rgba(255,255,255,0.08)";
 const TEXT_DIM = "rgba(229,231,235,0.72)";
 const TEXT_HOVER = "#fff";
+// Inactive CHILD labels (B23 / audit §5.1). Was rgba(255,255,255,0.4) @12px =
+// 3.79:1 (light sidebar) / 3.82:1 (dark sidebar) — below WCAG AA. 0.62 alpha
+// composites to 7.08:1 on #1F1F23 and 7.43:1 on #16161A. Token lives in
+// globals.css so both themes read one value.
+const CHILD_TEXT = "var(--color-sidebar-child-text)";
+// Every interactive element here carries this class: globals.css gives it a
+// :focus-visible ring (inline styles can't express pseudo-classes).
+const FOCUS_CLS = "sidebar-focus";
 
 type Me = { role?: string; permissions?: Record<string, unknown> | null; title?: string | null } | null;
 
@@ -98,7 +106,7 @@ export default function DashboardSidebar({
         </div>
         <div
           style={{
-            fontSize: 11,
+            fontSize: 12,
             color: TEXT_DIM,
             paddingLeft: 38,
             overflow: "hidden",
@@ -112,9 +120,9 @@ export default function DashboardSidebar({
           <div style={{ marginLeft: 38, marginTop: 4 }}>
             <span
               style={{
-                fontSize: 10,
+                fontSize: 12,
                 fontWeight: 600,
-                letterSpacing: "0.04em",
+                letterSpacing: "0.02em",
                 textTransform: "uppercase",
                 color: "#fff",
                 background: "rgba(255,255,255,0.14)",
@@ -142,6 +150,7 @@ export default function DashboardSidebar({
                 key={item.id}
                 href={href}
                 onClick={onNavigate}
+                className={FOCUS_CLS}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -183,6 +192,8 @@ export default function DashboardSidebar({
             <div key={item.id}>
               <button
                 onClick={() => toggle(item.id)}
+                className={FOCUS_CLS}
+                aria-expanded={open}
                 style={{
                   width: "100%",
                   display: "flex",
@@ -243,16 +254,17 @@ export default function DashboardSidebar({
                         key={child.id}
                         href={child.href}
                         onClick={onNavigate}
+                        className={FOCUS_CLS}
                         style={{
                           display: "block",
                           padding: "6px 10px",
                           borderRadius: 7,
                           borderLeft: `2px solid ${active ? PRIMARY : "transparent"}`,
-                          fontSize: 12,
+                          fontSize: 13,
                           textDecoration: "none",
                           fontWeight: active ? 500 : 400,
                           background: active ? SIDEBAR_HOVER : "transparent",
-                          color: active ? "#fff" : "rgba(255,255,255,0.4)",
+                          color: active ? "#fff" : CHILD_TEXT,
                           transition: "background 0.15s, color 0.15s",
                         }}
                         onMouseEnter={(e) => {
@@ -264,7 +276,7 @@ export default function DashboardSidebar({
                         onMouseLeave={(e) => {
                           if (!active) {
                             (e.currentTarget as HTMLElement).style.background = "transparent";
-                            (e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,0.4)";
+                            (e.currentTarget as HTMLElement).style.color = CHILD_TEXT;
                           }
                         }}
                       >
@@ -322,6 +334,7 @@ export default function DashboardSidebar({
         <div style={{ padding: "10px 8px", borderTop: `1px solid ${SIDEBAR_BORDER}`, marginTop: 8 }}>
           <button
             onClick={() => signOutEverywhere({ callbackUrl: "/login" })}
+            className={FOCUS_CLS}
             style={{
               width: "100%",
               textAlign: "left",
@@ -373,6 +386,7 @@ function SidebarLink({
     <Link
       href={href}
       onClick={onNavigate}
+      className={FOCUS_CLS}
       style={{
         display: "flex",
         alignItems: "center",

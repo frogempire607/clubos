@@ -122,7 +122,7 @@ export default function EventExpenseEditor({ eventId }: { eventId: string }) {
     <div className="rounded-lg border border-app-border bg-surface p-3 space-y-3">
       <div>
         <p className="text-sm font-medium text-text-primary">Expense breakdown (optional)</p>
-        <p className="text-[11px] text-text-muted">
+        <p className="text-[12px] text-text-muted">
           Itemize the cost so parents see exactly what they&apos;re paying for. Items sum into the
           amount you invoice. <strong>Per-athlete</strong> items are charged to each registrant;
           shared items are split across attendees.
@@ -138,11 +138,11 @@ export default function EventExpenseEditor({ eventId }: { eventId: string }) {
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-text-primary truncate">
                   {i.label}
-                  <span className="ml-2 text-[10px] uppercase tracking-wider text-text-muted">
+                  <span className="ml-2 text-[12px] uppercase tracking-wider text-text-muted">
                     {kindLabel(i.kind)}
                   </span>
                 </div>
-                <div className="text-[11px] text-text-muted flex items-center gap-2 flex-wrap">
+                <div className="text-[12px] text-text-muted flex items-center gap-2 flex-wrap">
                   <span>{i.perAthlete ? "Per athlete" : "Shared / split"}</span>
                   {i.description && <span className="truncate">· {i.description}</span>}
                   {i.receiptFileId && (
@@ -169,7 +169,7 @@ export default function EventExpenseEditor({ eventId }: { eventId: string }) {
               </button>
             </div>
           ))}
-          <div className="px-3 py-2 text-[11px] text-text-muted flex items-center justify-between">
+          <div className="px-3 py-2 text-[12px] text-text-muted flex items-center justify-between">
             <span>
               {perAthleteTotal > 0 && `Per athlete: $${perAthleteTotal.toFixed(2)}`}
               {perAthleteTotal > 0 && sharedTotal > 0 && " · "}

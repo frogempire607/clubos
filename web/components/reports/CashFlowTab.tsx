@@ -230,7 +230,7 @@ function ForecastCard({ forecast }: { forecast: NonNullable<Response["forecast"]
     <div className="bg-surface border border-app-border rounded-xl p-5">
       <div className="flex items-center gap-2 mb-3">
         <p className="text-xs text-text-muted uppercase tracking-wide font-semibold">Forecast</p>
-        <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-app-bg text-text-muted">Estimated</span>
+        <span className="text-[12px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-app-bg text-text-muted">Estimated</span>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <MetricTile label="Expected recurring rev" value={money(forecast.expectedRecurringRevenue)} />
@@ -241,7 +241,7 @@ function ForecastCard({ forecast }: { forecast: NonNullable<Response["forecast"]
           value={forecast.projectedMonthEndCash == null ? "—" : money(forecast.projectedMonthEndCash)}
         />
       </div>
-      <p className="text-[11px] text-text-muted mt-3">{forecast.basis}</p>
+      <p className="text-[12px] text-text-muted mt-3">{forecast.basis}</p>
     </div>
   );
 }
@@ -269,7 +269,7 @@ function AlertsCard({ notes }: { notes: string[] }) {
 function MetricTile({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[11px] text-text-muted uppercase tracking-wide font-semibold">{label}</p>
+      <p className="text-[12px] text-text-muted uppercase tracking-wide font-semibold">{label}</p>
       <p className="text-lg font-semibold text-text-primary tabular-nums">{value}</p>
     </div>
   );

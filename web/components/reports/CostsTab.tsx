@@ -129,7 +129,7 @@ export default function CostsTab({ range, customFrom, customTo }: { range: Range
             <ScrollTable className="hidden md:block">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-[11px] text-text-muted uppercase tracking-wide font-semibold border-b border-app-border">
+                  <tr className="text-[12px] text-text-muted uppercase tracking-wide font-semibold border-b border-app-border">
                     <th className="text-left py-2 pr-2 w-8">#</th>
                     <th className="text-left py-2 pr-3">Category</th>
                     <th className="text-left py-2 pr-3">Type</th>
@@ -145,12 +145,12 @@ export default function CostsTab({ range, customFrom, customTo }: { range: Range
                       <td className="py-2 pr-2 text-text-muted tabular-nums">{c.rank}</td>
                       <td className="py-2 pr-3 text-text-primary">{c.label}</td>
                       <td className="py-2 pr-3">
-                        <span className={`text-[11px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                        <span className={`text-[12px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${
                           c.behavior === "FIXED" ? "bg-charcoal text-white" : "bg-orange-accent/25 text-orange-accent"
                         }`}>
                           {c.behavior}
                         </span>
-                        {c.overridden && <span className="ml-1 text-[10px] text-text-muted">(overridden)</span>}
+                        {c.overridden && <span className="ml-1 text-[12px] text-text-muted">(overridden)</span>}
                       </td>
                       <td className="py-2 pr-3 text-right tabular-nums font-semibold text-text-primary">{moneyExact(c.amount)}</td>
                       <td className="py-2 pr-3 text-right tabular-nums text-text-muted">{c.percentOfRevenue.toFixed(1)}%</td>
@@ -179,15 +179,15 @@ export default function CostsTab({ range, customFrom, customTo }: { range: Range
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-text-primary">{c.rank}. {c.label}</p>
                       <div className="flex items-center gap-1 mt-1">
-                        <span className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                        <span className={`text-[12px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${
                           c.behavior === "FIXED" ? "bg-charcoal text-white" : "bg-orange-accent/25 text-orange-accent"
                         }`}>{c.behavior}</span>
-                        {c.overridden && <span className="text-[10px] text-text-muted">(overridden)</span>}
+                        {c.overridden && <span className="text-[12px] text-text-muted">(overridden)</span>}
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0">
                       <p className="text-sm font-semibold text-text-primary tabular-nums">{moneyExact(c.amount)}</p>
-                      <p className="text-[11px] text-text-muted">{c.percentOfRevenue.toFixed(1)}% of rev</p>
+                      <p className="text-[12px] text-text-muted">{c.percentOfRevenue.toFixed(1)}% of rev</p>
                     </div>
                   </div>
                   <div className="flex items-center justify-between mt-2 gap-2">
@@ -233,7 +233,7 @@ function DeltaBadge({ delta }: { delta: number | null }) {
   const down = delta < -0.5;
   const cls = up ? "text-red-700 bg-red-50" : down ? "text-green-700 bg-green-50" : "text-text-muted bg-app-bg";
   return (
-    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold rounded-full px-2 py-0.5 ${cls}`}>
+    <span className={`inline-flex items-center gap-1 text-[12px] font-semibold rounded-full px-2 py-0.5 ${cls}`}>
       {up ? <TrendingUp size={11} strokeWidth={2.25} /> : down ? <TrendingDown size={11} strokeWidth={2.25} /> : null}
       {delta > 0 ? "+" : ""}{delta.toFixed(1)}%
     </span>
@@ -258,7 +258,7 @@ function MetricCard({
       {categories.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-3">
           {categories.map((c) => (
-            <span key={c} className="text-[11px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
+            <span key={c} className="text-[12px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
               {c}
             </span>
           ))}
@@ -281,7 +281,7 @@ function TopVendorsCard({ rows }: { rows: Vendor[] }) {
               <span className="text-text-primary truncate">{r.vendor}</span>
               <div className="text-right flex-shrink-0">
                 <span className="text-sm font-semibold text-text-primary tabular-nums">{moneyExact(r.amount)}</span>
-                <p className="text-[11px] text-text-muted">
+                <p className="text-[12px] text-text-muted">
                   {r.transactionCount} transaction{r.transactionCount === 1 ? "" : "s"}
                 </p>
               </div>
@@ -306,7 +306,7 @@ function LargestExpensesCard({ rows }: { rows: LargeExp[] }) {
               <Link href={r.href} className="flex items-start justify-between gap-2 border border-app-border rounded-lg px-3 py-2.5 hover:bg-app-bg min-h-[44px]">
                 <div className="min-w-0">
                   <p className="text-sm text-text-primary truncate">{r.description}</p>
-                  <p className="text-[11px] text-text-muted">
+                  <p className="text-[12px] text-text-muted">
                     {new Date(r.date + "T00:00:00").toLocaleDateString()} {r.vendor ? `· ${r.vendor}` : ""}
                   </p>
                 </div>
@@ -399,7 +399,7 @@ function NeedsALookGrid({ attention }: { attention: Response["attention"] }) {
               <p className="text-lg font-semibold text-text-primary tabular-nums">{t.count}</p>
             </div>
             <p className="text-xs font-medium text-text-primary">{t.label}</p>
-            <p className="text-[11px] text-text-muted truncate">{t.detail}</p>
+            <p className="text-[12px] text-text-muted truncate">{t.detail}</p>
           </Link>
         ))}
       </div>
@@ -454,7 +454,7 @@ function ClassifyModal({
           <div>
             <p className="text-xs text-text-muted uppercase tracking-wide font-semibold">Category</p>
             <p className="text-sm font-medium text-text-primary">{initial.label}</p>
-            <p className="text-[11px] text-text-muted mt-1">
+            <p className="text-[12px] text-text-muted mt-1">
               This overrides the default classification for every expense in this category that doesn&apos;t set its own kind.
             </p>
           </div>

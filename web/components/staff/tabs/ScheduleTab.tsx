@@ -17,6 +17,7 @@ import { ChevronLeft, ChevronRight, Lock, Pencil, X } from "lucide-react";
 import Sheet from "@/components/Sheet";
 import Reveal from "@/components/staff/access/Reveal";
 import { range12h, to12h } from "@/lib/time12";
+import { classTimesForDay, eventDaysInRange } from "@/lib/staffAssignments";
 import {
   availabilityForDate,
   fitsWindows,
@@ -53,10 +54,10 @@ type FeedPerson = {
   availability: { dayOfWeek: number; startTime: string; endTime: string }[];
   exceptions: FeedException[];
   classes: ClassInstance[];
-  events: { id: string; name: string; type: string; startsAt: string; endsAt: string }[];
+  events: { id: string; name: string; type: string; startsAt: string; endsAt: string; sessions?: { startsAt: string; endsAt: string }[] }[];
 };
-type AllEvent = { id: string; name: string; type: string; startsAt: string; date: string; assignedUserIds: string[] };
-type AllClass = { id: string; name: string; daysOfWeek: number[]; startTime: string; endTime: string; assignedStaffIds: string[] };
+type AllEvent = { id: string; name: string; type: string; startsAt: string; endsAt: string; sessions?: { startsAt: string; endsAt: string }[]; date: string; assignedUserIds: string[] };
+type AllClass = { id: string; name: string; daysOfWeek: number[]; startTime: string; endTime: string; dayOverrides?: { dayOfWeek: number; startTime: string; endTime: string }[]; assignedStaffIds: string[] };
 type Feed = { me: FeedPerson | null; allEvents: AllEvent[]; allClasses: AllClass[]; allStaff: { id: string; firstName: string; lastName: string }[] };
 
 // ── editor shapes ───────────────────────────────────────────────────────────
@@ -196,13 +197,14 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
         inSeries: c.seriesStaffIds.includes(staffId),
       });
     }
+    // A multi-day event shows on every day of this week it touches.
     for (const ev of me.events) {
-      const s = new Date(ev.startsAt);
-      const en = new Date(ev.endsAt);
-      out.push({ kind: "event", key: `e-${ev.id}`, name: ev.name, date: localYmd(s), startTime: localHhmm(s), endTime: localHhmm(en), eventId: ev.id });
+      for (const part of eventDaysInRange(ev, days, localYmd)) {
+        out.push({ kind: "event", key: `e-${ev.id}-${part.date}-${part.startsAt.getTime()}`, name: ev.name, date: part.date, startTime: localHhmm(part.startsAt), endTime: localHhmm(part.endsAt), eventId: ev.id });
+      }
     }
     return out.sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
-  }, [feed, staffId]);
+  }, [feed, staffId, days]);
 
   const fitSlots: WeeklySlot[] = useMemo(() => (feed?.me?.availability ?? []).map((a) => ({ ...a, active: true })), [feed]);
   const fitExceptions: DateException[] = useMemo(() => feed?.me?.exceptions ?? [], [feed]);
@@ -381,15 +383,21 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
     const band = availabilityForDate(pickDate, fitSlots, fitExceptions);
     const dow = ymdToUtc(pickDate).getUTCDay();
     const evs = feed.allEvents
-      .filter((e) => localYmd(new Date(e.startsAt)) === pickDate && !e.assignedUserIds.includes(staffId))
-      .map((e) => {
-        const st = localHhmm(new Date(e.startsAt));
-        // The feed's event list carries only a start time, so events are judged by when they start.
-        return { kind: "event" as const, id: e.id, name: e.name, time: to12h(st), fits: fitsWindows(st, "", band.windows), sort: st };
+      .filter((e) => !e.assignedUserIds.includes(staffId))
+      .flatMap((e) => {
+        // Every day the event touches (multi-day camps included), judged by that day's start.
+        const part = eventDaysInRange(e, [pickDate], localYmd)[0];
+        if (!part) return [];
+        const st = localHhmm(part.startsAt);
+        return [{ kind: "event" as const, id: e.id, name: e.name, time: to12h(st), fits: fitsWindows(st, "", band.windows), sort: st }];
       });
     const cls = feed.allClasses
       .filter((c) => c.daysOfWeek.includes(dow) && !c.assignedStaffIds.includes(staffId))
-      .map((c) => ({ kind: "class" as const, id: c.id, name: c.name, time: range12h(c.startTime, c.endTime), fits: fitsWindows(c.startTime, c.endTime, band.windows), sort: c.startTime }));
+      .map((c) => {
+        // That weekday's own time when the class has a per-day override.
+        const t = classTimesForDay(c.startTime, c.endTime, c.dayOverrides, dow);
+        return { kind: "class" as const, id: c.id, name: c.name, time: range12h(t.startTime, t.endTime), fits: fitsWindows(t.startTime, t.endTime, band.windows), sort: t.startTime };
+      });
     return [...cls, ...evs].sort((a, b) => a.sort.localeCompare(b.sort));
   }, [pickDate, feed, fitSlots, fitExceptions, staffId]);
 

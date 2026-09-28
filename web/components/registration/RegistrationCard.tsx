@@ -78,7 +78,7 @@ export default function RegistrationCard({
       <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
         <div className="p-5 sm:p-6">
           <span
-            className="inline-block text-[11px] font-semibold px-2.5 py-1 rounded-full"
+            className="inline-block text-[12px] font-semibold px-2.5 py-1 rounded-full"
             style={{ background: tone.bg, color: tone.fg }}
           >
             {ctx.waitingOnLabel}
@@ -103,7 +103,7 @@ export default function RegistrationCard({
 
           {m.proposedChange && (
             <div className="mt-4 rounded-lg border border-stone-200 overflow-hidden">
-              <div className="grid grid-cols-2 text-[11px] uppercase tracking-wide text-stone-500 bg-stone-50">
+              <div className="grid grid-cols-2 text-[12px] uppercase tracking-wide text-stone-500 bg-stone-50">
                 <div className="px-3 py-2">You signed up for</div>
                 <div className="px-3 py-2 border-l border-stone-200">Your coach proposes</div>
               </div>
@@ -157,7 +157,7 @@ export default function RegistrationCard({
                 {fmt(m.dueDate, false)}
                 {m.proximityBadge && (
                   <span
-                    className="ml-2 text-[11px] px-2 py-0.5 rounded-full"
+                    className="ml-2 text-[12px] px-2 py-0.5 rounded-full"
                     style={{ background: tone.bg, color: tone.fg }}
                   >
                     {m.proximityBadge === "TODAY"
@@ -207,7 +207,7 @@ export default function RegistrationCard({
         )}
       </div>
 
-      <p className="text-[11px] text-stone-500 text-center mt-4 px-4">
+      <p className="text-[12px] text-stone-500 text-center mt-4 px-4">
         This page stays up to date — bookmark it to check on this registration any time.
         <br />
         {m.clubName}

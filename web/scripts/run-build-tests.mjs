@@ -29,6 +29,7 @@ export const GATED = [
   ["scripts/permission-boundary-guard.ts"],
   ["scripts/members-grep-guards.ts"],
   ["scripts/reports-mobile-guard.ts", [], { TZ: "America/New_York" }],
+  ["scripts/ui-polish-guard.ts"],
   // members & families
   ["scripts/family-accounts-tests.ts"],
   ["scripts/family-fixtures-tests.ts"],
@@ -69,6 +70,7 @@ export const GATED = [
   ["scripts/app-links-tests.ts"],
   // events
   ["scripts/event-attendees-tests.ts"],
+  ["scripts/event-attendees-actions-tests.ts"],
   ["scripts/event-pricing-model-tests.ts"],
   ["scripts/event-roster-tests.ts"],
   ["scripts/event-auto-discount-tests.ts"],
@@ -85,6 +87,7 @@ export const GATED = [
   ["scripts/staff-profile-tests.ts"],
   ["scripts/staff-access-ui-tests.ts"],
   ["scripts/staff-schedule-fit-tests.ts"],
+  ["scripts/staff-assignments-tests.ts"],
   ["scripts/pay-schedule-tests.ts"],
   ["scripts/permission-behaviour-tests.ts"],
   // communication, reports, nav, platform

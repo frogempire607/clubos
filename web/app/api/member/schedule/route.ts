@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { effectiveClassStaff, staffNames } from "@/lib/staffAssignments";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { readPreviewCookie, canStartPreview } from "@/lib/preview";
 import { trialCoversClass } from "@/lib/freeTrial";
@@ -324,10 +325,8 @@ export async function GET(req: Request) {
   const activeMembershipNames = ctxState?.membershipNames ?? [];
   const staffIds = new Set<string>();
   for (const cls of classes) {
-    const ids = Array.isArray(cls.recurringClass.assignedStaffIds)
-      ? (cls.recurringClass.assignedStaffIds as string[])
-      : [];
-    ids.forEach((id) => staffIds.add(id));
+    // Who is actually on THIS session: a one-day substitute wins over the series.
+    effectiveClassStaff(cls.recurringClass.assignedStaffIds, cls.staffOverride).staffIds.forEach((id) => staffIds.add(id));
   }
   const staff = staffIds.size
     ? await prisma.user.findMany({
@@ -524,12 +523,10 @@ export async function GET(req: Request) {
 
       const ctxEval = ctxState ? evalFor(ctxState) : null;
       const price = ctxEval?.price ?? null;
-      const coachNames = (Array.isArray(sessionItem.recurringClass.assignedStaffIds)
-        ? (sessionItem.recurringClass.assignedStaffIds as string[])
-        : [])
-        .map((id) => staffById.get(id))
-        .filter(Boolean)
-        .join(", ");
+      const coachNames = staffNames(
+        effectiveClassStaff(sessionItem.recurringClass.assignedStaffIds, sessionItem.staffOverride).staffIds,
+        staffById,
+      ).join(", ");
       return {
         id: sessionItem.id,
         refId: sessionItem.recurringClass.id,

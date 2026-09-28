@@ -8,6 +8,7 @@ import Link from "next/link";
 import { Lock } from "lucide-react";
 import { PERMISSION_CATALOG, type PermissionLevel } from "@/lib/permissions";
 import { range12h, to12h } from "@/lib/time12";
+import { eventDaysInRange } from "@/lib/staffAssignments";
 import { fromMinutes, localHhmm, localYmd, scheduleFit, toMinutes, weekDates, type DayBand } from "@/lib/staffScheduleFit";
 import type { StaffTabProps } from "@/components/staff/types";
 
@@ -16,7 +17,7 @@ type FeedPerson = {
   availability: { dayOfWeek: number; startTime: string; endTime: string }[];
   exceptions: { id: string; date: string; type: string; startTime: string | null; endTime: string | null; note: string | null }[];
   classes: { classId: string; name: string; date: string; startTime: string; endTime: string; canceled: boolean }[];
-  events: { id: string; name: string; startsAt: string; endsAt: string }[];
+  events: { id: string; name: string; startsAt: string; endsAt: string; sessions?: { startsAt: string; endsAt: string }[] }[];
 };
 type WeekItem = { key: string; name: string; date: string; startTime: string; endTime: string };
 type Plan = { baseType: "SALARY" | "PER_CLASS" | "HOURLY"; baseAmount: number; bonuses: { bonusType: string; amount: number }[] } | null;
@@ -125,12 +126,14 @@ export default function OverviewTab({ data, goTo }: StaffTabProps) {
     const out: WeekItem[] = me.classes
       .filter((c) => !c.canceled)
       .map((c) => ({ key: `c-${c.classId}-${c.date}`, name: c.name, date: c.date, startTime: c.startTime, endTime: c.endTime }));
+    // A multi-day event shows on every day of this week it touches.
     for (const e of me.events) {
-      const s = new Date(e.startsAt);
-      out.push({ key: `e-${e.id}`, name: e.name, date: localYmd(s), startTime: localHhmm(s), endTime: localHhmm(new Date(e.endsAt)) });
+      for (const part of eventDaysInRange(e, days, localYmd)) {
+        out.push({ key: `e-${e.id}-${part.date}-${part.startsAt.getTime()}`, name: e.name, date: part.date, startTime: localHhmm(part.startsAt), endTime: localHhmm(part.endsAt) });
+      }
     }
     return out.sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
-  }, [me]);
+  }, [me, days]);
   const fit = useMemo(
     () => scheduleFit(days, (me?.availability ?? []).map((a) => ({ ...a, active: true })), me?.exceptions ?? [], items),
     [days, me, items],

@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { hasPermission } from "@/lib/permissions";
+import { effectiveClassStaff, ymdUTC } from "@/lib/staffAssignments";
+import { listScheduleStaff } from "@/lib/staffAssignmentsServer";
 
 // Combined calendar feed for the dashboard /calendar page. Returns dated items
 // across all offering kinds so the owner can filter to one or many in the UI.
@@ -16,6 +19,10 @@ import { prisma } from "@/lib/prisma";
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Dashboard feed: staff names, private-lesson athletes, staff-only events.
+  if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const url = new URL(req.url);
   const fromStr = url.searchParams.get("from");
@@ -47,7 +54,8 @@ export async function GET(req: Request) {
     return null;
   }
 
-  const [events, classSessions, privateBookings] = await Promise.all([
+  const [staffList, events, classSessions, privateBookings] = await Promise.all([
+    listScheduleStaff(clubId),
     prisma.event.findMany({
       where: {
         clubId,
@@ -71,10 +79,8 @@ export async function GET(req: Request) {
         location: { select: { name: true } },
         customEventTypeId: true,
         customEventType: { select: { name: true, color: true, textColor: true } },
-        staffAssignments: {
-          select: { user: { select: { firstName: true, lastName: true } } },
-          take: 3,
-        },
+        // The whole roster (was capped at 3) — the calendar edits it now.
+        staffAssignments: { select: { userId: true } },
         sessions: {
           select: { id: true, startsAt: true, endsAt: true, name: true },
           orderBy: { startsAt: "asc" },
@@ -91,11 +97,14 @@ export async function GET(req: Request) {
       select: {
         id: true,
         classId: true,
+        date: true,
         startsAt: true,
         endsAt: true,
+        staffOverride: true,
         recurringClass: {
           select: {
             name: true,
+            assignedStaffIds: true,
             description: true,
             capacity: true,
             color: true,
@@ -141,14 +150,23 @@ export async function GET(req: Request) {
     location?: string | null;
     coach?: string | null;
     price?: string | null;
+    // Who is on it (lib/staffAssignments). Events: EventStaffAssignment.
+    // Classes: this session's staffOverride when set, else the series.
+    staff?: { id: string; name: string }[];
+    staffIsOverride?: boolean;   // class only — a one-day change is in effect
+    seriesStaffIds?: string[];   // class only
+    date?: string;               // class only — YYYY-MM-DD occurrence day
   };
+
+  const nameById = new Map(staffList.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
+  const staffOf = (ids: string[]) =>
+    ids.filter((id) => nameById.has(id)).map((id) => ({ id, name: nameById.get(id)! }));
 
   const items: CalItem[] = [];
 
   for (const e of events) {
-    const coachNames = e.staffAssignments
-      .map((sa) => `${sa.user.firstName} ${sa.user.lastName}`)
-      .join(", ");
+    const eventStaff = staffOf(e.staffAssignments.map((sa) => sa.userId));
+    const coachNames = eventStaff.map((x) => x.name).join(", ");
     const priceParts: string[] = [];
     if (e.memberPrice != null) priceParts.push(`Member $${Number(e.memberPrice).toFixed(2)}`);
     if (e.nonMemberPrice != null) priceParts.push(`Non-member $${Number(e.nonMemberPrice).toFixed(2)}`);
@@ -168,6 +186,7 @@ export async function GET(req: Request) {
       location: e.location?.name ?? null,
       coach: coachNames || null,
       price: priceParts.join(" · ") || null,
+      staff: eventStaff,
     };
     if (e.sessions.length > 0) {
       // Multi-session events (e.g. a 3-day camp with one session per day) get
@@ -191,6 +210,8 @@ export async function GET(req: Request) {
     }
   }
   for (const s of classSessions) {
+    const eff = effectiveClassStaff(s.recurringClass.assignedStaffIds, s.staffOverride);
+    const classStaff = staffOf(eff.staffIds);
     items.push({
       kind: "class",
       id: s.id,
@@ -206,6 +227,11 @@ export async function GET(req: Request) {
       filled: s._count.attendance,
       description: s.recurringClass.description ?? null,
       location: s.recurringClass.location?.name ?? null,
+      coach: classStaff.map((x) => x.name).join(", ") || null,
+      staff: classStaff,
+      staffIsOverride: eff.isSubstitute,
+      seriesStaffIds: effectiveClassStaff(s.recurringClass.assignedStaffIds, null).staffIds,
+      date: ymdUTC(s.date),
     });
   }
   for (const b of privateBookings) {
@@ -233,9 +259,23 @@ export async function GET(req: Request) {
 
   items.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 
+  // What the viewer may change from the calendar — the SAME permissions the
+  // write APIs check (events/[id]/staff: events:edit; classes/[id]/staff:
+  // classes:edit; classes/[id]/occurrence: schedule:edit).
+  const isOwner = session.user.role === "OWNER";
+  const perms = (session.user as { permissions?: Record<string, unknown> | null }).permissions ?? null;
+  const can = {
+    editEventStaff: isOwner || hasPermission(perms, "events", "edit"),
+    editClassSeriesStaff: isOwner || hasPermission(perms, "classes", "edit"),
+    editClassDayStaff: isOwner || hasPermission(perms, "schedule", "edit"),
+  };
+
   return NextResponse.json({
     from: from.toISOString(),
     to: to.toISOString(),
     items,
+    can,
+    // OWNER + STAFF — the "+ Add coach" picker. Owners coach too.
+    staffOptions: staffList.map((u) => ({ id: u.id, name: `${u.firstName} ${u.lastName}`.trim() })),
   });
 }

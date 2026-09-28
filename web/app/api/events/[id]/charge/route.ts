@@ -11,6 +11,9 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { resolveStaffDiscount, quotePayment, discountAppliedLabel } from "@/lib/staffPayments";
 import { recordDiscountUse } from "@/lib/discounts";
 import { settleEventRegistrationOffline } from "@/lib/eventOfflinePayments";
+import { eventAllowedPaymentMethods } from "@/lib/eventPayments";
+import { quoteSessions } from "@/lib/eventPricingModel";
+import { staffMethodAllowed } from "@/lib/eventAttendeeActions";
 
 const schema = z.object({
   memberId: z.string(),
@@ -23,7 +26,20 @@ const schema = z.object({
   // TERMINAL-> owner ran the card on an in-person card reader / terminal
   // CASH and TERMINAL confirm the booking and log a manual transaction in
   // Financials WITHOUT creating a Stripe charge (reuses the manual-payment path).
-  paymentMethod: z.enum(["STRIPE", "CASH", "TERMINAL"]).optional().default("STRIPE"),
+  //
+  // B11 slice 3 (the Attendees screen's "+ Add attendee"):
+  // CHECK   -> a check handed over now; the same settle path as CASH.
+  // INVOICE -> register them owing the quoted price, nothing charged. The
+  //            payment link then goes out through bill-registrants (review
+  //            first), the same path every other unpaid registrant uses.
+  // Every method must be one the EVENT allows (Event.paymentMethods): staff
+  // can't pick a way to pay that contradicts the event's own settings.
+  paymentMethod: z.enum(["STRIPE", "CASH", "TERMINAL", "CHECK", "INVOICE"]).optional().default("STRIPE"),
+  // Check number / note for CHECK.
+  reference: z.string().max(120).optional().nullable(),
+  // DROP_IN + sessionIds = a per-session purchase priced by
+  // lib/eventPricingModel.quoteSessions (the member register route's rule).
+  sessionIds: z.array(z.string().min(1)).max(50).optional(),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -41,7 +57,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   try {
     const body = await req.json();
-    const { memberId, pricingType = "MEMBER", paymentMethod = "STRIPE", discountCode } = schema.parse(body);
+    const { memberId, pricingType = "MEMBER", paymentMethod = "STRIPE", discountCode, reference, sessionIds } = schema.parse(body);
 
     const club = await prisma.club.findUnique({
       where: { id: session.user.clubId },
@@ -65,7 +81,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
     const event = await prisma.event.findFirst({
       where: { id: params.id, clubId: club.id, deletedAt: null },
-      include: { _count: { select: { bookings: true } } },
+      include: {
+        _count: { select: { bookings: true } },
+        sessions: { select: { id: true, price: true, startsAt: true }, orderBy: { sortOrder: "asc" } },
+      },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
@@ -196,9 +215,30 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       });
     }
 
+    // Paying by — only what the event allows (checked after the covered and
+    // split branches above, which collect nothing and ask no payment question).
+    if (!staffMethodAllowed(paymentMethod, eventAllowedPaymentMethods(event))) {
+      return NextResponse.json(
+        { error: "This event doesn't take that way of paying. Change the event's payment options first." },
+        { status: 400 },
+      );
+    }
+
     let priceCents: number;
     let priceLabel: string;
-    if (pricingType === "DROP_IN" && event.dropInFee) {
+    let purchasedSessionIds: string[] = [];
+    if (pricingType === "DROP_IN" && sessionIds && sessionIds.length > 0) {
+      const sq = quoteSessions({
+        pricingModel: (event.pricingModel as "FREE" | "FIXED" | "SPLIT") ?? "FIXED",
+        sellIndividualSessions: !!event.sellIndividualSessions,
+        sessions: event.sessions,
+        requestedIds: sessionIds,
+      });
+      if (!sq.ok) return NextResponse.json({ error: sq.error }, { status: 400 });
+      priceCents = sq.cents;
+      priceLabel = sq.label;
+      purchasedSessionIds = sq.sessionIds;
+    } else if (pricingType === "DROP_IN" && event.dropInFee) {
       priceCents = Math.round(Number(event.dropInFee) * 100);
       priceLabel = "Drop-in";
     } else if (pricingType === "NON_MEMBER" && event.nonMemberPrice) {
@@ -240,7 +280,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // reconciliationStatus correctly — a card-reader swipe is
     // EXTERNAL_READER/UNVERIFIED and must never blend into verified card
     // revenue.
-    if (paymentMethod === "CASH" || paymentMethod === "TERMINAL") {
+    if (paymentMethod === "CASH" || paymentMethod === "TERMINAL" || paymentMethod === "CHECK") {
       const existing = await prisma.booking.findUnique({
         where: { eventId_memberId: { eventId: event.id, memberId } },
       });
@@ -283,6 +323,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             email: member.email ?? member.guardianEmail ?? "",
             status: "REGISTERED",
             amountDue: amount,
+            sessionIds: purchasedSessionIds,
             ...regDiscount,
           },
           select: { id: true, status: true },
@@ -293,7 +334,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         // there — one discount per registration, never two stacked.
         await prisma.eventRegistration.update({
           where: { id: reg.id },
-          data: { amountDue: amount, ...regDiscount },
+          data: {
+            amountDue: amount,
+            ...(purchasedSessionIds.length > 0 ? { sessionIds: purchasedSessionIds } : {}),
+            ...regDiscount,
+          },
         });
       }
 
@@ -301,6 +346,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         clubId: club.id,
         registrationId: reg.id,
         method: paymentMethod,
+        reference: paymentMethod === "CHECK" ? reference ?? null : null,
         actorUserId: session.user.id ?? null,
         // The receipt from the settle path is the payment receipt; the booking
         // confirmation below carries the event details.
@@ -320,7 +366,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           data: {
             discountCode: discount.code,
             discountAmount: quote.discountAmount,
-            description: `${event.name} — ${priceLabel} price (${paymentMethod === "CASH" ? "cash" : "in-person terminal"})${discountLabel ? ` — ${discountLabel}` : ""}`,
+            description: `${event.name} — ${priceLabel} price (${paymentMethod === "CASH" ? "cash" : paymentMethod === "CHECK" ? "check" : "in-person terminal"})${discountLabel ? ` — ${discountLabel}` : ""}`,
           },
         });
         await recordDiscountUse(discount.id);
@@ -352,6 +398,65 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         amount,
         registrationId: reg.id,
         transactionId: settled.transactionId,
+      });
+    }
+
+    // ── Card, paid later by emailed link (B11 slice 3) ──────────────────────
+    // Roster and bill in one request: the registration owes the quoted price
+    // (discount included) and the booking holds the spot. Nothing is charged
+    // and no Transaction is written here — the link goes out through
+    // bill-registrants, whose review step shows the exact amount first. Same
+    // shape as the split-cost branch above, which also registers now and
+    // bills later.
+    if (paymentMethod === "INVOICE") {
+      const existing = await prisma.booking.findUnique({
+        where: { eventId_memberId: { eventId: event.id, memberId } },
+      });
+      if (existing) return NextResponse.json({ error: "Already booked" }, { status: 409 });
+      const prior = await prisma.eventRegistration.findFirst({
+        where: { eventId: event.id, memberId, status: { not: "CANCELED" } },
+        select: { id: true },
+      });
+      if (prior) {
+        return NextResponse.json(
+          { error: "They're already on this event's billing list — email their payment link from Attendees instead." },
+          { status: 409 },
+        );
+      }
+      if (quote.finalPrice <= 0) {
+        return NextResponse.json(
+          { error: "The discount brings the total to $0 — there's nothing to email a link for." },
+          { status: 400 },
+        );
+      }
+      const status =
+        event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
+      const reg = await prisma.eventRegistration.create({
+        data: {
+          eventId: event.id,
+          clubId: club.id,
+          memberId,
+          name: `${member.firstName} ${member.lastName}`.trim(),
+          email: member.email ?? member.guardianEmail ?? "",
+          status: "REGISTERED",
+          amountDue: quote.finalPrice,
+          sessionIds: purchasedSessionIds,
+          discountId: discount?.id ?? null,
+          discountCode: discount?.code ?? null,
+          discountType: discount?.type ?? null,
+          discountValue: discount?.value ?? null,
+          discountAmount: discount ? quote.discountAmount : null,
+        },
+        select: { id: true },
+      });
+      await prisma.booking.create({ data: { eventId: event.id, memberId, status } });
+      if (discount) await recordDiscountUse(discount.id);
+      return NextResponse.json({
+        billedLater: true,
+        paymentMethod,
+        status,
+        amount: quote.finalPrice,
+        registrationId: reg.id,
       });
     }
 

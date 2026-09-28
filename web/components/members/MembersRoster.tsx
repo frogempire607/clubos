@@ -743,7 +743,7 @@ export default function MembersRoster({
               <div className="min-w-0">
                 <PersonCell m={m} />
                 {opts.family && !opts.family.expanded && (
-                  <div className="ml-[44px] text-[11.5px] text-text-muted">
+                  <div className="ml-[44px] text-[12px] text-text-muted">
                     +{opts.family.count} more in family
                   </div>
                 )}
@@ -1040,7 +1040,7 @@ export default function MembersRoster({
             >
               <SlidersHorizontal className="h-3.5 w-3.5" /> Filters
               {filterCount > 0 && (
-                <span className="rounded-full bg-brand px-1.5 text-[11px] font-semibold text-white">{filterCount}</span>
+                <span className="rounded-full bg-brand px-1.5 text-[12px] font-semibold text-white">{filterCount}</span>
               )}
             </button>
             <select
@@ -1413,7 +1413,7 @@ function Th({
   return (
     <th
       style={{ width }}
-      className={`px-0 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted ${
+      className={`px-0 py-2.5 text-[12px] font-semibold uppercase tracking-[0.06em] text-text-muted ${
         align === "right" ? "pr-4 text-right" : "pr-3 text-left"
       }`}
     >
@@ -1495,7 +1495,7 @@ function WorkQueueStrip({
             </div>
             <div className="mt-1 text-[12.5px] text-text-primary">{c.label}</div>
             {c.key === "paused" && queueCounts?.pausedNextResume && (
-              <div className="text-[11px] text-text-muted">
+              <div className="text-[12px] text-text-muted">
                 next back {new Date(queueCounts.pausedNextResume).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
               </div>
             )}
@@ -1572,7 +1572,7 @@ function AZJump({ active, onPick }: { active: string; onPick: (letter: string | 
       className="flex items-center gap-1 border-b border-app-border px-4 py-1.5"
       style={{ background: "var(--color-table-chrome)" }}
     >
-      <span className="hidden shrink-0 pr-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted sm:inline">
+      <span className="hidden shrink-0 pr-1 text-[12px] font-semibold uppercase tracking-[0.06em] text-text-muted sm:inline">
         Jump
       </span>
       <div role="toolbar" aria-label="Jump to last name" className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
@@ -1837,7 +1837,7 @@ function FiltersSheet({
               className={inputCls}
             />
           </div>
-          <p className="mt-1 text-[11.5px] text-text-muted">People with no date of birth are left out of an age filter.</p>
+          <p className="mt-1 text-[12px] text-text-muted">People with no date of birth are left out of an age filter.</p>
         </div>
 
         {customFields.length > 0 && (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import PageHeader from "@/components/PageHeader";
 
 type Article = { id: string; title: string; category: string; keywords: string[]; body: string };
 
@@ -42,13 +43,13 @@ export default function HelpPage() {
 
   return (
     <div className="p-8 max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-text-primary mb-1">Help &amp; Support</h1>
-        <p className="text-sm text-text-muted">
+      <PageHeader
+        title={<>Help &amp; Support</>}
+        description={<>
           Search guides for running your club. Need a person? Contact your account manager or reply to any
           AthletixOS email — this center organizes how-to answers, it isn&apos;t a replacement for support.
-        </p>
-      </div>
+        </>}
+      />
 
       <input
         value={q}
@@ -98,7 +99,7 @@ export default function HelpPage() {
                 >
                   <div>
                     <p className="text-sm font-semibold text-text-primary">{a.title}</p>
-                    <p className="text-[11px] uppercase tracking-wider text-text-muted mt-0.5">{a.category}</p>
+                    <p className="text-[12px] uppercase tracking-wider text-text-muted mt-0.5">{a.category}</p>
                   </div>
                   <span className="text-text-muted text-lg leading-none flex-shrink-0">{open ? "−" : "+"}</span>
                 </button>

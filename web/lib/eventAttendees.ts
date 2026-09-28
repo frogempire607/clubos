@@ -124,6 +124,9 @@ export type AttendeeRow = {
   attending: string;
   owes: number;
   paid: number;
+  /** The registration's recorded amountDue (0 when none) — what the
+   *  offline-payment route settles to the cent. Booking-only rows: 0. */
+  amountDue: number;
   scheduledAmount: number;
   scheduledAt: string | null;
   status: AttendeeStatus;
@@ -214,7 +217,9 @@ export function matchesFilter(r: AttendeeRow, f: AttendeeFilter): boolean {
     case "owes":
       return rowOwes(r);
     case "waiting":
-      return r.waitingOn === "COACH" || r.status === "PENDING_REVIEW";
+      // A proposal on the table is waiting on the PARENT, not on you — the
+      // same precedence registrationWaitingOn applies (B11 slice 3).
+      return r.waitingOn === "COACH" || (r.status === "PENDING_REVIEW" && r.waitingOn !== "PARENT");
     case "scheduled":
       return r.status === "SCHEDULED";
     case "settled":
@@ -269,6 +274,7 @@ export function buildAttendeeLedger(
       attending: attendingLabel(ev, r.sessionIds),
       owes,
       paid: r.status === "PAID" ? money(paid > 0 ? paid : due) : money(paid),
+      amountDue: money(due),
       scheduledAmount: r.status === "SCHEDULED" ? money(due) : 0,
       scheduledAt: r.status === "SCHEDULED" ? iso(r.scheduledChargeAt) : null,
       status,
@@ -300,6 +306,7 @@ export function buildAttendeeLedger(
       attending: attendingLabel(ev),
       owes: 0,
       paid: 0,
+      amountDue: 0,
       scheduledAmount: 0,
       scheduledAt: null,
       status,

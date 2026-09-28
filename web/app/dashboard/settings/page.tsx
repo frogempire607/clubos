@@ -197,7 +197,7 @@ export default function SettingsPage() {
             >
               Club Profile →
             </Link>
-            <div className="pt-2 pb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+            <div className="pt-2 pb-1 px-3 text-[12px] font-semibold uppercase tracking-wider text-text-muted">
               System
             </div>
             {NAV.map((n) => (
@@ -216,12 +216,12 @@ export default function SettingsPage() {
             <div className="pt-3 border-t border-app-border mt-3 space-y-0.5">
               <Link href="/dashboard/settings/billing"
                 className="w-full text-left px-3 py-2 rounded-lg text-sm text-text-muted hover:bg-app-bg flex items-center gap-1.5">
-                <span className="w-4 h-4 rounded text-[10px] flex items-center justify-center font-bold" style={{ background: "var(--color-primary)", color: "#fff" }}>$</span>
+                <span className="w-4 h-4 rounded text-[12px] flex items-center justify-center font-bold" style={{ background: "var(--color-primary)", color: "#fff" }}>$</span>
                 Member payments
               </Link>
               <Link href="/dashboard/settings/email"
                 className="w-full text-left px-3 py-2 rounded-lg text-sm text-text-muted hover:bg-app-bg flex items-center gap-1.5">
-                <span className="w-4 h-4 rounded text-[10px] flex items-center justify-center font-bold" style={{ background: "var(--color-primary)", color: "#fff" }}>@</span>
+                <span className="w-4 h-4 rounded text-[12px] flex items-center justify-center font-bold" style={{ background: "var(--color-primary)", color: "#fff" }}>@</span>
                 Email
               </Link>
               <Link href="/dashboard/custom-fields"
@@ -415,7 +415,7 @@ function PlanSection({ club, onSaved }: { club: Club; onSaved: () => void }) {
                     <p className="text-xs text-text-muted">{tier.price}</p>
                   </div>
                   {isCurrent ? (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand text-white font-medium">Current</span>
+                    <span className="text-[12px] px-2 py-0.5 rounded-full bg-brand text-white font-medium">Current</span>
                   ) : (
                     <button
                       onClick={() => upgradeTo(tier.id)}
@@ -426,15 +426,15 @@ function PlanSection({ club, onSaved }: { club: Club; onSaved: () => void }) {
                     </button>
                   )}
                 </div>
-                <p className="text-[10px] text-text-muted">{tier.fee}</p>
+                <p className="text-[12px] text-text-muted">{tier.fee}</p>
                 <ul className="mt-2 space-y-0.5">
                   {tier.features.slice(0, 3).map((f) => (
-                    <li key={f} className="text-[10px] text-text-muted flex items-start gap-1">
+                    <li key={f} className="text-[12px] text-text-muted flex items-start gap-1">
                       <span className="text-lime-accent mt-px">✓</span> {f}
                     </li>
                   ))}
                   {tier.features.length > 3 && (
-                    <li className="text-[10px] text-text-muted">+{tier.features.length - 3} more…</li>
+                    <li className="text-[12px] text-text-muted">+{tier.features.length - 3} more…</li>
                   )}
                 </ul>
               </div>
@@ -518,7 +518,7 @@ function MemberPortalSection({ club, onSaved }: { club: Club; onSaved: () => voi
         <h3 className="text-sm font-semibold text-text-primary mb-2">Billing visibility</h3>
         <p className="text-xs text-text-muted mb-3">
           Owners and staff always see everything in the dashboard. These toggles only
-          affect what shows on <code className="px-1 py-0.5 bg-app-bg rounded text-[11px]">/member/profile</code>.
+          affect what shows on <code className="px-1 py-0.5 bg-app-bg rounded text-[12px]">/member/profile</code>.
         </p>
         <div className="space-y-2">
           {rows.map((row) => (
@@ -756,7 +756,7 @@ function LocationModal({
             <input type="text" value={address} onChange={(e) => setAddress(e.target.value)}
               placeholder="123 Main St, City, State"
               className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
-            <p className="text-[11px] text-text-muted mt-1">
+            <p className="text-[12px] text-text-muted mt-1">
               The address alone powers the members&apos; &quot;Open in Maps&quot; link — coordinates below are optional for pin-point accuracy.
             </p>
           </div>
@@ -782,8 +782,8 @@ function LocationModal({
                 {locating === "gps" ? "Locating…" : "Use my current location"}
               </button>
             </div>
-            {locateNote && <p className="text-[11px] text-text-muted mb-2">{locateNote}</p>}
-            <div className="grid grid-cols-2 gap-2">
+            {locateNote && <p className="text-[12px] text-text-muted mb-2">{locateNote}</p>}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <input type="text" inputMode="decimal" value={latitude} onChange={(e) => setLatitude(e.target.value)}
                 placeholder="Latitude (auto-filled)"
                 className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
@@ -956,13 +956,13 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="border border-app-border rounded-lg p-4 bg-app-bg">
             <p className="text-sm font-semibold text-text-primary">1 · Instant web app (PWA)</p>
-            <p className="text-[11px] text-text-muted mt-1">
+            <p className="text-[12px] text-text-muted mt-1">
               Live right now — members add your portal to their home screen in about 10 seconds. No app store, no waiting. The fastest way to start today.
             </p>
           </div>
           <div className="border border-app-border rounded-lg p-4 bg-app-bg">
             <p className="text-sm font-semibold text-text-primary">2 · Native iOS + Android app</p>
-            <p className="text-[11px] text-text-muted mt-1">
+            <p className="text-[12px] text-text-muted mt-1">
               A dedicated app under your club&apos;s name in the App Store and Google Play. Follow the step-by-step below — AthletixOS handles the build and submission.
             </p>
           </div>
@@ -978,10 +978,10 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
               Your member portal is already installable on iPhone and Android — no app store needed.
             </p>
           </div>
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-lime-accent text-text-primary font-medium flex-shrink-0">Live</span>
+          <span className="text-[12px] px-2 py-0.5 rounded-full bg-lime-accent text-text-primary font-medium flex-shrink-0">Live</span>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 mb-5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
           {[
             { label: "Installable", desc: "Members tap 'Add to Home Screen'" },
             { label: "Offline ready", desc: "Cached pages load without internet" },
@@ -992,7 +992,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
                 <span className="text-lime-accent text-xs">✓</span>
                 <p className="text-xs font-semibold text-text-primary">{f.label}</p>
               </div>
-              <p className="text-[10px] text-text-muted">{f.desc}</p>
+              <p className="text-[12px] text-text-muted">{f.desc}</p>
             </div>
           ))}
         </div>
@@ -1002,7 +1002,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <p className="text-xs font-medium text-text-muted mb-1">iPhone (Safari)</p>
-              <ol className="text-[11px] text-text-muted space-y-0.5 list-decimal list-inside">
+              <ol className="text-[12px] text-text-muted space-y-0.5 list-decimal list-inside">
                 <li>Open member portal in Safari</li>
                 <li>Tap the Share button (box with arrow)</li>
                 <li>Tap "Add to Home Screen"</li>
@@ -1011,7 +1011,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
             </div>
             <div>
               <p className="text-xs font-medium text-text-muted mb-1">Android (Chrome)</p>
-              <ol className="text-[11px] text-text-muted space-y-0.5 list-decimal list-inside">
+              <ol className="text-[12px] text-text-muted space-y-0.5 list-decimal list-inside">
                 <li>Open member portal in Chrome</li>
                 <li>Tap the "Install app" banner</li>
                 <li>Or tap the three-dot menu → "Add to Home Screen"</li>
@@ -1019,7 +1019,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
               </ol>
             </div>
           </div>
-          <p className="text-[11px] text-text-muted mt-3">
+          <p className="text-[12px] text-text-muted mt-3">
             Member portal URL:{" "}
             <span className="font-mono">
               {typeof window !== "undefined" ? `${window.location.origin}/member` : "/member"}
@@ -1044,7 +1044,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
             shape="square"
           />
           <div>
-            <p className="text-[11px] text-text-muted mt-1">
+            <p className="text-[12px] text-text-muted mt-1">
               Same image as your club logo on the Club Profile page — change in
               either place and it updates everywhere.
             </p>
@@ -1119,7 +1119,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
               className="w-full px-3 py-2 border border-app-border rounded-lg text-sm"
               style={{ fontFamily: appFontFamily || undefined, textAlign: appTextAlign as "left" | "center" | "right" }}
             />
-            <p className="text-[11px] text-text-muted mt-1">
+            <p className="text-[12px] text-text-muted mt-1">
               Plain text. Renders on the member portal Home above the schedule.
             </p>
           </div>
@@ -1141,7 +1141,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
       <div className="bg-white rounded-xl border border-app-border p-6">
         <div className="flex items-start justify-between mb-1">
           <h2 className="text-base font-semibold text-text-primary">Get your native iOS &amp; Android app</h2>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${
+          <span className={`text-[12px] px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${
             isPro ? "bg-brand/10 text-brand" : "bg-app-bg text-text-muted"
           }`}>
             {isPro ? "Included on your plan" : "Pro / Enterprise"}
@@ -1225,7 +1225,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
               <div>
                 <p className="text-sm font-medium text-text-primary">
                   {step.title}
-                  <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-app-bg text-text-muted font-medium align-middle">
+                  <span className="ml-2 text-[12px] px-1.5 py-0.5 rounded-full bg-app-bg text-text-muted font-medium align-middle">
                     {step.who}
                   </span>
                 </p>
@@ -1493,7 +1493,7 @@ function LegalSection() {
               const c = ENTITY_TYPE_COLORS[e.entityType] || ENTITY_TYPE_COLORS.OTHER;
               return (
                 <div key={e.id} className="flex items-center gap-3 p-3 border border-app-border rounded-lg">
-                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0"
+                  <span className="text-[12px] px-2 py-0.5 rounded-full font-medium flex-shrink-0"
                     style={{ background: c.bg, color: c.fg }}>
                     {ENTITY_TYPE_LABELS[e.entityType]}
                   </span>
@@ -1501,7 +1501,7 @@ function LegalSection() {
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium text-text-primary">{e.name}</p>
                       {e.isDefault && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-app-bg text-text-muted font-medium">Default</span>
+                        <span className="text-[12px] px-1.5 py-0.5 rounded bg-app-bg text-text-muted font-medium">Default</span>
                       )}
                     </div>
                     <div className="flex gap-2 text-xs text-text-muted mt-0.5">
@@ -1564,7 +1564,7 @@ function LegalSection() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium text-text-primary">{link.title}</p>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                    <span className={`text-[12px] px-1.5 py-0.5 rounded-full font-medium ${
                       link.active ? "bg-lime-accent text-text-primary" : "bg-app-bg text-text-muted"
                     }`}>
                       {link.active ? "Active" : "Inactive"}

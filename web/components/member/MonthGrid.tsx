@@ -82,7 +82,7 @@ export default function MonthGrid({
       </div>
       <div className="grid grid-cols-7 gap-1 mb-1">
         {DAY_HEADS.map((l, i) => (
-          <span key={i} className="text-[9px] font-bold uppercase tracking-[0.04em] text-stone-400 text-center">
+          <span key={i} className="text-[12px] font-bold uppercase tracking-[0.04em] text-stone-400 text-center">
             {l}
           </span>
         ))}
@@ -100,7 +100,7 @@ export default function MonthGrid({
               onClick={() => onSelectDate(day)}
               aria-pressed={isSelected}
               aria-label={`${day.toLocaleDateString("en-US", { month: "long", day: "numeric" })}${dayItems.length ? `, ${dayItems.length} scheduled` : ""}`}
-              className="relative aspect-square min-h-[44px] rounded-lg flex items-center justify-center text-[11px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--club-accent-ring)]"
+              className="relative aspect-square min-h-[44px] rounded-lg flex items-center justify-center text-[12px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--club-accent-ring)]"
               style={
                 isSelected
                   ? { background: "var(--club-accent)", color: "var(--club-accent-contrast)" }
@@ -126,7 +126,7 @@ export default function MonthGrid({
           );
         })}
       </div>
-      <p className="text-[11px] text-stone-400 mt-2.5">
+      <p className="text-[12px] text-stone-400 mt-2.5">
         Tap a day to see its classes &amp; events. Same data as Agenda — your pick.
       </p>
     </div>

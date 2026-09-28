@@ -15,7 +15,7 @@ export default function PayrollTabs({ className = "" }: { className?: string }) 
   const pathname = usePathname() ?? "";
   return (
     <div className={className}>
-      <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-text-primary sm:text-2xl">Payroll &amp; Payouts</h1>
+      <h1 className="text-xl sm:text-2xl font-semibold text-text-primary leading-tight tracking-tight">Payroll &amp; Payouts</h1>
       <div role="tablist" aria-label="Payroll and payouts" className="-mx-4 mt-3 overflow-x-auto border-b border-app-border px-4 md:mx-0 md:px-0">
         <div className="flex min-w-max gap-1">
           {TABS.map((t) => {

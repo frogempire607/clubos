@@ -7,7 +7,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { withEntryCounts } from "@/lib/eventRosterServer";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
+import { setEventStaff } from "@/lib/staffAssignmentsServer";
 import {
   planReprice,
   pricingChanged,
@@ -155,6 +156,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // 2026-09-28: editing an event (prices, roster, coaches) needs events:edit.
+  // Before this, any staff member could PATCH any event whatever their access.
+  const denied = await requirePermissionLive(session, "events", "edit");
+  if (denied) return denied;
 
   const event = await requireEvent(params.id, session.user.clubId);
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -376,18 +381,13 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     }
 
     if (staffUserIds !== undefined) {
-      await prisma.eventStaffAssignment.deleteMany({ where: { eventId: params.id, clubId: session.user.clubId } });
-      if (staffUserIds.length > 0) {
-        await prisma.eventStaffAssignment.createMany({
-          data: staffUserIds.map((userId) => ({
-            clubId: session.user.clubId,
-            eventId: params.id,
-            userId,
-            role: "COACH",
-          })),
-          skipDuplicates: true,
-        });
-      }
+      // One write path for event rosters (lib/staffAssignmentsServer): ids are
+      // checked against this club's OWNER/STAFF, kept rows keep their role, and
+      // anyone taken off loses their unpaid comp row + responsible-coach flag
+      // (unless this same save set the responsible coach explicitly).
+      await setEventStaff(session.user.clubId, params.id, staffUserIds, {
+        keepResponsibleCoach: rest.responsibleCoachUserId !== undefined,
+      });
     }
 
     // ── Pricing edits must not leave stale per-registration amounts behind ──

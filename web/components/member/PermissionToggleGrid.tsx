@@ -47,7 +47,7 @@ export function ToggleRow({
           />
         </button>
       </div>
-      <span className="text-[11.5px] text-stone-500 leading-snug">{description}</span>
+      <span className="text-[12px] text-stone-500 leading-snug">{description}</span>
       {children}
     </div>
   );

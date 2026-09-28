@@ -6,6 +6,8 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { fmtTime, kindIsWallClockUTC, sameMonth } from "@/lib/datetime";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonLine } from "@/components/LoadingSkeleton";
+import Sheet from "@/components/Sheet";
+import CoachAssignments, { type CoachPermissions, type CoachTarget } from "@/components/staff/CoachAssignments";
 
 type Kind = "event" | "class" | "private";
 
@@ -27,13 +29,44 @@ type CalItem = {
   location?: string | null;
   coach?: string | null;
   price?: string | null;
+  staff?: { id: string; name: string }[];
+  staffIsOverride?: boolean;
+  seriesStaffIds?: string[];
+  date?: string;
 };
 
 type CalFeed = {
   from: string;
   to: string;
   items: CalItem[];
+  can?: CoachPermissions;
+  staffOptions?: { id: string; name: string }[];
 };
+
+const NO_EDIT: CoachPermissions = { editEventStaff: false, editClassSeriesStaff: false, editClassDayStaff: false };
+
+/** The coach editor's view of a calendar item (events + classes only). */
+function coachTargetFor(it: CalItem): CoachTarget | null {
+  if (it.kind === "event") {
+    return { kind: "event", eventId: it.refId, name: it.name, staff: it.staff ?? [] };
+  }
+  if (it.kind === "class" && it.date) {
+    const dateLabel = new Date(`${it.date}T00:00:00Z`).toLocaleDateString("en-US", {
+      weekday: "short", month: "short", day: "numeric", timeZone: "UTC",
+    });
+    return {
+      kind: "class",
+      classId: it.refId,
+      date: it.date,
+      dateLabel,
+      name: it.name,
+      staff: it.staff ?? [],
+      seriesStaffIds: it.seriesStaffIds ?? [],
+      staffIsOverride: !!it.staffIsOverride,
+    };
+  }
+  return null;
+}
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = [
@@ -85,19 +118,32 @@ export default function CalendarPage() {
   const [kindFilter, setKindFilter] = useState<Set<Kind>>(new Set(["event", "class", "private"]));
   const [typeFilter, setTypeFilter] = useState<Set<string>>(new Set()); // empty = all subtypes
   const [showShare, setShowShare] = useState(false);
+  // Bumped after a coach change so the feed (and the open detail) refetch.
+  const [reloadTick, setReloadTick] = useState(0);
+  const [flash, setFlash] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
+    // A refetch after an edit keeps the grid on screen; only month changes show the skeleton.
+    if (reloadTick === 0) setLoading(true);
     // Pull a 3-month window centered on the visible month so prev/next nav is snappy.
     const start = new Date(year, month - 1, 1);
     const end = new Date(year, month + 2, 0, 23, 59, 59, 999);
-    fetch(`/api/calendar?from=${start.toISOString()}&to=${end.toISOString()}`)
+    fetch(`/api/calendar?from=${start.toISOString()}&to=${end.toISOString()}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: CalFeed | null) => {
         setFeed(d);
         setLoading(false);
+        // Keep the open detail in step with what was just saved.
+        if (d) {
+          setSelected((cur) => (cur ? d.items.find((x) => x.kind === cur.kind && x.id === cur.id) ?? null : cur));
+        }
       });
-  }, [year, month]);
+  }, [year, month, reloadTick]);
+
+  function coachesChanged(message: string) {
+    setFlash(message);
+    setReloadTick((t) => t + 1);
+  }
 
   function prevMonth() {
     if (month === 0) { setYear((y) => y - 1); setMonth(11); }
@@ -236,7 +282,7 @@ export default function CalendarPage() {
               <button
                 key={k}
                 onClick={() => toggleKind(k)}
-                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                className={`text-xs px-2.5 py-1 min-h-[44px] md:min-h-0 rounded-full border transition-colors ${
                   active ? "border-transparent text-white" : "border-app-border text-text-muted bg-surface hover:bg-app-bg"
                 }`}
                 style={active ? { background: c.bg, color: c.fg } : {}}
@@ -252,7 +298,7 @@ export default function CalendarPage() {
             {typeFilter.size > 0 && (
               <button
                 onClick={() => setTypeFilter(new Set())}
-                className="text-[11px] text-text-muted underline mr-1"
+                className="text-xs text-text-muted underline mr-1 min-h-[44px] md:min-h-0"
               >
                 clear
               </button>
@@ -263,7 +309,7 @@ export default function CalendarPage() {
                 <button
                   key={s.key}
                   onClick={() => toggleType(s.key)}
-                  className={`text-[11px] px-2 py-0.5 rounded-full border flex items-center gap-1.5 ${
+                  className={`text-xs px-2.5 py-1 min-h-[44px] md:min-h-0 rounded-full border flex items-center gap-1.5 ${
                     active ? "border-app-border bg-surface" : "border-app-border opacity-40 bg-app-bg"
                   }`}
                 >
@@ -282,7 +328,7 @@ export default function CalendarPage() {
           <button
             onClick={prevMonth}
             aria-label="Previous month"
-            className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted"
+            className="w-11 h-11 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted"
           >
             <ChevronLeft className="h-5 w-5" strokeWidth={2} />
           </button>
@@ -295,7 +341,7 @@ export default function CalendarPage() {
           <button
             onClick={nextMonth}
             aria-label="Next month"
-            className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted"
+            className="w-11 h-11 flex items-center justify-center rounded-md hover:bg-app-bg text-text-muted"
           >
             <ChevronRight className="h-5 w-5" strokeWidth={2} />
           </button>
@@ -364,7 +410,7 @@ export default function CalendarPage() {
                               <button
                                 key={`${it.kind}-${it.id}`}
                                 onClick={() => setSelected(selected?.id === it.id && selected.kind === it.kind ? null : it)}
-                                className="w-full text-left text-[11px] leading-tight px-1.5 py-1 rounded font-medium truncate hover:opacity-90"
+                                className="w-full text-left text-xs leading-tight px-1.5 py-1 rounded font-medium truncate hover:opacity-90"
                                 style={{ background: c.bg, color: c.fg }}
                                 title={it.name}
                               >
@@ -382,7 +428,7 @@ export default function CalendarPage() {
                                 setSelectedDay(day);
                                 setSelected(null);
                               }}
-                              className="block text-[11px] font-medium text-text-muted hover:text-text-primary px-1 underline-offset-2 hover:underline"
+                              className="block text-xs font-medium text-text-muted hover:text-text-primary px-1 underline-offset-2 hover:underline"
                             >
                               +{remaining} more
                             </button>
@@ -434,7 +480,7 @@ export default function CalendarPage() {
                               isToday(day) ? "bg-brand text-white" : "bg-app-bg text-text-primary"
                             }`}
                           >
-                            <div className="text-[9px] font-semibold uppercase tracking-wider opacity-80 leading-none">{weekday}</div>
+                            <div className="text-xs font-semibold uppercase opacity-80 leading-none">{weekday}</div>
                             <div className="text-sm font-bold leading-none mt-0.5">{day}</div>
                           </div>
                           <div className="text-xs text-text-muted">
@@ -451,7 +497,7 @@ export default function CalendarPage() {
                                 <button
                                   key={`${it.kind}-${it.id}`}
                                   onClick={() => setSelected(selected?.id === it.id && selected.kind === it.kind ? null : it)}
-                                  className="w-full text-left text-xs px-2.5 py-1.5 rounded-md font-medium hover:opacity-90 flex items-center gap-2"
+                                  className="w-full text-left text-xs px-2.5 py-1.5 min-h-[44px] rounded-md font-medium hover:opacity-90 flex items-center gap-2"
                                   style={{ background: c.bg, color: c.fg }}
                                   title={it.name}
                                 >
@@ -474,20 +520,31 @@ export default function CalendarPage() {
         </div>
       </div>
 
+      {flash && (
+        <div
+          role="status"
+          className="mt-4 flex items-center justify-between gap-3 rounded-lg px-4 py-2 text-[13px]"
+          style={{ background: "var(--color-success-surface)", color: "var(--color-success-text)" }}
+        >
+          <span>{flash}</span>
+          <button type="button" onClick={() => setFlash(null)} aria-label="Dismiss" className="inline-flex h-11 w-11 items-center justify-center rounded-lg md:h-8 md:w-8">×</button>
+        </div>
+      )}
+
       {/* Selected detail */}
       {selected && (
-        <div className="mt-4 bg-white rounded-xl border border-app-border p-5">
+        <div className="mt-4 bg-surface rounded-xl border border-app-border p-5">
           <div className="flex items-start justify-between">
             <div>
               <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <h3 className="text-base font-semibold text-text-primary">{selected.name}</h3>
                 <span
-                  className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                  className="text-xs px-2 py-0.5 rounded-full font-medium"
                   style={{ background: colorFor(selected).bg, color: colorFor(selected).fg }}
                 >
                   {selected.typeLabel}
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
                   {KIND_SINGULAR_LABEL[selected.kind]}
                 </span>
               </div>
@@ -508,9 +565,21 @@ export default function CalendarPage() {
                 </div>
               )}
             </div>
-            <button onClick={() => setSelected(null)} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
+            <button onClick={() => setSelected(null)} aria-label="Close" className="-mr-2 -mt-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-xl text-text-muted hover:bg-app-bg hover:text-text-primary">×</button>
           </div>
-          {selected.kind === "event" && <EventDetails eventId={selected.refId} />}
+          {selected.kind === "event" && <EventDetails eventId={selected.refId} reloadKey={reloadTick} />}
+          {(() => {
+            const target = coachTargetFor(selected);
+            return target ? (
+              <CoachAssignments
+                key={`${selected.kind}-${selected.id}`}
+                target={target}
+                can={feed?.can ?? NO_EDIT}
+                staffOptions={feed?.staffOptions ?? []}
+                onChanged={coachesChanged}
+              />
+            ) : null;
+          })()}
 
           <div className="mt-3 flex gap-2">
             <Link
@@ -521,7 +590,7 @@ export default function CalendarPage() {
                   ? "/dashboard/privates"
                   : "/dashboard/events"
               }
-              className="text-xs px-3 py-1.5 rounded-md border border-app-border text-text-primary hover:bg-app-bg"
+              className="inline-flex items-center min-h-[44px] md:min-h-0 text-xs px-3 py-1.5 rounded-md border border-app-border text-text-primary hover:bg-app-bg"
             >
               Open in {KIND_COLORS[selected.kind].label} →
             </Link>
@@ -538,7 +607,7 @@ export default function CalendarPage() {
           weekday: "long", month: "long", day: "numeric", year: "numeric",
         });
         return (
-          <div className="mt-4 bg-white rounded-xl border border-app-border p-5">
+          <div className="mt-4 bg-surface rounded-xl border border-app-border p-5">
             <div className="flex items-start justify-between mb-3">
               <div>
                 <h3 className="text-base font-semibold text-text-primary">{dayLabel}</h3>
@@ -550,7 +619,8 @@ export default function CalendarPage() {
               </div>
               <button
                 onClick={() => setSelectedDay(null)}
-                className="text-text-muted hover:text-text-primary text-xl leading-none"
+                aria-label="Close"
+                className="-mr-2 -mt-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-xl text-text-muted hover:bg-app-bg hover:text-text-primary"
               >
                 ×
               </button>
@@ -595,12 +665,12 @@ export default function CalendarPage() {
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap mb-1">
                               <span
-                                className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                                className="text-xs px-2 py-0.5 rounded-full font-medium"
                                 style={{ background: c.bg, color: c.fg }}
                               >
                                 {it.typeLabel}
                               </span>
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
                                 {KIND_SINGULAR_LABEL[it.kind]}
                               </span>
                               <span className="text-sm font-semibold text-text-primary">{it.name}</span>
@@ -625,7 +695,7 @@ export default function CalendarPage() {
                               <p className="text-xs text-text-muted mt-1">{it.detail}</p>
                             )}
                             {isSessionOfEvent && (
-                              <p className="text-[11px] text-text-muted mt-1 italic">
+                              <p className="text-xs text-text-muted mt-1 italic">
                                 Multi-day event — edits to this occurrence apply
                                 to this day&apos;s session. Use the event editor
                                 for changes that should apply to the whole event.
@@ -634,7 +704,7 @@ export default function CalendarPage() {
                           </div>
                           <Link
                             href={editHref}
-                            className="flex-shrink-0 text-xs px-3 py-1.5 rounded-md bg-brand text-white font-medium hover:bg-brand-hover"
+                            className="flex-shrink-0 inline-flex items-center min-h-[44px] md:min-h-0 text-xs px-3 py-1.5 rounded-md bg-brand text-white font-medium hover:bg-brand-hover"
                           >
                             Edit
                           </Link>
@@ -682,16 +752,16 @@ function money(v: string | null) {
   return v == null ? null : Number(v).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
-function EventDetails({ eventId }: { eventId: string }) {
+function EventDetails({ eventId, reloadKey }: { eventId: string; reloadKey: number }) {
   const [ev, setEv] = useState<FullEvent | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/events/${eventId}`)
+    fetch(`/api/events/${eventId}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { setEv(d); setLoading(false); });
-  }, [eventId]);
+  }, [eventId, reloadKey]);
 
   if (loading) return <div className="mt-3 text-xs text-text-muted">Loading details…</div>;
   if (!ev) return null;
@@ -745,12 +815,6 @@ function EventDetails({ eventId }: { eventId: string }) {
       )}
 
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
-        {ev.staffAssignments.length > 0 && (
-          <Detail
-            label="Staff"
-            value={ev.staffAssignments.map((a) => `${a.user.firstName} ${a.user.lastName}`).join(", ")}
-          />
-        )}
         <Detail label="Bookings" value={String(ev.bookings.length)} />
         {ev.registrations.length > 0 && (
           <Detail label="Registrations" value={String(ev.registrations.length)} />
@@ -799,20 +863,15 @@ function CalendarLinksModal({ onClose }: { onClose: () => void }) {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
-      <div
-        className="bg-surface rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="text-base font-semibold text-text-primary">Calendar links</h2>
-          <button onClick={onClose} aria-label="Close" className="w-8 h-8 rounded-lg hover:bg-app-bg flex items-center justify-center text-text-muted">✕</button>
-        </div>
-        <p className="text-xs text-text-muted mb-4">
-          These feeds update automatically when classes or events change. Add to Apple/Outlook with the
-          iCal link, Google with the Google link, or embed the web view in your site.
-        </p>
-        {error && <p className="text-sm text-red-600">{error}</p>}
+    <Sheet
+      open
+      onClose={onClose}
+      title="Calendar links"
+      width={560}
+      description="These feeds update automatically when classes or events change. Add to Apple/Outlook with the iCal link, Google with the Google link, or embed the web view in your site."
+    >
+      <div>
+        {error && <p className="text-sm" style={{ color: "var(--color-danger-text)" }}>{error}</p>}
         {!links && !error && <p className="text-sm text-text-muted">Loading…</p>}
         {links &&
           sections.map(({ key, title, note }) => {
@@ -820,20 +879,20 @@ function CalendarLinksModal({ onClose }: { onClose: () => void }) {
             return (
               <div key={key} className="border border-app-border rounded-xl p-3 mb-3">
                 <div className="text-sm font-medium text-text-primary">{title}</div>
-                <p className="text-[11px] text-text-muted mb-2">{note}</p>
+                <p className="text-xs text-text-muted mb-2">{note}</p>
                 <div className="flex flex-wrap gap-1.5">
-                  <button onClick={() => copy(l.ics, `${key}-ics`)} className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+                  <button onClick={() => copy(l.ics, `${key}-ics`)} className="inline-flex items-center min-h-[44px] md:min-h-0 text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
                     {copied === `${key}-ics` ? "Copied!" : "Copy iCal link"}
                   </button>
-                  <a href={l.google} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+                  <a href={l.google} target="_blank" rel="noreferrer" className="inline-flex items-center min-h-[44px] md:min-h-0 text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
                     Add to Google
                   </a>
-                  <button onClick={() => copy(l.embed, `${key}-embed`)} className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+                  <button onClick={() => copy(l.embed, `${key}-embed`)} className="inline-flex items-center min-h-[44px] md:min-h-0 text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
                     {copied === `${key}-embed` ? "Copied!" : "Copy embed link"}
                   </button>
                   <button
                     onClick={() => copy(`<iframe src="${l.embed}" style="width:100%;height:600px;border:0"></iframe>`, `${key}-iframe`)}
-                    className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg"
+                    className="inline-flex items-center min-h-[44px] md:min-h-0 text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg"
                   >
                     {copied === `${key}-iframe` ? "Copied!" : "Copy iframe snippet"}
                   </button>
@@ -842,6 +901,6 @@ function CalendarLinksModal({ onClose }: { onClose: () => void }) {
             );
           })}
       </div>
-    </div>
+    </Sheet>
   );
 }

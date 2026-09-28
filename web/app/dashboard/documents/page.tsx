@@ -107,18 +107,18 @@ export default function DocumentsPage() {
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <h3 className="text-sm font-semibold text-text-primary">{d.title}</h3>
                       <span
-                        className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                        className="text-[12px] px-2 py-0.5 rounded-full font-medium"
                         style={{ background: c.bg, color: c.fg }}
                       >
                         {d.type}
                       </span>
                       {d.required && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-red-50 text-red-700">
+                        <span className="text-[12px] px-2 py-0.5 rounded-full font-medium bg-red-50 text-red-700">
                           Required
                         </span>
                       )}
                       {d.requiresGuardianSignature && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-orange-accent/10 text-orange-accent">
+                        <span className="text-[12px] px-2 py-0.5 rounded-full font-medium bg-orange-accent/10 text-orange-accent">
                           Guardian sig
                         </span>
                       )}
@@ -127,11 +127,11 @@ export default function DocumentsPage() {
                       {d.body ? stripHtml(d.body) : "No content yet"}
                     </p>
                     <div className="flex items-center gap-3 mt-1">
-                      <p className="text-[10px] text-text-muted">
+                      <p className="text-[12px] text-text-muted">
                         Updated {new Date(d.updatedAt).toLocaleDateString()}
                       </p>
                       {d.expiresAt && (
-                        <p className="text-[10px] text-text-muted">
+                        <p className="text-[12px] text-text-muted">
                           Expires {new Date(d.expiresAt).toLocaleDateString()}
                         </p>
                       )}
@@ -263,7 +263,7 @@ function SignaturesModal({ doc, onClose }: { doc: Doc; onClose: () => void }) {
                       <p className="font-medium text-text-primary">
                         {s.member.firstName} {s.member.lastName}
                         {s.member.isMinor && (
-                          <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700">minor</span>
+                          <span className="ml-1.5 text-[12px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700">minor</span>
                         )}
                       </p>
                       {s.member.email && (
@@ -296,14 +296,14 @@ function SignaturesModal({ doc, onClose }: { doc: Doc; onClose: () => void }) {
                         const e = expiry(s.signedAt);
                         if (!e.date) return null;
                         return (
-                          <p className={`text-[10px] ${e.expired ? "text-red-600" : "text-text-muted/70"}`}>
+                          <p className={`text-[12px] ${e.expired ? "text-red-600" : "text-text-muted/70"}`}>
                             {e.expired ? "Expired " : "Valid until "}
                             {e.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                           </p>
                         );
                       })()}
                       {s.ipAddress && (
-                        <p className="text-[10px] text-text-muted/70">IP: {s.ipAddress}</p>
+                        <p className="text-[12px] text-text-muted/70">IP: {s.ipAddress}</p>
                       )}
                     </td>
                   </tr>
@@ -719,7 +719,7 @@ function DocumentModal({
               onChange={(e) => setExpiresAt(e.target.value)}
               className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
             />
-            <p className="text-[10px] text-text-muted mt-1">Hides the document from members after this date</p>
+            <p className="text-[12px] text-text-muted mt-1">Hides the document from members after this date</p>
           </div>
 
           <div>
@@ -736,14 +736,14 @@ function DocumentModal({
               <option value="365">Every year</option>
               <option value="730">Every 2 years</option>
             </select>
-            <p className="text-[10px] text-text-muted mt-1">
+            <p className="text-[12px] text-text-muted mt-1">
               How often members must re-sign. Existing signatures expire after this period and members are prompted to re-sign.
             </p>
           </div>
 
           <div className="pt-1">
             <p className="text-sm font-medium text-text-primary mb-1">Require members to sign this</p>
-            <p className="text-[11px] text-text-muted mb-2">
+            <p className="text-[12px] text-text-muted mb-2">
               Choose where a signature is mandatory before the member can continue. Leave all unchecked to keep it optional / reference-only.
             </p>
             <div className="space-y-2 rounded-lg border border-app-border p-3">
@@ -757,7 +757,7 @@ function DocumentModal({
                   />
                   <span className="text-sm text-text-primary leading-tight">
                     {s.label}
-                    <span className="block text-[11px] text-text-muted">{s.hint}</span>
+                    <span className="block text-[12px] text-text-muted">{s.hint}</span>
                   </span>
                 </label>
               ))}
@@ -788,7 +788,7 @@ function DocumentModal({
                 />
                 <span className="text-sm text-text-primary leading-tight">
                   All events
-                  <span className="block text-[11px] text-text-muted">
+                  <span className="block text-[12px] text-text-muted">
                     Automatically applies to every event — including ones created later — until unchecked.
                     Attach to specific events from the event&apos;s Documents button.
                   </span>
@@ -807,7 +807,7 @@ function DocumentModal({
                 <option value="SIGN_REQUIRED">Required to sign before registration / check-in</option>
               </select>
               {doc?.eventLinks && doc.eventLinks.length > 0 && (
-                <p className="text-[11px] text-text-muted">
+                <p className="text-[12px] text-text-muted">
                   Attached to: {doc.eventLinks.map((l) => l.event.name).join(", ")}
                 </p>
               )}
@@ -842,14 +842,14 @@ function DocumentViewer({ doc, onClose }: { doc: Doc; onClose: () => void }) {
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-lg font-semibold text-text-primary">{doc.title}</h2>
-            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
+            <span className="text-[12px] px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
               {doc.type}
             </span>
             {doc.required && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-red-50 text-red-700">Required</span>
+              <span className="text-[12px] px-2 py-0.5 rounded-full font-medium bg-red-50 text-red-700">Required</span>
             )}
             {doc.requiresGuardianSignature && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-orange-accent/10 text-orange-accent">Guardian sig</span>
+              <span className="text-[12px] px-2 py-0.5 rounded-full font-medium bg-orange-accent/10 text-orange-accent">Guardian sig</span>
             )}
           </div>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>

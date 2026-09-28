@@ -182,7 +182,7 @@ function Stat({ label, value, tone = "grey" }: { label: string; value: number; t
   return (
     <div className={`rounded-xl border p-4 ${tone === "red" ? "border-red-200 bg-red-50" : "border-app-border bg-surface"}`}>
       <div className={`text-2xl font-semibold ${tone === "red" ? "text-red-700" : "text-text-primary"}`}>{value.toLocaleString()}</div>
-      <div className="text-[11px] text-text-muted uppercase tracking-wider">{label}</div>
+      <div className="text-[12px] text-text-muted uppercase tracking-wider">{label}</div>
     </div>
   );
 }
@@ -194,7 +194,7 @@ function EngagementStat({ label, value, basis, icon, tone = "grey" }: { label: s
         {icon} {label}
       </div>
       <div className="text-xl font-semibold text-text-primary">{value.toLocaleString()}</div>
-      <div className="text-[11px] text-text-muted">{basis}</div>
+      <div className="text-[12px] text-text-muted">{basis}</div>
     </div>
   );
 }

@@ -37,7 +37,7 @@ export default function PublicLinkPanel({ productId, name, slug, onSlug, scanCou
           <span className="px-2.5 text-[13px] text-text-muted border-r border-app-border bg-app-bg py-2">/p/</span>
           <input id="p-slug" value={slug} onChange={(e) => onSlug(slugify(e.target.value))} placeholder={slugify(name) || "team-hoodie"} className="flex-1 px-2.5 py-2 text-sm bg-transparent text-text-primary focus:outline-none" />
         </div>
-        <p className="text-[11.5px] text-text-muted mt-1">
+        <p className="text-[12px] text-text-muted mt-1">
           {saved ? "Anyone with the link checks out with Stripe — no account needed. Members who sign in get the member price." : "The shareable link is generated when you save."}
         </p>
       </div>
@@ -53,10 +53,10 @@ export default function PublicLinkPanel({ productId, name, slug, onSlug, scanCou
             <Link href={`/dashboard/products/${productId}/tags`} target="_blank" className="text-[12.5px] px-3 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">Print tag sheet · poster</Link>
             <Link href="/dashboard/announcements" className="text-[12.5px] px-3 py-1.5 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">Share in an announcement</Link>
           </div>
-          <p className="text-[11.5px] text-text-muted tabular-nums">{scanCount} QR scan{scanCount === 1 ? "" : "s"} so far (counted when the page is opened from a printed code).</p>
+          <p className="text-[12px] text-text-muted tabular-nums">{scanCount} QR scan{scanCount === 1 ? "" : "s"} so far (counted when the page is opened from a printed code).</p>
           <div>
             <div className="text-[12px] font-semibold text-text-primary mb-1">Website button</div>
-            <textarea readOnly rows={2} value={snippet} className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-[11.5px] font-mono bg-app-bg text-text-primary" />
+            <textarea readOnly rows={2} value={snippet} className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-[12px] font-mono bg-app-bg text-text-primary" />
             <button type="button" onClick={() => copy(snippet, "snippet")} className="text-[12px] text-brand font-medium">{copied === "snippet" ? "Copied" : "Copy snippet"}</button>
           </div>
           <QRModal open={qr} onClose={() => setQr(false)} url={`${url}?src=qr`} title={name} subtitle="Scan to buy" />
