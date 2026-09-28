@@ -35,7 +35,12 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 - [x] **A2 · Wyatt Eastman** · PAUSED 2026-09-23 (taking a break, will renew on return). Row left alone.
 
-- [ ] **A3 · Give the four paying minors a guardian with portal access** · blocks B2 COPPA · steps in chat 2026-09-23
+- [ ] **A3 · Give the four paying minors a guardian with portal access** · ALMOST DONE (checked in DB 2026-09-28)
+  All four now have a CONFIRMED guardian with a login: Clint (pmdwyer10, signed in Sep 27), Aylen (jgrubisicc, Sep 27),
+  André (Luis, Sep 24), Jacob (vannjudson@gmail.com, linked Sep 25). LEFT: Jacob's guardian email still says
+  jvann@tessy.com → change to vannjudson@gmail.com; ARCHIVE the empty "Judson Vann" member record. 0 consents on file
+  yet — they're asked the first time they open the portal after B2 is switched on.
+  Original notes:
   None of the four guardians has a portal account (checked users table). Clint Dwyer + Aylen Grubusic:
   INVITED, links expired → roster row menu → Resend invitation → parent completes → approve PROFILE ONLY.
   André Serra: **B15** "Invite Luis to create a parent account" on Family & access (luisfilipeserra@hotmail.com,
@@ -45,7 +50,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   Jacob's guardian email from jvann@tessy.com to vannjudson@gmail.com; then ARCHIVE the "Judson Vann" member
   record (empty: 0 subs / 0 attendance / 0 payments) — not merge; it is a parent, not a duplicate athlete.
 
-- [ ] **A4 · Call the Lawell family**
+- [x] **A4 · Call the Lawell family** · Julian: done (09-25)
   Get the parent's actual name and confirm the email on file is theirs. The account fix
   (rename User to the parent → create guardian link → then null Member.userId → re-sign docs
   as GUARDIAN) waits on this call.
@@ -54,7 +59,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 - [x] **A6 · Comps (Barrett, Paul, Devin)** · done 2026-09-23
 
-- [ ] **A7 · Three date problems** · resolved 2026-09-23, two actions left
+- [x] **A7 · Three date problems** · Julian: done (09-25)
   Riley Bergen: cash row, set end date to July 2027 (profile → Current membership → Edit → End date).
   Skylor Day: not returning — billing centre Triage → Leave alone (+note); Stripe sub already canceled, ends Oct 26.
   Titus Hall: leave as is.
@@ -155,7 +160,10 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   Definitions: **Active** = has a membership. **Prospect** = trialed or attended, no
   membership. **Inactive** = was active and isn't, or a prospect with no return in 12 months.
 
-- [ ] **B2 · COPPA — turn it ON** · BLOCKED by A3 (the four minors need guardians first)
+- [ ] **B2 · COPPA — turn it ON** · UNBLOCKED once A3's two leftovers are done
+  CHECK FIRST (DB 2026-09-28): 12 minors have their OWN login (3 used it in the last 60 days) — the flag blocks minor
+  logins, so those 3 get locked out until a guardian consents. 205 of 296 minors have no confirmed guardian (mostly
+  imported records that never use the portal). Look at the 3 recent ones before flipping.
   CORRECTION 2026-09-22: COPPA was merged to main on 2026-07-05 as PR #4 (`add3322`) and the
   migration `20260705010000_parental_consent` has been applied in production since 2026-07-05.
   It is flag-gated: `FEATURE_PARENTAL_CONSENT` (lib/parentalConsent.ts) — gates are off until the
@@ -268,7 +276,13 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   Spec: docs/improvement/design_handoff_products/README.md. Next: 2c inventory, then 2d/2f bookings (new model), then
   /p/[slug] + QR (2h), the 11-type expansion, structured time windows.
 
-- [ ] **B11 · Event editor + Attendees redesign (design handoff)** · SLICE 1 SHIPPED 2026-09-22
+- [ ] **B11 · Event editor + Attendees redesign (design handoff)** · CHECKED 2026-09-28: editor (1a/1b) + event rows (1e)
+  are live. LEFT = slice 3: the Attendees screen (1c/1d) is still READ-ONLY and its buttons open the old BookingsModal /
+  RegistrationsModal. Spec: inline row actions (Record cash·check, Resend receipt, Charge now, Approve·Propose·Decline),
+  Collect-payment panel (Email link to all unpaid / Email selected / Record cash for selected), inline + Add attendee
+  (Who / Taking / Paying by — methods inherited from the event), adding/removing always does roster + billing together
+  (registrationKept warning becomes impossible), then retire both old modals.
+  SLICE 1 SHIPPED 2026-09-22
   (merged 0c38253, Netlify live, Julian verified: rows render, Attendees matches Registrations).
   SLICE 2a BUILT 2026-09-23 (on disk): migration `20260923000000_event_pricing_model` (additive, backfilled),
   schema, lib/eventPricingModel.ts (55 tests, `npm run test:event-pricing-model`), events create/PATCH write
@@ -367,7 +381,13 @@ live, not future; App Store 4.2 is a configuration problem, not a design one (B2
   it queries the production database and exits 1 when it finds something, so in the build it would make every deploy
   depend on a DB read and block on a data finding — probably run it once by hand rather than gate on it.
 
-- [ ] **B25 · Audit: which `test:*` scripts actually gate the build** · after B24
+- [x] **B25 · Audit: which `test:*` scripts actually gate the build** · BUILT 2026-09-28 on `claude/b25-build-gates`
+  Found: build ran 4 of 48 registered test files; 21 more test files were run by nothing. Now `npm run build` runs
+  `scripts/run-build-tests.mjs`: 66 checks in parallel (~15s), with DATABASE_URL pointed at a dead address so no test can
+  touch production. Every scripts/*-tests|guard(s).ts must be listed there as GATED or MANUAL — an unlisted test file
+  fails the build. MANUAL (need the local Postgres on 55432): audience-filters, family-shapes-repair,
+  signature-attribution. `npm run test:all` runs the same set by hand. All 21 orphan files registered in package.json.
+  Was: after B24
   The sport-terms guard was believed to gate the build and didn't. Check every test the backlog/handoffs describe as
   gating. Today `build` runs 4 of 45 `test:*` scripts: sport-terms, subscription-truth, permission-boundary,
   attendance-billing. The group scripts (`test:phase45`, `test:phase5`, `test:phase6`) and every per-feature suite
