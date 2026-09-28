@@ -6,6 +6,7 @@
 // UI can order accordingly.
 
 import { prisma } from "@/lib/prisma";
+import { countActiveMembers } from "@/lib/activeMembers";
 import { EXCLUDE_VOID } from "@/lib/paymentSources";
 import type { ResolvedRange } from "@/lib/reportsRange";
 
@@ -159,9 +160,8 @@ export async function buildRevenue(clubId: string, r: ResolvedRange): Promise<Re
           select: { id: true, price: true },
         })
       : Promise.resolve([]),
-    prisma.member.count({
-      where: { clubId, deletedAt: null, status: "ACTIVE" },
-    }),
+    // Same definition as the dashboard (lib/activeMembers), not Member.status.
+    countActiveMembers(clubId).then((s) => s.activeMembers),
     prisma.location.count({ where: { clubId, deletedAt: null } }),
   ]);
 

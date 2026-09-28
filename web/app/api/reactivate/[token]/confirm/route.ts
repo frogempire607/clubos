@@ -19,6 +19,7 @@ import { offlineActivationPolicy, isOfflineMethod, discountAppliedLabel } from "
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { recordDiscountUse } from "@/lib/discounts";
 import { MIGRATION_STATUS } from "@/lib/migration";
+import { activateMemberStatus } from "@/lib/memberStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -484,7 +485,6 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     await prisma.member.update({
       where: { id: member.id },
       data: {
-        ...(memberBecomesActive ? { status: "ACTIVE" } : {}),
         membershipId,
         migrationStatus: MIGRATION_STATUS.COMPLETED,
         approvalStatus: "APPROVED",
@@ -493,6 +493,10 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         ...(offer.commitmentEndDate ? { commitmentEndDate: new Date(offer.commitmentEndDate) } : {}),
       },
     });
+    // Status through the ONE activation helper (lib/memberStatus). Acceptance
+    // is the grant here; the helper never un-pauses a PAUSED member, which the
+    // inline `status: "ACTIVE"` it replaces did.
+    if (memberBecomesActive) await activateMemberStatus(member.id, club.id, { granted: true });
     // Count the discount redemption exactly once, at acceptance.
     if (offer.discount) {
       const d = await prisma.discount.findFirst({

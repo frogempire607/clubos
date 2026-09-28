@@ -19,6 +19,7 @@
 //      before their price goes up.
 
 import { useEffect, useMemo, useState } from "react";
+import { membershipPanelHref } from "@/lib/migrationSetup";
 
 type CreditKind = "CREDIT_OWED" | "ADDITIONAL_DUE" | "NOT_APPLICABLE" | "NO_CHANGE" | "UNKNOWN";
 
@@ -249,7 +250,7 @@ function RowLine({
             tool only reprices; the link takes the owner to the one place that
             moves a membership, so there is one set of rules, not two. */}
         <a
-          href={`/dashboard/members/${row.memberId}/billing?changePlan=${row.memberSubscriptionId}`}
+          href={membershipPanelHref(row.memberId, { changePlan: row.memberSubscriptionId })}
           className="text-[12px] text-brand hover:underline whitespace-nowrap"
           title="Opens Change plan for this membership"
         >

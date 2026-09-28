@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { pmRef } from "@/lib/billingAdmin";
+import { isOffSessionChargeable, lastPaidWithFromCharges, type LastPaidWith } from "@/lib/billingDataRules";
 
 // Server-side payment-method lookup for the billing control center. Raw
 // Stripe payment-method ids never leave the server — clients hold an opaque
@@ -37,17 +38,45 @@ export function memberCustomerIds(member: MemberCustomers): { id: string; role: 
   return out;
 }
 
+/**
+ * EVERY payment method attached to the customer, whatever its type — card,
+ * Link, Cash App Pay, bank account, PayPal, … `customers.listPaymentMethods`
+ * without a `type` filter returns all of them (stripe-node 14.x). The old
+ * card + link lists made a Cash App Pay family read "No saved payment method"
+ * while Stripe billed them every month (Blake D., 2026-09-28).
+ *
+ * Callers that are about to CHARGE must filter with isOffSessionChargeable —
+ * showing a method and choosing it for an off-session charge are different.
+ */
 export async function listPaymentMethodsForCustomer(
   customerId: string,
   stripeAccount: string,
+  limit = 50,
 ): Promise<Stripe.PaymentMethod[]> {
-  const [cards, links] = await Promise.all([
-    stripe.paymentMethods.list({ customer: customerId, type: "card", limit: 20 }, { stripeAccount }),
-    stripe.paymentMethods
-      .list({ customer: customerId, type: "link", limit: 20 }, { stripeAccount })
-      .catch(() => ({ data: [] as Stripe.PaymentMethod[] })),
-  ]);
-  return [...cards.data, ...links.data];
+  const list = await stripe.customers.listPaymentMethods(customerId, { limit }, { stripeAccount });
+  return list.data;
+}
+
+/**
+ * How this person actually paid last: the newest SUCCEEDED charge across their
+ * Stripe customers. Answers "how do they pay" even when nothing reusable is
+ * saved (a one-time Cash App Pay, a wallet that was never attached). Never
+ * throws — null on any Stripe error.
+ */
+export async function lastPaidWithForCustomers(
+  customerIds: string[],
+  stripeAccount: string,
+): Promise<LastPaidWith | null> {
+  const all: Stripe.Charge[] = [];
+  for (const customer of customerIds) {
+    try {
+      const charges = await stripe.charges.list({ customer, limit: 10 }, { stripeAccount });
+      all.push(...charges.data);
+    } catch {
+      /* degrade — a missing "last paid with" must never break the billing read */
+    }
+  }
+  return lastPaidWithFromCharges(all as unknown as Parameters<typeof lastPaidWithFromCharges>[0]);
 }
 
 /**
@@ -89,7 +118,10 @@ export async function locatePaymentMethod(
       customerDefaultPmId,
       liveSubsCharging,
       liveSubs,
-      otherMethods: methods.filter((pm) => pm.id !== match.id),
+      // Only methods the app could actually charge instead count as a
+      // fallback (this is what the "safe to remove" check reads). A Cash App
+      // Pay or PayPal method is listed, but is not a replacement card.
+      otherMethods: methods.filter((pm) => pm.id !== match.id && isOffSessionChargeable(pm)),
     };
   }
   return null;

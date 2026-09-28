@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { MIGRATION_STATUS } from "@/lib/migration";
-import { recomputeMemberStatus } from "@/lib/memberStatus";
+import { activateMemberStatus, recomputeMemberStatus } from "@/lib/memberStatus";
 import { turnAutopayOff, turnAutopayOn, setAutoRenew, previewAutopayChange } from "@/lib/autopay";
 import {
   recordSubscriptionCreated,
@@ -289,7 +289,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         billingUpdatedById: session.user.id,
       },
     });
-    await recomputeMemberStatus(member.id, club.id);
+    await activateMemberStatus(member.id, club.id);
     if (discount) await recordDiscountUse(discount.id);
     await writeBillingAudit({
       clubId: club.id, memberId: member.id, actorUserId: session.user.id,

@@ -27,6 +27,8 @@ import { resolveStaffDiscount } from "@/lib/staffPayments";
 import { reactivationUrl, parseOffer, compareOfferToCurrent } from "@/lib/reactivation";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 import { parseOptions as parseOptionsShared } from "@/lib/membershipOptions";
+import { listPaymentMethodsForCustomer, lastPaidWithForCustomers } from "@/lib/paymentMethodsAdmin";
+import { paymentMethodLabel, paymentTypeName, isOffSessionChargeable, type LastPaidWith } from "@/lib/billingDataRules";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +47,13 @@ const LIVE_STRIPE = new Set(["active", "trialing", "past_due", "unpaid"]);
 
 type PaymentMethodView = {
   ref: string;
-  type: "card" | "link";
+  /** Stripe's type: "card" | "link" | "cashapp" | "us_bank_account" | "paypal" | … */
+  type: string;
+  /** Human label: "Visa •••• 4242 · exp 08/27", "Cash App Pay ($tag)", "Link (email)", "Bank account •••• 6789". */
+  label: string;
+  /** Whether the app would pick this for an off-session charge (card, Link, bank account). */
+  chargeableOffSession: boolean;
+  /** Card brand; for non-card methods the type's display name ("Cash App Pay"), "link" for Link as before. */
   brand: string | null;
   last4: string | null;
   expMonth: number | null;
@@ -74,9 +82,9 @@ async function listCustomerPaymentMethods(
   const custName = (customer as { name?: string | null }).name ?? null;
   const custEmail = (customer as { email?: string | null }).email ?? null;
 
-  const [cards, links, subs] = await Promise.all([
-    stripe.paymentMethods.list({ customer: customerId, type: "card", limit: 20 }, { stripeAccount }),
-    stripe.paymentMethods.list({ customer: customerId, type: "link", limit: 20 }, { stripeAccount }).catch(() => ({ data: [] as never[] })),
+  // Every type — see lib/paymentMethodsAdmin.listPaymentMethodsForCustomer.
+  const [allMethods, subs] = await Promise.all([
+    listPaymentMethodsForCustomer(customerId, stripeAccount),
     stripe.subscriptions.list({ customer: customerId, status: "all", limit: 20 }, { stripeAccount }),
   ]);
 
@@ -89,12 +97,14 @@ async function listCustomerPaymentMethods(
   }
 
   const methods: PaymentMethodView[] = [];
-  for (const pm of [...cards.data, ...links.data]) {
+  for (const pm of allMethods) {
     methods.push({
       ref: pmRef(pm.id),
-      type: pm.type === "link" ? "link" : "card",
-      brand: pm.card?.brand ?? (pm.type === "link" ? "link" : null),
-      last4: pm.card?.last4 ?? null,
+      type: pm.type,
+      label: paymentMethodLabel(pm as unknown as Parameters<typeof paymentMethodLabel>[0]),
+      chargeableOffSession: isOffSessionChargeable(pm),
+      brand: pm.card?.brand ?? (pm.type === "link" ? "link" : pm.type === "card" ? null : paymentTypeName(pm.type)),
+      last4: pm.card?.last4 ?? pm.us_bank_account?.last4 ?? null,
       expMonth: pm.card?.exp_month ?? null,
       expYear: pm.card?.exp_year ?? null,
       cardholder: pm.billing_details?.name ?? null,
@@ -223,6 +233,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
 
   // ── Payment methods (live read, both customers, graceful degrade) ──────
   let paymentMethods: PaymentMethodView[] = [];
+  let lastPaidWith: LastPaidWith | null = null;
   let stripeReadError = false;
   if (club.stripeAccountId) {
     try {
@@ -241,6 +252,8 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
           if (!seen.has(key)) { seen.add(key); paymentMethods.push(m); }
         }
       }
+      // How they actually paid last — shown even when nothing reusable is saved.
+      lastPaidWith = await lastPaidWithForCustomers(customers.map((c) => c.id), club.stripeAccountId);
     } catch (e) {
       console.error("billing-admin: Stripe payment-method read failed", e);
       stripeReadError = true;
@@ -506,6 +519,8 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     subscriptions: subs,
     activation,
     paymentMethods,
+    /** { type, label, at, amount } from the newest succeeded Stripe charge, or null. */
+    lastPaidWith,
     stripeReadError,
     hasSetupCustomer: !!member.stripeSetupCustomerId,
     hasCapturedCard: !!member.stripeSetupPaymentMethodId,
@@ -625,6 +640,29 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     include: { guardianLinks: { where: ACTIVE_GUARDIAN_LINK, select: { userId: true } } },
   });
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // B16 — once billing is live, this setup no longer drives anything. Editing
+  // its "payment method", plan or price only misleads (a staffer set "Cash"
+  // here and Stripe kept charging). Real changes live in the Membership panel.
+  const SETUP_ONLY_FIELDS = [
+    "paymentMethodPreference", "membershipId", "selectedOptionLabel", "priceOverride",
+    "markFree", "billingFrequency", "billingAnchorDate", "discountCode",
+  ] as const;
+  if (SETUP_ONLY_FIELDS.some((k) => raw[k] !== undefined)) {
+    const live = await prisma.memberSubscription.findFirst({
+      where: { memberId: member.id, status: { in: ["active", "past_due", "trialing"] } },
+      select: { id: true },
+    });
+    if (live) {
+      return NextResponse.json(
+        {
+          error: "Billing is already live for this member. Change how they pay, the plan or the price from the Membership panel on their profile.",
+          code: "BILLING_LIVE",
+        },
+        { status: 409 },
+      );
+    }
+  }
 
   // Validate plan + resolve the chosen option server-side.
   let selectedOption: { label: string; price: number; billingPeriod: string } | null | undefined;

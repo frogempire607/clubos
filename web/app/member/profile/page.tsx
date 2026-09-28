@@ -16,6 +16,7 @@ import { getActiveProfileId, setActiveProfileId } from "@/lib/activeProfile";
 import { Avatar, Pill, GhostButton } from "@/components/member/ui";
 import AthleteRail, { useAthleteProfiles, invalidateAthleteProfiles } from "@/components/member/AthleteRail";
 import GuardianAvatars from "@/components/member/GuardianAvatars";
+import AutoRenewCard from "@/components/member/AutoRenewCard";
 
 type MeProfile = {
   id: string;
@@ -163,7 +164,9 @@ type PersonBilling = {
   lastPayment: { amount: number; paidAt: string } | null;
   subscriptionId: string | null;
   hasCard: boolean;
-  card: { brand: string; last4: string; cardholder: string | null } | null;
+  // `label` / `type` arrive once lib/memberCard names the method ("Cash App
+  // Pay", "Link"); brand ···· last4 is the fallback.
+  card: { brand: string; last4: string; cardholder: string | null; label?: string | null; type?: string | null } | null;
 };
 type BillingResponse = {
   people: PersonBilling[];
@@ -1011,7 +1014,7 @@ export default function MemberAccountPage() {
                   ) : (
                     people.map((p) => {
                       const cardLine = p.card
-                        ? `${prettyBrand(p.card.brand)} ···· ${p.card.last4}${p.card.cardholder ? ` · ${p.card.cardholder}` : ""}`
+                        ? `${p.card.label || `${prettyBrand(p.card.brand)} ···· ${p.card.last4}`}${p.card.cardholder ? ` · ${p.card.cardholder}` : ""}`
                         : "Cash / check at club";
                       // A transfer must open this gate on its own. The athlete
                       // who transferred a membership AWAY has no plan, no price
@@ -1189,6 +1192,10 @@ export default function MemberAccountPage() {
                 </div>
               );
             })()}
+
+            {/* Auto-renew for every membership this adult pays for — Stripe or
+                cash — with the consequence in dates before anything changes. */}
+            {!isMinor && <AutoRenewCard />}
           </div>
         </div>
 

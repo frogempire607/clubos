@@ -12,13 +12,13 @@
 //
 // Slice 2 added Pause/Resume with real dates (Stripe pause_collection) and
 // Change dates. Change plan (Stripe) still hands off to B12's dialog in
-// Advanced billing; offline plan changes wait for slice 3.
+// the Membership panel (B16 retired Advanced billing).
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
 import type { PanelView, PanelAction } from "@/lib/membershipPanel";
+import { MoneySummary, MoneyActions, PaymentsList, PaidSheet, WaiveSheet, SwitchSheet, RefundSheet, AutoRenewSheet, CommitSheet, type MoneyPayload, type MoneySheet } from "./MembershipMoney";
 
 // ── Payload (mirrors the route) ──────────────────────────────────────────────
 
@@ -26,6 +26,8 @@ type Option = { planId: string; planName: string; id: string; label: string; pri
 type Consequence = { text: string; tone: "info" | "danger" };
 type Payload = {
   view: PanelView;
+  /** B16 — the money summary, payments and actions for the current membership. */
+  money?: MoneyPayload | null;
   member: { id: string; firstName: string; lastName: string; isMinor: boolean; guardianEmail: string | null; email: string | null };
   club: { passProcessingFees: boolean; stripeReady: boolean };
   hasCard: boolean;
@@ -145,6 +147,7 @@ export default function MembershipPanel({
   const [showHistory, setShowHistory] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [moneySheet, setMoneySheet] = useState<MoneySheet>(null);
 
   const load = useCallback(async () => {
     const r = await fetch(`/api/members/${memberId}/membership-panel`);
@@ -154,7 +157,7 @@ export default function MembershipPanel({
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (openAssign && data) { setAssignMode(null); setDialog("assign"); onOpenAssignHandled?.(); } }, [openAssign, data, onOpenAssignHandled]);
 
-  const done = (m: string) => { setDialog(null); setMsg(m); load(); onChanged(); };
+  const done = (m: string) => { setDialog(null); setMoneySheet(null); setMsg(m); load(); onChanged(); };
 
   const run = async (action: PanelAction) => {
     if (!data) return;
@@ -170,14 +173,21 @@ export default function MembershipPanel({
       case "comp": setMenu(false); setDialog("comp"); return;
       case "pause": setDialog("pause"); return;
       case "resume": setDialog("resume"); return;
-      case "record_payment": router.push(`/dashboard/members/${memberId}/billing?enrol=1`); return;
+      case "record_payment":
+        // B16 — record the cash for the next period on THIS membership (never a re-enrol).
+        if (data.money) { setMoneySheet("paid"); return; }
+        router.push(`/dashboard/members/${memberId}?tab=memberships&enrol=1`); return;
       case "change_plan":
         // B13 slice 3 — one Change plan dialog for Stripe and offline rows.
-        if (v.currentSubId) router.push(`/dashboard/members/${memberId}/billing?changePlan=${v.currentSubId}`);
+        if (v.currentSubId) router.push(`/dashboard/members/${memberId}?tab=memberships&changePlan=${v.currentSubId}`);
         return;
       case "change_dates": setDialog("dates"); return;
       case "transfer": setMenu(false); if (v.currentSubId) onTransfer?.(v.currentSubId); return;
-      case "retry_payment": router.push(`/dashboard/members/${memberId}/billing`); return;
+      case "retry_payment":
+        // Stripe retries a failed charge on its own schedule; the fix staff can make is a new card.
+        setMsg("Stripe retries the charge automatically. To use a different card, add it under Payment methods below.");
+        document.getElementById("payment-methods")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
       case "sync_stripe": {
         setMenu(false); setBusy("sync");
         const r = await post(`/api/members/${memberId}/billing-admin/actions`, { action: "sync_stripe", confirm: true, subscriptionId: v.currentSubId });
@@ -212,7 +222,8 @@ export default function MembershipPanel({
         <span className={`shrink-0 inline-flex items-center text-[12px] font-semibold px-2 py-0.5 rounded-full ${PILL[v.pill.tone]}`}>{v.pill.label}</span>
       </div>
 
-      {v.facts && (
+      {data.money && <MoneySummary m={data.money} canBill={canBill} payer={v.facts?.payer ?? null} onOpen={setMoneySheet} />}
+      {v.facts && !data.money && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
           {[["Pays with", v.facts.paysWith], ["Started", fmt(v.facts.started ? String(v.facts.started) : null)], ["Renews", v.facts.renews], ["Payer", v.facts.payer ?? "—"]].map(([k, val]) => (
             <div key={k} className="bg-[#F4F4F6] rounded-lg px-2.5 py-2"><div className="text-[12px] uppercase tracking-wide font-semibold text-[#9CA3AF]">{k}</div><div className="text-[13px] font-medium text-text-primary mt-0.5 truncate">{val}</div></div>
@@ -235,7 +246,7 @@ export default function MembershipPanel({
           {canBill && data.sibling.current.optionId && (
             <button
               className="block mt-1.5 text-brand font-medium hover:underline"
-              onClick={() => router.push(`/dashboard/members/${memberId}/billing?changePlan=${data.sibling!.current!.subId}&option=${data.sibling!.current!.optionId}`)}
+              onClick={() => router.push(`/dashboard/members/${memberId}?tab=memberships&changePlan=${data.sibling!.current!.subId}&option=${data.sibling!.current!.optionId}`)}
             >
               Review in Change plan →
             </button>
@@ -251,7 +262,31 @@ export default function MembershipPanel({
         </p>
       )}
 
-      {canBill && (
+      {canBill && data.money && (() => {
+        // B16 — one list under the membership: payment jobs first, then the
+        // membership's own actions, destructive last.
+        const all = [v.actions.primary, ...v.actions.others, ...v.actions.more];
+        const rest = all.filter((a, i) => a !== "record_payment" && a !== "cancel" && all.indexOf(a) === i);
+        return (
+          <>
+            <MoneyActions m={data.money!} onOpen={setMoneySheet} disabled={busy !== null} />
+            <div className="text-[12px] font-semibold uppercase tracking-wide text-text-muted mt-3 mb-1.5">Membership</div>
+            <div className="flex flex-wrap gap-2">
+              {rest.map((a) => (
+                <button key={a} className="min-h-[44px] px-3.5 py-2 rounded-lg border border-app-border bg-surface text-sm text-text-primary hover:bg-app-bg disabled:opacity-50" onClick={() => run(a)} disabled={busy !== null}>
+                  {busy === "sync" && a === "sync_stripe" ? "Syncing…" : LABELS[a]}
+                </button>
+              ))}
+              {all.includes("cancel") && (
+                <button className="min-h-[44px] px-3.5 py-2 rounded-lg border border-danger-border bg-surface text-sm text-danger-text hover:bg-danger-surface disabled:opacity-50" onClick={() => run("cancel")} disabled={busy !== null}>{LABELS.cancel}</button>
+              )}
+            </div>
+          </>
+        );
+      })()}
+      {data.money && <PaymentsList m={data.money} canBill={canBill} onRefund={(p) => setMoneySheet({ refund: p })} />}
+
+      {canBill && !data.money && (
         <div className="flex flex-wrap gap-2 mt-3">
           <button className={`${btnP} !min-h-[40px] text-[13px]`} onClick={() => run(v.actions.primary)} disabled={busy !== null}>{LABELS[v.actions.primary]}</button>
           {v.actions.others.map((a) => (
@@ -271,7 +306,7 @@ export default function MembershipPanel({
       )}
 
       <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-[#F1F1F3]">
-        <Link href={`/dashboard/members/${memberId}/billing`} className="text-xs text-brand hover:underline font-medium">Advanced billing →</Link>
+        <span />
         {data.history.length > 0 && <button className="text-xs text-text-muted hover:text-text-primary" onClick={() => setShowHistory((s) => !s)}>Membership history ({data.history.length})</button>}
       </div>
       {showHistory && (
@@ -306,6 +341,15 @@ export default function MembershipPanel({
           onDone={done} />
       )}
       {dialog === "dates" && data.current && <DatesDialog data={data} onClose={() => setDialog(null)} onDone={done} />}
+      {data.money && moneySheet && (() => {
+        const sp = { memberId, first, headline: v.headline, m: data.money!, price: data.current?.price ?? 0, onClose: () => setMoneySheet(null), onDone: done };
+        if (moneySheet === "paid") return <PaidSheet {...sp} />;
+        if (moneySheet === "waive") return <WaiveSheet {...sp} />;
+        if (moneySheet === "switch") return <SwitchSheet {...sp} />;
+        if (moneySheet === "autorenew") return <AutoRenewSheet {...sp} />;
+        if (moneySheet === "commit") return <CommitSheet {...sp} />;
+        return <RefundSheet {...sp} payment={moneySheet.refund} />;
+      })()}
       {dialog === "cancel_setup" && (
         <ConfirmDialog title="Cancel the setup" sub={`${first} · ${v.headline}`}
           body={<p className="text-sm text-text-primary">The saved setup and any open offer link stop working. {first} goes back to having no membership. The saved card, if any, stays on file.</p>}
@@ -370,7 +414,7 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
   const amt = amount !== "" ? Number(amount) || 0 : price;
   const total = data.club.passProcessingFees ? price + feeOf(price) : price;
   const chargesToday = pay === "CARD" && firstCharge === "today";
-  const cardBlocked = !data.hasCard ? "No card on file — send the offer, or collect a card in Advanced billing." : !data.club.stripeReady ? "Online payments aren't connected for this club." : null;
+  const cardBlocked = !data.hasCard ? "No card on file — send the offer, or add a card under Payment methods below." : !data.club.stripeReady ? "Online payments aren't connected for this club." : null;
 
   let conseq: { text: string; tone: "info" | "warn" }; let cta: string;
   if (!o) { conseq = { text: "pick an option first.", tone: "info" }; cta = "Assign"; }
@@ -417,7 +461,7 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
         const r = await post(`/api/members/${memberId}/reactivation`, { firstChargeDate: null, personalNote: note || null, acknowledgeImmediateCharge: true });
         if (!r.ok) throw new Error(r.d.error ?? "Couldn't create the offer.");
         const s = await post(`/api/members/${memberId}/reactivation/send`, {});
-        if (!s.ok) throw new Error(s.d.error ?? "Offer created but not sent — send it from Advanced billing.");
+        if (!s.ok) throw new Error(s.d.error ?? "Offer created but not sent — open Send offer and try again.");
         onDone(`Offer sent${s.d.sentTo ? ` to ${s.d.sentTo}` : ""} — ${first} is on "${o.label}" once the family confirms.`);
       }
     } catch (e) { setErr(e instanceof Error ? e.message : "Failed"); setBusy(false); }

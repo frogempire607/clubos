@@ -368,6 +368,41 @@ if (nonRenewalTakesMemberField || callSites.length) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// GUARD E — "how many active members" counted from Member.status
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// HARD FAIL, and green from 2026-09-28. The dashboard counted
+// `member.count({ status: "ACTIVE" })` and said 42 while 49 members held 53
+// live subscriptions — seven online signups still read PROSPECT. Member.status
+// is a lifecycle label; the headline is lib/activeMembers.countActiveMembers.
+
+note("\nGUARD E — active-member headline counted from Member.status (HARD FAIL)");
+const statusCountHits: Hit[] = [];
+for (const file of ALL_SOURCE) {
+  const rel = relative(ROOT, file);
+  const src = stripComments(readFileSync(file, "utf8"));
+  const callRe = /prisma\.member\.count\s*\(/g;
+  let mt: RegExpExecArray | null;
+  while ((mt = callRe.exec(src))) {
+    const where = whereClause(callArgs(src, mt.index + mt[0].length - 1));
+    if (/\bstatus\s*:\s*["']ACTIVE["']/.test(where)) {
+      statusCountHits.push({ file: rel, line: lineAt(src, mt.index), text: mt[0] });
+    }
+  }
+}
+note(`  current: ${statusCountHits.length} (baseline 0)`);
+for (const h of statusCountHits) note(`      ${h.file}:${h.line}  ${h.text}`);
+if (statusCountHits.length > 0) {
+  failed = true;
+  note("");
+  note("  ✗ an active-member count is being taken from Member.status. Use");
+  note("    lib/activeMembers.countActiveMembers(clubId) — distinct members holding a");
+  note("    live subscription — so every headline agrees with the memberships page.");
+} else {
+  note("  ✓ none");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 note(`\n${"─".repeat(70)}`);
 if (failed) {
   note("✗ subscription-truth guard failed");

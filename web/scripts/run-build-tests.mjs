@@ -51,6 +51,7 @@ export const GATED = [
   ["scripts/entitlements-tests.ts"],
   ["scripts/accepted-plans-tests.ts"],
   ["scripts/membership-panel-tests.ts"],
+  ["scripts/membership-money-tests.ts"],
   ["scripts/membership-sibling-tests.ts"],
   ["scripts/membership-group-rate-tests.ts"],
   ["scripts/membership-audit-tests.ts"],
@@ -59,7 +60,9 @@ export const GATED = [
   ["scripts/bulk-price-change-tests.ts"],
   ["scripts/stripe-plan-change-tests.ts"],
   ["scripts/stripe-truth-tests.ts"],
+  ["scripts/billing-data-tests.ts"],
   ["scripts/non-renewal-tests.ts"],
+  ["scripts/billing-retire-tests.ts"],
   ["scripts/invoice-period-tests.ts"],
   ["scripts/bank-reconciliation-tests.ts"],
   // attendance, classes, front desk

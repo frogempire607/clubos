@@ -1,4 +1,5 @@
 import { stripe } from "@/lib/stripe";
+import { isOffSessionChargeable, paymentMethodLabel } from "@/lib/billingDataRules";
 
 // Read-only resolver for the saved card behind a member's billing so the member
 // portal can show "Visa ···· 4242 (Shannan Hall)" instead of a bare "Card on
@@ -14,7 +15,27 @@ export type CardSnapshot = {
   // which answers "whose card is this?" when multiple guardians manage one
   // athlete. Null when Stripe has no name on file.
   cardholder: string | null;
+  /** Always "card" — this resolver only ever returns cards. */
+  type: "card";
+  /** "Visa •••• 4242 · exp 08/27" (lib/billingDataRules.paymentMethodLabel). */
+  label: string;
 };
+
+type CardLike = {
+  card?: { brand: string; last4: string; exp_month?: number | null; exp_year?: number | null } | null;
+  billing_details?: { name?: string | null } | null;
+};
+
+function snapshotOf(pm: CardLike): CardSnapshot | null {
+  if (!pm.card) return null;
+  return {
+    brand: pm.card.brand,
+    last4: pm.card.last4,
+    cardholder: pm.billing_details?.name ?? null,
+    type: "card",
+    label: paymentMethodLabel({ type: "card", card: pm.card }),
+  };
+}
 
 /** Title-case a Stripe card brand ("visa" → "Visa", "american_express" → "American Express"). */
 export function prettyBrand(brand: string): string {
@@ -55,9 +76,8 @@ export async function resolveCardSnapshot(
       const pm = await stripe.paymentMethods.retrieve(paymentMethodId, {
         stripeAccount: stripeAccountId,
       });
-      if (pm.card) {
-        return { brand: pm.card.brand, last4: pm.card.last4, cardholder: pm.billing_details?.name ?? null };
-      }
+      const snap = snapshotOf(pm);
+      if (snap) return snap;
     }
 
     const list = await stripe.paymentMethods.list(
@@ -65,10 +85,7 @@ export async function resolveCardSnapshot(
       { stripeAccount: stripeAccountId },
     );
     const pm = list.data[0];
-    if (pm?.card) {
-      return { brand: pm.card.brand, last4: pm.card.last4, cardholder: pm.billing_details?.name ?? null };
-    }
-    return null;
+    return pm ? snapshotOf(pm) : null;
   } catch {
     return null;
   }
@@ -104,19 +121,28 @@ export async function resolveChargeablePaymentMethodId(
         /* PM gone entirely — fall through */
       }
     }
-    const customer = await stripe.customers.retrieve(customerId, { stripeAccount: stripeAccountId });
+    // One listing of EVERY attached method; only off-session-chargeable types
+    // (card, Link, bank account — lib/billingDataRules.OFF_SESSION_TYPES) are
+    // candidates. A Cash App Pay default is shown to staff but never picked
+    // here: the pinned SDK exposes no reusability flag for it.
+    const [customer, attached] = await Promise.all([
+      stripe.customers.retrieve(customerId, { stripeAccount: stripeAccountId }),
+      stripe.customers.listPaymentMethods(customerId, { limit: 20 }, { stripeAccount: stripeAccountId }),
+    ]);
+    const chargeable = attached.data.filter((pm) => isOffSessionChargeable(pm));
     if (customer && !("deleted" in customer && customer.deleted)) {
       const def = (customer as { invoice_settings?: { default_payment_method?: string | { id: string } | null } })
         .invoice_settings?.default_payment_method;
       const defId = typeof def === "string" ? def : def?.id ?? null;
-      if (defId) return defId;
+      if (defId) {
+        // Default honoured when it is chargeable. When it is not attached-and-
+        // listed (paged out), keep the old behaviour and trust it; when it is
+        // listed but of a non-chargeable type, fall through.
+        const listed = attached.data.find((pm) => pm.id === defId);
+        if (!listed || isOffSessionChargeable(listed)) return defId;
+      }
     }
-    const [cards, links] = await Promise.all([
-      stripe.paymentMethods.list({ customer: customerId, type: "card", limit: 2 }, { stripeAccount: stripeAccountId }),
-      stripe.paymentMethods.list({ customer: customerId, type: "link", limit: 2 }, { stripeAccount: stripeAccountId }),
-    ]);
-    const all = [...cards.data, ...links.data];
-    return all.length === 1 ? all[0].id : null;
+    return chargeable.length === 1 ? chargeable[0].id : null;
   } catch {
     return null;
   }

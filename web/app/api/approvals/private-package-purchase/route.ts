@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { PRIVATE_PACKAGE_PURCHASE_KIND } from "@/lib/approvals";
+import { shortDate } from "@/lib/billingDataRules";
 
 // POST /api/approvals/private-package-purchase
 //
@@ -16,6 +17,8 @@ import { PRIVATE_PACKAGE_PURCHASE_KIND } from "@/lib/approvals";
 const schema = z.object({
   approvalId: z.string().min(1),
   decision: z.enum(["APPROVE", "DECLINE"]),
+  /** The owner saw the "already bought this package by card" warning and wants a second one anyway. */
+  allowDuplicate: z.boolean().optional(),
 });
 
 type Payload = {
@@ -90,6 +93,36 @@ export async function POST(req: Request) {
       { error: "The requested package no longer exists. Decline this request and have them re-purchase." },
       { status: 400 },
     );
+  }
+
+  // Same hole as membership-purchase: the family asked to pay cash, then
+  // bought the same package by card before anyone approved. Two packages can
+  // be legitimate, so this is a confirm, not a wall — but it is never silent.
+  if (!body.allowDuplicate) {
+    const paidSince = await prisma.privateCreditLedger.findFirst({
+      where: {
+        clubId,
+        memberId: approval.memberId,
+        packageId: pkg.id,
+        createdAt: { gte: approval.requestedAt },
+        OR: [{ stripeCheckoutSessionId: { not: null } }, { stripePaymentIntentId: { not: null } }],
+      },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    });
+    if (paidSince) {
+      const club = await prisma.club.findUnique({ where: { id: clubId }, select: { timezone: true } });
+      return NextResponse.json(
+        {
+          error:
+            `${who} already bought ${pkg.title} by card on ${shortDate(paidSince.createdAt, club?.timezone)}, after this ` +
+            `cash request was made. Approving adds a second package and a cash invoice. Decline this request — or approve ` +
+            `anyway only if they really want two packages.`,
+          code: "ALREADY_BOUGHT_PACKAGE",
+        },
+        { status: 409 },
+      );
+    }
   }
 
   // The approved amount is what was quoted at request time (tier-priced for

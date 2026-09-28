@@ -17,6 +17,7 @@ import {
 import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { stripe } from "@/lib/stripe";
 import { MIGRATION_STATUS, resolveBillingAnchor } from "@/lib/migration";
+import { activateMemberStatus } from "@/lib/memberStatus";
 import { sendMembershipActivatedEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { writeBillingAudit } from "@/lib/billingAudit";
@@ -488,13 +489,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       data: {
         migrationStatus: MIGRATION_STATUS.COMPLETED,
         approvalStatus: "APPROVED",
-        status: "ACTIVE",
         membershipId,
         ...(anchor ? { billingAnchorDate: anchor } : {}),
         ...(member.requestedCancellationDate ? { commitmentEndDate: member.requestedCancellationDate } : {}),
         migrationCompletedAt: new Date(),
       },
     });
+    // Approval is the grant — status via the ONE activation helper.
+    await activateMemberStatus(member.id, club.id, { granted: true });
     // Paid cash/check activation: record the amount DUE as a PENDING
     // transaction (never revenue, no receipt) so staff can mark it received
     // in the billing center / Approvals — same lifecycle as offer acceptance.
@@ -640,9 +642,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       ...(anchor ? { billingAnchorDate: anchor } : {}),
       ...(member.requestedCancellationDate ? { commitmentEndDate: member.requestedCancellationDate } : {}),
       migrationCompletedAt: new Date(),
-      status: "ACTIVE",
     },
   });
+  // Approval is the grant — status via the ONE activation helper.
+  await activateMemberStatus(member.id, club.id, { granted: true });
   await prisma.memberMigrationEvent.create({
     data: {
       clubId: club.id,

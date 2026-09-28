@@ -10,6 +10,12 @@ import { resumeLapsedPauses } from "@/lib/membershipPause";
 import { datesEditable } from "@/lib/membershipPanel";
 import { siblingLinesForMember } from "@/lib/membershipSiblingServer";
 import { siblingOn, membershipSiblingSummary } from "@/lib/membershipSiblingDiscount";
+import { recurringUnitWithFee } from "@/lib/fees";
+import { liveStripeFacts, type LiveFacts } from "@/lib/membershipMoneyServer";
+import {
+  commitmentView, howTheyPay, nextPayment, autoRenewPlan, renewsNow, paymentMethodLabel, refundable, moneyEventSentence,
+  stripeEndsAt, periodWord, fmtDate, type MoneyRow,
+} from "@/lib/membershipMoney";
 
 // B13 — GET /api/members/[id]/membership-panel
 //
@@ -160,7 +166,13 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
         }
       : null;
 
+  // ── B16 — the money summary, payments and money history for the current row ──
+  const money = current && curRow && (view.state === "ACTIVE_STRIPE" || view.state === "ACTIVE_OFFLINE" || view.state === "PAST_DUE" || view.state === "PAUSED")
+    ? await buildMoney(clubId, member, curRow, current, plans)
+    : null;
+
   return NextResponse.json({
+    money,
     sibling,
     view,
     member: { id: member.id, firstName: member.firstName, lastName: member.lastName, isMinor: member.isMinor, guardianEmail: member.guardianEmail, email: member.email },
@@ -182,4 +194,104 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
 
 function cap(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+// ── B16 money payload ────────────────────────────────────────────────────────
+
+type SubRow = { id: string; stripeSubscriptionId: string | null; membershipId: string; optionId: string | null; optionLabel: string; price: unknown; stripeSnapshot: unknown };
+type PlanRow = { id: string; name: string; options: unknown; contractMonths: number | null; autoRenewDefault: boolean };
+
+const MEMBERSHIP_TX_TYPES = ["MEMBERSHIP", "SUBSCRIPTION"];
+const SOURCE_WORD: Record<string, string> = { STRIPE: "Stripe", CASH: "Cash", CHECK: "Check", COMP: "Waived / comp", EXTERNAL_READER: "Card reader", MANUAL_ADJUSTMENT: "Manual" };
+const MONEY_KINDS = ["PAYMENT_RECORDED", "PAYMENT_WAIVED", "PAYMENT_REFUNDED", "RENEWAL_CHANGED", "PLAN_CHANGED"];
+
+function renewsText(m: MoneyRow, renews: boolean): string {
+  if (renews) return `On — renews ${periodWord(m.billingPeriod)} until someone cancels`;
+  const ends = m.hasStripe ? stripeEndsAt(m) : m.endDate;
+  return ends ? `Off — ends ${fmtDate(ends)}, no renewal` : "Off — ends at the end of the paid period";
+}
+
+async function buildMoney(
+  clubId: string,
+  member: { id: string; requestedPaymentMethod: string | null; club: { passProcessingFees: boolean; stripeAccountId: string | null } },
+  row: SubRow,
+  cur: PanelSub,
+  plans: PlanRow[],
+) {
+  const now = new Date();
+  const live: LiveFacts | null = row.stripeSubscriptionId && member.club.stripeAccountId
+    ? await liveStripeFacts(row.stripeSubscriptionId, member.club.stripeAccountId, 3000)
+    : null;
+  const m: MoneyRow = {
+    hasStripe: cur.hasStripe, status: cur.status, stripeStatus: live?.status ?? cur.stripeStatus, price: cur.price, billingPeriod: cur.billingPeriod,
+    startDate: cur.startDate, endDate: cur.endDate, currentPeriodEnd: live?.currentPeriodEnd ?? cur.currentPeriodEnd, paidThroughDate: cur.paidThroughDate,
+    minimumTermEndsAt: cur.minimumTermEndsAt, autoRenew: cur.autoRenew, cancelAt: live ? live.cancelAt : cur.cancelAt,
+    pausedAt: cur.pausedAt, pausedUntil: cur.pausedUntil, deliberateFree: cur.deliberateFree,
+  };
+  // What the option promises, for "Commitment not recorded".
+  const plan = plans.find((p) => p.id === row.membershipId) ?? null;
+  const option = plan && row.optionId ? parseOptions(plan.options).find((o) => o.id === row.optionId) ?? null : null;
+  const optionContractMonths = plan && option ? resolveTerms(option, { contractMonths: plan.contractMonths, autoRenewDefault: plan.autoRenewDefault }).contractMonths : null;
+
+  const snapPm = (row.stripeSnapshot ?? null) as { defaultPaymentMethod?: { brand?: string; last4?: string; type?: string; label?: string } | null } | null;
+  const pmLabel = paymentMethodLabel(live?.pm) ?? paymentMethodLabel(snapPm?.defaultPaymentMethod ? { type: snapPm.defaultPaymentMethod.type ?? null, brand: snapPm.defaultPaymentMethod.brand, last4: snapPm.defaultPaymentMethod.last4, label: snapPm.defaultPaymentMethod.label } : null);
+  const offlineMethod = member.requestedPaymentMethod === "CHECK" ? "CHECK" : member.requestedPaymentMethod === "CASH" ? "CASH" : null;
+  const charge = member.club.passProcessingFees && cur.hasStripe ? recurringUnitWithFee(Math.round(cur.price * 100), true) / 100 : cur.price;
+
+  const txs = await prisma.transaction.findMany({
+    where: { clubId, OR: [{ memberId: member.id }, { athleteMemberId: member.id }], type: { in: MEMBERSHIP_TX_TYPES }, status: { in: ["SUCCEEDED", "REFUNDED", "FAILED", "PENDING"] }, NOT: { reconciliationStatus: "VOID" } },
+    orderBy: { createdAt: "desc" },
+    take: 40,
+    select: { id: true, amount: true, refundedAmount: true, status: true, paymentSource: true, paymentMethod: true, description: true, txDate: true, createdAt: true, refundedAt: true, refundReason: true, coversStart: true, coversEnd: true, stripeChargeId: true, stripePaymentIntentId: true, manual: true },
+  });
+  const when = (t: { txDate: Date | null; createdAt: Date }) => t.txDate ?? t.createdAt;
+  // Payments inside the commitment window: money received (or a period waived)
+  // for this membership's term. Counted from the ledger, capped by the view.
+  const termStart = cur.startDate, termEnd = cur.minimumTermEndsAt;
+  const paymentsInTerm = termStart && termEnd
+    ? txs.filter((t) => (t.status === "SUCCEEDED" || t.status === "REFUNDED") && (Number(t.amount) > 0 || t.paymentSource === "COMP") && when(t).getTime() >= termStart.getTime() - 86_400_000 && when(t).getTime() < termEnd.getTime()).length
+    : null;
+
+  const commitment = commitmentView(m, { optionContractMonths, paymentsInTerm, now });
+  const next = nextPayment(m, { chargeAmount: charge, skippedAt: live?.skipAt ?? null, now });
+  const renews = renewsNow(m);
+  const toggle = autoRenewPlan(m, !renews, now);
+
+  const events = await prisma.memberSubscriptionEvent.findMany({
+    where: { clubId, memberId: member.id, memberSubscriptionId: row.id, kind: { in: MONEY_KINDS } },
+    orderBy: { at: "desc" }, take: 12,
+    select: { id: true, kind: true, at: true, detail: true, actorUserId: true },
+  });
+  const actorIds = Array.from(new Set(events.map((e) => e.actorUserId).filter((x): x is string => !!x)));
+  const actors = actorIds.length ? await prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, firstName: true, lastName: true } }) : [];
+  const nameOf = new Map(actors.map((a) => [a.id, `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim() || null]));
+  const history = events
+    .map((e) => ({ id: e.id, at: e.at, text: moneyEventSentence({ kind: e.kind, at: e.at, detail: (e.detail ?? null) as Record<string, unknown> | null, actorName: e.actorUserId ? nameOf.get(e.actorUserId) ?? null : null }) }))
+    .filter((e): e is { id: string; at: Date; text: string } => !!e.text);
+
+  return {
+    subscriptionId: row.id,
+    hasStripe: cur.hasStripe,
+    liveRead: cur.hasStripe ? !!live : null,
+    pmLabel,
+    howTheyPay: howTheyPay(m, { pmLabel, offlineMethod }),
+    next,
+    paidThrough: cur.hasStripe ? (cur.paidThroughDate && cur.paidThroughDate > (m.currentPeriodEnd ?? new Date(0)) ? cur.paidThroughDate : m.currentPeriodEnd) : cur.paidThroughDate,
+    commitment,
+    skippedChargeAt: live?.skipAt ?? null,
+    autoRenew: { on: renews, nowText: renewsText(m, renews), toggle: toggle.ok ? { endsAt: toggle.endsAt, sentence: toggle.sentence } : { endsAt: null, sentence: toggle.error, blocked: true } },
+    payments: txs.slice(0, 6).map((t) => {
+      const src = (t.paymentSource ?? (t.manual ? t.paymentMethod : "STRIPE") ?? "").toUpperCase();
+      const left = refundable({ amount: Number(t.amount), refundedAmount: t.refundedAmount != null ? Number(t.refundedAmount) : null, status: t.status });
+      const refunded = t.refundedAmount != null ? Number(t.refundedAmount) : 0;
+      return {
+        id: t.id, at: when(t), amount: Number(t.amount), method: SOURCE_WORD[src] ?? (src ? src.charAt(0) + src.slice(1).toLowerCase() : "—"),
+        status: t.status === "REFUNDED" ? "Refunded" : refunded > 0 ? `Refunded $${refunded.toFixed(2)}` : t.status === "FAILED" ? "Failed" : t.status === "PENDING" ? "Awaiting payment" : Number(t.amount) === 0 ? "No charge" : "Paid",
+        tone: t.status === "FAILED" ? "bad" : t.status === "REFUNDED" || refunded > 0 ? "warn" : t.status === "PENDING" ? "pend" : "ok",
+        description: t.description, covers: t.coversStart && t.coversEnd ? { start: t.coversStart, end: t.coversEnd } : null,
+        refundable: left, refundReason: t.refundReason,
+      };
+    }),
+    history,
+  };
 }

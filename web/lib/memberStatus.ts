@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { countsAsMembership } from "@/lib/memberTracks";
+import { nextMemberStatus, nextStatusOnActivation } from "@/lib/billingDataRules";
 import {
   recordSubscriptionEvent,
   SUBSCRIPTION_EVENT_KIND,
@@ -22,7 +23,10 @@ import {
  * Call after a subscription's status changes (Stripe webhook, manual update,
  * expiry sweep).
  */
-export async function recomputeMemberStatus(memberId: string, clubId: string): Promise<void> {
+export async function recomputeMemberStatus(
+  memberId: string,
+  clubId: string,
+): Promise<"ACTIVE" | "INACTIVE" | null> {
   // Defense-in-depth: every caller already resolved memberId from a clubId-
   // scoped lookup, but enforce it here too so a future caller can't leak
   // tenancy by passing a foreign memberId.
@@ -30,9 +34,9 @@ export async function recomputeMemberStatus(memberId: string, clubId: string): P
     where: { id: memberId, clubId },
     select: { id: true, status: true },
   });
-  if (!member) return;
+  if (!member) return null;
   // PAUSED is sticky — owner controls that explicitly.
-  if (member.status === "PAUSED") return;
+  if (member.status === "PAUSED") return null;
 
   // An active ROW is not an active MEMBERSHIP. countsAsMembership (memberTracks)
   // is the single definition both readers share, so the stored Member.status and
@@ -80,18 +84,55 @@ export async function recomputeMemberStatus(memberId: string, clubId: string): P
     }),
   ).length;
 
-  let next: "ACTIVE" | "INACTIVE" | null = null;
-  if (activeCount > 0) {
-    if (member.status !== "ACTIVE") next = "ACTIVE";
-  } else if (member.status === "ACTIVE") {
-    // Their membership ended — a former member, not a prospect.
-    next = "INACTIVE";
-  }
-  // PROSPECT with no sub stays PROSPECT forever (never had a membership).
+  // ACTIVE when a membership counts; ACTIVE → INACTIVE when the last one
+  // ended (a former member, not a prospect); PROSPECT with nothing stays
+  // PROSPECT forever. The rule is lib/billingDataRules.nextMemberStatus.
+  const next = nextMemberStatus(member.status, activeCount > 0);
 
   if (next) {
     await prisma.member.update({ where: { id: memberId }, data: { status: next } });
   }
+  return next;
+}
+
+/**
+ * THE activation helper. Every path that starts a membership — the Stripe
+ * webhook (checkout.session.completed, invoice.paid), activate_card,
+ * enroll-paid, the approvals queue, migration approve/activate, reactivation
+ * confirm — calls this once the subscription row is written, instead of
+ * writing `status: "ACTIVE"` itself.
+ *
+ *   default          recompute from the subscriptions (money-proof rule
+ *                    above). A priced card membership flips ACTIVE when its
+ *                    first SUCCEEDED payment is recorded — whichever of
+ *                    checkout.session.completed / invoice.paid lands second
+ *                    does it, so delivery order does not matter.
+ *   granted: true    the CALLER has just granted the membership on terms the
+ *                    money-proof rule cannot see (migration approve of an
+ *                    existing member, reactivation acceptance, a fully-paid
+ *                    migration). PROSPECT/INACTIVE → ACTIVE directly. Never
+ *                    demotes and never un-pauses: the direct writes this
+ *                    replaced set ACTIVE even on a PAUSED member.
+ *
+ * Returns the status written, or null when nothing changed.
+ */
+export async function activateMemberStatus(
+  memberId: string,
+  clubId: string,
+  opts: { granted?: boolean } = {},
+): Promise<"ACTIVE" | "INACTIVE" | null> {
+  if (!opts.granted) return recomputeMemberStatus(memberId, clubId);
+  const member = await prisma.member.findFirst({ where: { id: memberId, clubId }, select: { status: true } });
+  if (!member) return null;
+  const next = nextStatusOnActivation(member.status);
+  if (!next) return null;
+  // Conditional write: a concurrent pause or recompute between the read and
+  // here wins, rather than being overwritten.
+  const res = await prisma.member.updateMany({
+    where: { id: memberId, clubId, status: member.status },
+    data: { status: next },
+  });
+  return res.count > 0 ? next : null;
 }
 
 /**

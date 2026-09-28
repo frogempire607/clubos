@@ -1,21 +1,43 @@
 "use client";
 
-// Billing control center — one athlete's complete billing picture plus every
-// authorized correction: plan/option/price/dates, payer, payment methods
-// (add / replace / remove via Stripe-hosted collection only), migration
-// triage, and the reactivation offer lifecycle. Money edits show a
-// before/after diff and require explicit confirmation; nothing here charges
-// anyone. Permission: billing:view to see, billing:full to change (owners
-// always pass).
+// Migration setup — what replaced "Advanced billing" (2026-09-28).
+//
+// The old page mixed a MIGRATION SETUP (a draft of what an imported member
+// will be billed once they activate — saving it changes nothing live) with
+// live billing controls, and staff could not tell them apart: Sal set Blake's
+// "Payment method" to Cash in the setup form because the dad paid cash, and
+// Stripe kept charging, as it should.
+//
+// So every day-to-day billing action now lives in the Membership panel on the
+// profile (and payment methods + Stripe details in PaymentMethodsCard beside
+// it). This page keeps ONLY the migration pieces — the setup draft and its
+// activation, the reactivation offer, triage, cancelling a pending activation,
+// and the billing & migration history — and ONLY for members whose migration
+// is not finished. Everyone else, and every live-billing deep link, is sent to
+// the profile's Memberships tab (lib/migrationSetup billingPageDecision).
+//
+// Once ANY membership is live the setup form is not rendered at all — no
+// payment-method, plan or price fields — just one line pointing at the panel.
+// Permission: billing:view to see, billing:full to change (owners always pass).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
-import { ArrowLeft, CreditCard, RefreshCw } from "lucide-react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, RefreshCw } from "lucide-react";
 import { feeBreakdown } from "@/lib/fees";
 import StaffDiscountPicker, { previewDiscountMath, useEligibleDiscounts } from "@/components/StaffDiscountPicker";
-import OfflinePaymentsCard from "@/components/OfflinePaymentsCard";
 import EnrollAlreadyPaidCard from "@/components/EnrollAlreadyPaidCard";
+import PaymentMethodsCard from "@/components/members/PaymentMethodsCard";
+import PageHeader from "@/components/PageHeader";
+import Sheet from "@/components/Sheet";
+import {
+  billingIsLive,
+  billingPageDecision,
+  membershipPanelHref,
+  migrationSetupSections,
+  LIVE_BILLING_NOTICE,
+  PASS_THROUGH_KEYS,
+} from "@/lib/migrationSetup";
 
 type PaymentMethod = {
   ref: string;
@@ -119,7 +141,6 @@ type Data = {
     options: { id: string | null; label: string; price: number; billingPeriod: string; contractMonths: number | null; autoRenewDefault: boolean | null }[];
   }[];
 };
-
 const fmtDate = (s: string | null | undefined) =>
   s ? new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
 // Billing DATES (anchor / final / commitment / start) are date-only values
@@ -150,12 +171,12 @@ const offlineRuleLabel = (policy: string | undefined) =>
     ? "Cash/check rule: the membership activates on acceptance (payment still due to the club)."
     : "Cash/check rule: the membership activates only after staff records the payment as received.";
 
-const READINESS_STYLE: Record<string, { bg: string; fg: string }> = {
-  READY: { bg: "rgba(163,230,53,0.25)", fg: "#3F6212" },
-  WAITING_OWNER: { bg: "rgba(255,106,0,0.15)", fg: "#9A3412" },
-  WAITING_CLIENT: { bg: "rgba(109,93,246,0.15)", fg: "#4338CA" },
-  HOLD: { bg: "rgba(239,68,68,0.12)", fg: "#B91C1C" },
-  LEAVE_ALONE: { bg: "rgba(120,113,108,0.15)", fg: "#57534E" },
+const READINESS_CLASS: Record<string, string> = {
+  READY: "bg-lime-accent/25 text-text-primary",
+  WAITING_OWNER: "bg-[var(--color-warn-surface)] text-[var(--color-warn-text)]",
+  WAITING_CLIENT: "bg-brand/10 text-brand",
+  HOLD: "bg-red-50 text-red-700",
+  LEAVE_ALONE: "bg-app-bg text-text-muted",
 };
 
 function Card({ title, action, children, className = "" }: { title: string; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
@@ -195,11 +216,13 @@ function DiscountSummaryRow({ code, planId, price, periodLabel }: { code: string
   );
 }
 
-export default function MemberBillingPage() {
+export default function MigrationSetupPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const search = useSearchParams();
+  const router = useRouter();
   const [data, setData] = useState<Data | null>(null);
+  const [facts, setFacts] = useState<{ migrating: boolean; live: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -207,54 +230,46 @@ export default function MemberBillingPage() {
   const [reactOpen, setReactOpen] = useState(false);
   const [enrolSignal, setEnrolSignal] = useState(0);
   const [cardActivateOpen, setCardActivateOpen] = useState(false);
-  // B12 — which Stripe-billed row the "Change plan" dialog is open for.
-  const [planChangeSubId, setPlanChangeSubId] = useState<string | null>(null);
-  const [syncingSubId, setSyncingSubId] = useState<string | null>(null);
-  const syncFromStripe = async (subscriptionId: string) => {
-    setSyncingSubId(subscriptionId);
-    const r = await fetch(`/api/members/${id}/billing-admin/actions`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "sync_stripe", confirm: true, subscriptionId }),
-    });
-    const d = await r.json().catch(() => ({}));
-    setSyncingSubId(null);
-    setMsg(typeof d.message === "string" ? d.message : typeof d.error === "string" ? d.error : r.ok ? "Synced." : "Sync failed.");
-    if (r.ok) load();
-  };
 
   const load = useCallback(() => {
-    fetch(`/api/members/${id}/billing-admin`)
-      .then(async (r) => {
+    Promise.all([
+      fetch(`/api/members/${id}/billing-admin`).then(async (r) => {
         if (r.status === 403) { setForbidden(true); return null; }
         return r.ok ? r.json() : null;
+      }),
+      fetch(`/api/members/${id}/billing-details`).then((r) => (r.ok ? r.json() : null)),
+    ])
+      .then(([d, det]) => {
+        setData(d);
+        if (det) setFacts({ migrating: !!det.migration?.inProgress, live: !!det.live });
+        setLoading(false);
       })
-      .then((d) => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
   }, [id]);
   useEffect(() => { load(); }, [load]);
-  // B13 — the Membership panel's "Change plan" lands here with the row to change.
-  useEffect(() => {
-    const cp = search.get("changePlan");
-    // B13 slice 3: offline rows change plan here too (from the next payment).
-    if (cp && data?.subscriptions.some((s) => s.id === cp && (s.status === "active" || s.status === "past_due"))) setPlanChangeSubId(cp);
-  }, [search, data]);
 
+  // Old links, bookmarks and deep links (?changePlan=, ?enrol=1) from before
+  // this page was retired: anyone who is not mid-migration — and any live
+  // billing action — belongs on the Membership panel.
+  const live = data ? billingIsLive(data.subscriptions) || !!facts?.live : false;
+  const decision = facts
+    ? billingPageDecision({
+        memberId: id,
+        migrating: facts.migrating,
+        live,
+        query: Object.fromEntries(PASS_THROUGH_KEYS.map((k) => [k, search.get(k)])),
+      })
+    : null;
   useEffect(() => {
-    if (search.get("card_saved")) {
-      setMsg(
-        search.get("intent") === "REPLACE"
-          ? "Replacement card collected. It becomes the charged method only after you make it the default below."
-          : "Card saved. It may take a few seconds to appear — refresh if needed.",
-      );
-    }
-    if (search.get("card_canceled")) setMsg("Card entry was canceled — nothing was saved.");
-  }, [search]);
-  // /billing?enrol=1 — "Assign membership" on the profile lands on the open form.
+    if (decision?.kind === "REDIRECT") router.replace(decision.to);
+  }, [decision?.kind, decision && decision.kind === "REDIRECT" ? decision.to : null, router]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // /billing?enrol=1 — "Record payment" lands on the open form (setup not yet live).
   useEffect(() => {
     if (search.get("enrol") && data) setEnrolSignal((n) => (n === 0 ? 1 : n));
   }, [search, data]);
 
-  if (loading) return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
+  if (loading || decision?.kind === "REDIRECT") return <div className="p-8 text-center text-text-muted text-sm">Loading…</div>;
   if (forbidden)
     return (
       <div className="p-8 max-w-xl mx-auto text-center">
@@ -268,475 +283,231 @@ export default function MemberBillingPage() {
 
   const m = data.member;
   const b = data.billing;
-  const rs = READINESS_STYLE[data.readiness.state] ?? READINESS_STYLE.LEAVE_ALONE;
+  const panelHref = membershipPanelHref(id);
+  const pendingActivation =
+    data.migration.approvalStatus === "PENDING_APPROVAL" ||
+    data.migration.migrationStatus === "INVITED" ||
+    data.migration.migrationStatus === "ACTIVATED";
+  const show = migrationSetupSections({
+    live,
+    activationAvailable: data.activation.available,
+    pendingActivation,
+    hasReactivationOffer: !!data.reactivation,
+  });
 
   return (
     <div className="p-4 sm:p-8 max-w-5xl mx-auto">
-      <Link href={`/dashboard/members/${id}`} className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary">
+      <Link href={`/dashboard/members/${id}`} className="inline-flex min-h-[44px] items-center gap-1 text-sm text-text-muted hover:text-text-primary md:min-h-0">
         <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} /> Back to profile
       </Link>
 
-      <div className="mt-3 mb-5 flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-semibold text-text-primary leading-tight tracking-tight">
-            {m.firstName} {m.lastName} <span className="text-text-muted font-normal">· Advanced billing</span>
-          </h1>
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-charcoal text-white" title={data.billingState.explanation}>
-              {data.billingState.label}
-            </span>
-            <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: rs.bg, color: rs.fg }} title={data.readiness.reasons.join("; ") || undefined}>
-              {data.readiness.label}
-            </span>
-            {m.isMinor && <span className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted">Minor</span>}
-            {data.lastChangedBy && (
-              <span className="text-xs text-text-muted">
-                Billing last changed by {data.lastChangedBy.name} on {fmtDate(data.lastChangedBy.at)}
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-text-muted mt-1">{data.billingState.explanation}</p>
-          {/* B13 slice 4 — the everyday actions live on the profile's
-              Membership panel; this page is the detail behind them. */}
-          <p className="text-xs text-text-primary mt-2 rounded-lg bg-app-bg px-2.5 py-1.5 inline-block">
-            Assign, change plan, dates, pause and cancel live in the{" "}
-            <Link href={`/dashboard/members/${id}`} className="text-brand font-medium hover:underline">Membership panel on the profile</Link>.
-            This page is for migration setups, payment methods and Stripe details.
-          </p>
-          {data.readiness.reasons.length > 0 && (
-            <p className="text-xs text-text-muted mt-0.5">{data.readiness.reasons.join(" · ")}</p>
+      <div className="mt-3">
+        <PageHeader
+          eyebrow={`${m.firstName} ${m.lastName}`}
+          title="Migration setup"
+          description={
+            show.liveNotice
+              ? "What this member was set up with when they moved over, their offer and the migration history."
+              : "What this member will be billed once they finish moving over. Saving here never charges anyone."
+          }
+          actions={
+            <button type="button" onClick={() => load()} className="inline-flex min-h-[44px] items-center gap-1 rounded-lg border border-app-border px-3 text-xs text-text-muted hover:text-text-primary md:min-h-[36px]">
+              <RefreshCw className="h-3 w-3" /> Refresh
+            </button>
+          }
+        />
+        <div className="-mt-3 mb-5 flex flex-wrap items-center gap-2">
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${READINESS_CLASS[data.readiness.state] ?? READINESS_CLASS.LEAVE_ALONE}`} title={data.readiness.reasons.join("; ") || undefined}>
+            {data.readiness.label}
+          </span>
+          {m.isMinor && <span className="rounded-full bg-app-bg px-2 py-0.5 text-xs text-text-muted">Minor</span>}
+          {data.lastChangedBy && (
+            <span className="text-xs text-text-muted">Setup last changed by {data.lastChangedBy.name} on {fmtDate(data.lastChangedBy.at)}</span>
           )}
         </div>
-        <button onClick={() => load()} className="text-xs inline-flex items-center gap-1 text-text-muted hover:text-text-primary border border-app-border rounded-lg px-2.5 py-1.5">
-          <RefreshCw className="h-3 w-3" /> Refresh
-        </button>
       </div>
 
       {msg && (
-        <div className="mb-4 text-sm text-text-primary bg-lime-accent/20 border border-app-border rounded-lg px-3 py-2 flex justify-between gap-3">
+        <div className="mb-4 flex justify-between gap-3 rounded-lg border border-app-border bg-lime-accent/20 px-3 py-2 text-sm text-text-primary">
           <span>{msg}</span>
-          <button className="text-xs text-text-muted" onClick={() => setMsg(null)}>Dismiss</button>
+          <button type="button" className="inline-flex min-h-[44px] items-center text-xs text-text-muted md:min-h-0" onClick={() => setMsg(null)}>Dismiss</button>
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* ── Membership & pricing ── */}
-        <Card
-          title="Membership & pricing"
-          action={<button onClick={() => setEditOpen(true)} className="text-xs text-brand hover:underline">Edit</button>}
-        >
-          {b.configured ? (
-            <>
-              <Row label="Plan" strong>{b.planName}{b.optionLabel ? ` · ${b.optionLabel}` : ""}</Row>
-              <Row label="Price" strong>{(b.price ?? 0) <= 0 ? "Free" : `${fmtMoney(b.price ?? 0)} ${b.periodLabel ?? ""}`}</Row>
-              {data.feeBreakdown?.passFees && (b.price ?? 0) > 0 && (
-                <Row label="Total charged" strong>
-                  {fmtMoney(data.feeBreakdown.totalCharged)} {b.periodLabel} (includes {fmtMoney(data.feeBreakdown.fee)} {data.feeBreakdown.feePercentLabel} processing fee)
-                </Row>
-              )}
-            </>
-          ) : (
-            <div className="py-1">
-              <Row label="Plan" strong><span className="text-text-muted font-normal">No membership</span></Row>
-              <p className="text-xs text-text-muted mt-1">
-                No membership configured. This member is a prospect — assign a plan or set an explicit $0
-                price to make them deliberately free.
+        {/* ── Billing is live: the setup form is gone, not merely disabled ── */}
+        {show.liveNotice && (
+          <div className="lg:col-span-2 rounded-xl border border-app-border bg-app-bg px-4 py-3">
+            <Link href={panelHref} className="inline-flex min-h-[44px] items-center text-sm font-medium text-brand hover:underline">
+              {LIVE_BILLING_NOTICE}
+            </Link>
+          </div>
+        )}
+
+        {/* ── Migration setup (draft) ── */}
+        {show.setupEdit && (
+          <Card
+            title="Migration setup"
+            className="lg:col-span-2"
+            action={<button type="button" onClick={() => setEditOpen(true)} className="inline-flex min-h-[44px] items-center text-xs text-brand hover:underline md:min-h-0">Edit setup</button>}
+          >
+            {b.configured ? (
+              <>
+                <Row label="Plan" strong>{b.planName}{b.optionLabel ? ` · ${b.optionLabel}` : ""}</Row>
+                <Row label="Price" strong>{(b.price ?? 0) <= 0 ? "Free" : `${fmtMoney(b.price ?? 0)} ${b.periodLabel ?? ""}`}</Row>
+                {data.feeBreakdown?.passFees && (b.price ?? 0) > 0 && (
+                  <Row label="Total charged" strong>
+                    {fmtMoney(data.feeBreakdown.totalCharged)} {b.periodLabel} (includes {fmtMoney(data.feeBreakdown.fee)} {data.feeBreakdown.feePercentLabel} processing fee)
+                  </Row>
+                )}
+              </>
+            ) : (
+              <div className="py-1">
+                <Row label="Plan" strong><span className="font-normal text-text-muted">No membership</span></Row>
+                <p className="mt-1 text-xs text-text-muted">
+                  No membership in the setup yet. Pick a plan in Edit setup, or set an explicit $0 price to make them deliberately free.
+                </p>
+              </div>
+            )}
+            {b.priceOverride != null && (
+              <Row label="Owner price override">{fmtMoney(b.priceOverride)}{b.discountNote ? ` — ${b.discountNote}` : ""}</Row>
+            )}
+            {b.discountCode && (
+              <DiscountSummaryRow code={b.discountCode} planId={b.planId} price={b.price} periodLabel={b.periodLabel} />
+            )}
+            <Row label="Will pay by">{pmPrefLabel(b.requestedPaymentMethod)}</Row>
+            <Row label="Responsible payer">
+              {data.payer ? `${data.payer.name} (${data.payer.email})` : <span className="text-text-muted">Implied — card owner / guardian on file</span>}
+            </Row>
+            <Row label="Membership start">{fmtDateUTC(b.startDate)}</Row>
+            <Row label="Imported billing anchor">{fmtDateUTC(b.billingAnchorDate)}</Row>
+            <Row label="Owner-approved final billing date">
+              {b.finalBillingDate ? fmtDateUTC(b.finalBillingDate) : <span className="font-medium text-[var(--color-warn-text)]">Not set</span>}
+            </Row>
+            {data.anchorMismatch && (
+              <p className="mt-1 text-xs text-[var(--color-warn-text)]">
+                The final billing date differs from the imported anchor — the final date is what activation uses.
               </p>
-            </div>
-          )}
-          {b.priceOverride != null && (
-            <Row label="Owner price override">{fmtMoney(b.priceOverride)}{b.discountNote ? ` — ${b.discountNote}` : ""}</Row>
-          )}
-          {b.discountCode && (
-            <DiscountSummaryRow code={b.discountCode} planId={b.planId} price={b.price} periodLabel={b.periodLabel} />
-          )}
-          <Row label="Payment method">{pmPrefLabel(b.requestedPaymentMethod)}</Row>
-          <Row label="Membership start">{fmtDateUTC(b.startDate)}</Row>
-          <Row label="Imported billing anchor">{fmtDateUTC(b.billingAnchorDate)}</Row>
-          <Row label="Owner-approved final billing date">
-            {b.finalBillingDate ? fmtDateUTC(b.finalBillingDate) : <span className="text-orange-accent font-medium">Not set</span>}
-          </Row>
-          {data.anchorMismatch && (
-            <p className="text-xs text-orange-accent mt-1">
-              The final billing date differs from the imported anchor — the final date is what billing
-              flows use when they start.
-            </p>
-          )}
-          <Row label="Next billing">{fmtDateUTC(b.nextBillingDate)}</Row>
-          {b.commitmentEndDate && <Row label="Commitment through">{fmtDateUTC(b.commitmentEndDate)}</Row>}
-          {b.finalPeriodPaid && <Row label="Final period">Already paid — non-renewing</Row>}
-          {b.lastPayment && <Row label="Last successful payment">{fmtMoney(b.lastPayment.amount)} on {fmtDate(b.lastPayment.at)}</Row>}
-          {b.stripeStatus && <Row label="Stripe subscription state">{b.stripeStatus}</Row>}
-          {b.legacy.name && (
-            <p className="text-xs text-text-muted mt-2 pt-2 border-t border-app-border">
-              Imported from {b.legacy.source || "previous software"}: {b.legacy.name}
-              {b.legacy.price != null ? ` · $${b.legacy.price}` : ""}{b.legacy.frequency ? ` ${b.legacy.frequency.toLowerCase()}` : ""}
-            </p>
-          )}
-          {b.configured && (
-            <p className="text-xs mt-2 pt-2 border-t border-app-border text-text-muted">
-              If billing started now it {b.chargeTiming.immediate
-                ? <strong className="text-orange-accent">would charge immediately</strong>
-                : <>would first charge on <strong className="text-text-primary">{fmtDateUTC(b.finalBillingDate || b.billingAnchorDate)}</strong></>}.
-            </p>
-          )}
-          {data.activation.available && (() => {
-            // An active offline row means this is a renewal or a plan change
-            // on the same row; none means the setup has never been activated.
-            const hasActiveRow = data.subscriptions.some((s) => s.status === "active");
-            const card = data.activation.mode === "CARD";
-            return (
-              <div className="mt-3 pt-3 border-t border-app-border">
-                {card ? (
+            )}
+            {b.commitmentEndDate && <Row label="Commitment through">{fmtDateUTC(b.commitmentEndDate)}</Row>}
+            {b.finalPeriodPaid && <Row label="Final period">Already paid — non-renewing</Row>}
+            {b.legacy.name && (
+              <p className="mt-2 border-t border-app-border pt-2 text-xs text-text-muted">
+                Imported from {b.legacy.source || "previous software"}: {b.legacy.name}
+                {b.legacy.price != null ? ` · $${b.legacy.price}` : ""}{b.legacy.frequency ? ` ${b.legacy.frequency.toLowerCase()}` : ""}
+              </p>
+            )}
+            {b.configured && (
+              <p className="mt-2 border-t border-app-border pt-2 text-xs text-text-muted">
+                If this setup were activated now it {b.chargeTiming.immediate
+                  ? <strong className="text-[var(--color-warn-text)]">would charge immediately</strong>
+                  : <>would first charge on <strong className="text-text-primary">{fmtDateUTC(b.finalBillingDate || b.billingAnchorDate)}</strong></>}.
+              </p>
+            )}
+            {show.activate && (
+              <div className="mt-3 border-t border-app-border pt-3">
+                {data.activation.mode === "CARD" ? (
                   <>
                     <button
+                      type="button"
                       onClick={() => setCardActivateOpen(true)}
                       disabled={!data.activation.hasCard}
-                      className="w-full sm:w-auto text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                      className="inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-brand px-4 text-sm text-white hover:bg-brand-hover disabled:opacity-50 sm:w-auto"
                     >
                       Activate this setup now
                     </button>
-                    <p className="text-xs text-text-muted mt-1.5">
+                    <p className="mt-1.5 text-xs text-text-muted">
                       {data.activation.hasCard
                         ? `Starts the membership above on the saved card — ${b.chargeTiming.immediate ? "charged today" : `first charge ${fmtDateUTC(b.finalBillingDate || b.billingAnchorDate)}`}. You confirm the amount and date first.`
-                        : "No saved card on file. Use “Add method” below to collect one, or set the payment method to cash/check in Edit and record it with “Already paid?”."}
+                        : "No saved card on file. Use “Add method” below to collect one, or set the setup to cash/check in Edit setup and record it with “Already paid?”."}
                     </p>
                   </>
                 ) : (
                   <>
                     <button
+                      type="button"
                       onClick={() => setEnrolSignal((n) => n + 1)}
-                      className="w-full sm:w-auto text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover"
+                      className="inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-brand px-4 text-sm text-white hover:bg-brand-hover sm:w-auto"
                     >
-                      {hasActiveRow ? "Record payment & renew on this setup" : "Activate this setup now"}
+                      Activate this setup now
                     </button>
-                    <p className="text-xs text-text-muted mt-1.5">
-                      {hasActiveRow
-                        ? "Records the cash/check payment and moves the current membership onto the plan above, paid through the date you enter."
-                        : "Records the cash/check payment and starts the membership on the plan above. Nothing above is a membership until this is done."}
+                    <p className="mt-1.5 text-xs text-text-muted">
+                      Records the cash/check payment and starts the membership on the plan above. Nothing above is a membership until this is done.
                     </p>
                   </>
                 )}
               </div>
-            );
-          })()}
-          <p className="text-xs mt-2 text-text-muted">
-            <strong className="text-text-primary">Edit only saves a setup — it does not start a membership.</strong>{" "}
-            The setup becomes a membership when the client confirms a reactivation offer, or when you
-            {data.activation.available ? " activate it above" : " use “Already paid?” below"}.
-            {data.activation.reason && !data.activation.available && ` ${data.activation.reason}`}
-          </p>
-        </Card>
-
-        {/* ── People & payer ── */}
-        <Card title="People & responsible payer">
-          <Row label="Athlete" strong>{m.firstName} {m.lastName}</Row>
-          {m.guardianName && <Row label="Guardian on file">{m.guardianName}{m.guardianEmail ? ` · ${m.guardianEmail}` : ""}</Row>}
-          {data.guardians.length > 0 ? (
-            <div className="mt-2">
-              <p className="text-xs text-text-muted mb-1">Portal accounts managing this athlete</p>
-              {data.guardians.map((g) => (
-                <div key={g.userId} className="flex items-center justify-between py-1 text-sm">
-                  <span className="text-text-primary">{g.name} <span className="text-text-muted text-xs">{g.email}</span></span>
-                  {g.isPayer && <span className="text-xs px-2 py-0.5 rounded-full bg-lime-accent/25 text-text-primary">Payer</span>}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-text-muted mt-2">No linked portal guardians yet.</p>
-          )}
-          <Row label="Responsible payer">
-            {data.payer ? `${data.payer.name} (${data.payer.email})` : <span className="text-text-muted">Implied — card owner / guardian on file</span>}
-          </Row>
-          <p className="text-xs text-text-muted mt-2 pt-2 border-t border-app-border">
-            Set the payer in Edit. Cards always belong to the Stripe customer shown under each payment method —
-            they are never copied between families.
-          </p>
-        </Card>
-
-        {/* ── Payment methods ── */}
-        <Card
-          title="Payment methods"
-          className="lg:col-span-2"
-          action={
-            <div className="flex gap-2">
-              <PMButton id={id} intent="ADD" label="Add method" onMsg={setMsg} />
-              {data.paymentMethods.length > 0 && <PMButton id={id} intent="REPLACE" label="Replace…" onMsg={setMsg} />}
-            </div>
-          }
-        >
-          {data.stripeReadError && (
-            <p className="text-xs text-orange-accent mb-2">Stripe couldn&apos;t be reached — payment methods may be incomplete. Refresh to retry.</p>
-          )}
-          {data.paymentMethods.length === 0 ? (
-            <p className="text-sm text-text-muted">
-              No saved payment method. Use <strong>Add method</strong> to open a secure Stripe page — cards are never
-              typed into AthletixOS.
+            )}
+            <p className="mt-2 text-xs text-text-muted">
+              <strong className="text-text-primary">Edit setup only saves a draft — it does not start or change a membership.</strong>{" "}
+              The setup becomes a membership when the client confirms a reactivation offer, or when you
+              {show.activate ? " activate it above" : " use “Already paid?” below"}.
+              {data.activation.reason && !data.activation.available && ` ${data.activation.reason}`}
             </p>
-          ) : (
-            <div className="space-y-2">
-              {data.paymentMethods.map((pm) => (
-                <PaymentMethodRow key={pm.ref} pm={pm} memberId={id} hasPendingCharge={data.hasPendingCharge} onChanged={() => { setMsg(null); load(); }} onMsg={setMsg} />
-              ))}
-            </div>
-          )}
-        </Card>
+          </Card>
+        )}
 
-        {/* ── Outstanding cash/check (renders only when something is pending) ── */}
-        <OfflinePaymentsCard memberId={id} className="lg:col-span-2" onChanged={() => load()} />
+        {/* ── Card collection for the activation charge ── */}
+        {show.paymentMethods && (
+          <PaymentMethodsCard memberId={id} returnTo="migration" className="lg:col-span-2" onChanged={() => load()} />
+        )}
 
-        {/* ── Already paid, no membership yet ──────────────────────────────
-            Sits directly beneath the outstanding-payments card on purpose:
-            that one settles a balance the member already owes, this one
-            handles the opposite case — money in hand and nothing to settle it
-            against. Drew Telesky's month went missing in the gap between them. */}
-        <EnrollAlreadyPaidCard
-          id="enrol"
-          memberId={id}
-          memberName={`${m.firstName} ${m.lastName}`.trim()}
-          className="lg:col-span-2"
-          openSignal={enrolSignal}
-          prefill={{
-            planId: b.planId,
-            optionId: data.activation.optionId,
-            amount: data.activation.amount,
-            coversUntil: data.activation.coversUntil,
-            draftLabel: data.activation.draftLabel,
-          }}
-          onChanged={() => { setMsg(null); load(); }}
-        />
+        {/* ── Already paid, no membership yet — the offline activation ── */}
+        {show.alreadyPaid && (
+          <EnrollAlreadyPaidCard
+            id="enrol"
+            memberId={id}
+            memberName={`${m.firstName} ${m.lastName}`.trim()}
+            className="lg:col-span-2"
+            openSignal={enrolSignal}
+            prefill={{
+              planId: b.planId,
+              optionId: data.activation.optionId,
+              amount: data.activation.amount,
+              coversUntil: data.activation.coversUntil,
+              draftLabel: data.activation.draftLabel,
+            }}
+            onChanged={() => { setMsg(null); load(); }}
+          />
+        )}
 
-        {/* ── Reactivation ── */}
-        <Card
-          title="Reactivation offer"
-          className="lg:col-span-2"
-          action={<button
-            onClick={() => setReactOpen(true)}
-            disabled={!b.configured}
-            title={!b.configured ? "Assign a membership first" : undefined}
-            className="text-xs text-brand hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed"
-          >
-            {data.reactivation && (data.reactivation.status === "DRAFT" || data.reactivation.status === "SENT") ? "Manage / resend" : "Create offer"}
-          </button>}
-        >
-          {data.reactivation ? (
-            <div>
-              {data.reactivation.changeRequestStatus === "OPEN" && (
-                <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 mb-2">
-                  <p className="text-xs font-semibold text-amber-800">
-                    Client requested changes — confirmation is locked
-                  </p>
-                  {data.reactivation.changeRequest?.fields && (
-                    <p className="text-xs text-amber-700 mt-0.5">
-                      {Object.entries(data.reactivation.changeRequest.fields)
-                        .filter(([, v]) => v)
-                        .map(([k, v]) => `${k}: ${v}`)
-                        .join(" · ") || ""}
-                    </p>
-                  )}
-                  {data.reactivation.changeRequest?.note && (
-                    <p className="text-xs text-amber-700 mt-0.5 italic">&ldquo;{data.reactivation.changeRequest.note}&rdquo;</p>
-                  )}
-                  <p className="text-[12px] text-amber-700 mt-1">
-                    Approve or deny it from <a href="/dashboard/members/approvals" className="underline">Approvals</a> —
-                    approving regenerates a new offer version from the current setup.
-                  </p>
-                </div>
-              )}
-              <Row label="Status" strong>
-                {data.reactivation.status}{data.reactivation.status === "SENT" ? ` — to ${data.reactivation.sentToEmail} (${data.reactivation.emailSendCount}×)` : ""}
-              </Row>
-              <Row label="Offer version">v{data.reactivation.offerVersion}</Row>
-              <Row label="Last updated">{fmtDate(data.reactivation.updatedAt)}</Row>
-              {data.reactivation.emailSentAt && <Row label="Last sent">{fmtDate(data.reactivation.emailSentAt)}</Row>}
-              {data.reactivation.viewedAt && <Row label="First viewed">{fmtDate(data.reactivation.viewedAt)}</Row>}
-              {data.reactivation.confirmedAt && <Row label="Confirmed">{fmtDate(data.reactivation.confirmedAt)}</Row>}
-
-              {/* The offer is an immutable snapshot — show EXACTLY what the
-                  client's link presents, independent of later billing edits. */}
-              <div className="mt-2 pt-2 border-t border-app-border">
-                <p className="text-xs font-semibold text-text-primary mb-1">What this offer contains (frozen at send time)</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
-                  <Row label="Plan">{data.reactivation.offer.planName || "—"}{data.reactivation.offer.optionLabel ? ` · ${data.reactivation.offer.optionLabel}` : ""}</Row>
-                  <Row label="Price">
-                    {(data.reactivation.offer.price ?? 0) <= 0 ? "Free" : `${fmtMoney(data.reactivation.offer.price!)} ${(data.reactivation.offer.billingPeriod || "").toLowerCase()}`}
-                  </Row>
-                  {data.reactivation.offer.discount && (
-                    <Row label="Discount" strong>
-                      {data.reactivation.offer.discount.name} Discount Applied — final {fmtMoney(data.reactivation.offer.discount.finalPrice)}
-                    </Row>
-                  )}
-                  {data.feeBreakdown?.passFees && (data.reactivation.offer.price ?? 0) > 0 && data.reactivation.offer.paymentMode === "CARD" && (() => {
-                    // The fee applies to what the client actually pays — the
-                    // DISCOUNTED price when a discount is frozen in the offer.
-                    const effective = data.reactivation!.offer.discount?.finalPrice ?? data.reactivation!.offer.price!;
-                    if (effective <= 0) return null;
-                    const fb = feeBreakdown(effective, true);
-                    return (
-                      <Row label="Total charged">
-                        {fmtMoney(fb.total)} (includes {fmtMoney(fb.fee)} processing fee)
-                      </Row>
-                    );
-                  })()}
-                  <Row label="Start">{fmtDateUTC(data.reactivation.offer.startDate)}</Row>
-                  <Row label="First payment">{data.reactivation.offer.firstChargeDate ? fmtDateUTC(data.reactivation.offer.firstChargeDate) : "No charge"}</Row>
-                  <Row label="Commitment through">{fmtDateUTC(data.reactivation.offer.commitmentEndDate)}</Row>
-                  <Row label="Payment">
-                    {(data.reactivation.offer.paymentMethod && OFFER_METHOD_LABELS[data.reactivation.offer.paymentMethod]) ||
-                      (data.reactivation.offer.paymentMode === "CARD"
-                        ? "Saved card at confirmation"
-                        : data.reactivation.offer.paymentMode === "OFFLINE"
-                          ? "Offline / club collects"
-                          : "Free — none")}
-                  </Row>
-                </div>
-                {(data.reactivation.offer.paymentMethod === "CASH" || data.reactivation.offer.paymentMethod === "CHECK") && (
-                  <p className="text-xs text-text-muted mt-1">{offlineRuleLabel(data.offlineActivationPolicy)}</p>
-                )}
-              </div>
-
-              {data.reactivation.open && data.reactivation.sync && (
-                data.reactivation.sync.matches ? (
-                  <p className="text-xs mt-2 px-2.5 py-1.5 rounded-lg bg-lime-accent/20 text-text-primary">
-                    ✓ Matches the current billing setup — the client will confirm exactly what this page shows.
-                  </p>
-                ) : (
-                  <div className="text-xs mt-2 px-2.5 py-2 rounded-lg border border-orange-accent/50 bg-orange-accent/10 text-text-primary">
-                    <p className="font-semibold">✗ Out of date — billing changed after this offer was created</p>
-                    <p className="mt-0.5 text-text-muted">Changed: {data.reactivation.sync.changed.join(", ")}. The client&apos;s
-                    link is now <strong className="text-text-primary">blocked from confirming</strong>. Regenerate the offer
-                    (new version + fresh link), preview, and resend.</p>
-                  </div>
-                )
-              )}
-              {data.reactivation.consent != null && (
-                <div className="mt-2 pt-2 border-t border-app-border">
-                  <p className="text-xs font-semibold text-text-primary mb-1">Consent record</p>
-                  <pre className="text-xs text-text-muted bg-app-bg rounded-lg p-2 overflow-x-auto">{JSON.stringify(data.reactivation.consent, null, 2)}</pre>
-                </div>
-              )}
-              {data.reactivation.url && (
-                <p className="text-xs text-text-muted mt-2">
-                  Secure link (expires {fmtDate(data.reactivation.tokenExpires)}):{" "}
-                  <button className="text-brand hover:underline" onClick={() => { navigator.clipboard.writeText(data.reactivation!.url!); setMsg("Link copied."); }}>Copy</button>
-                  {" · "}
-                  <a className="text-brand hover:underline" href={data.reactivation.url} target="_blank" rel="noreferrer">Preview page</a>
-                </p>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-text-muted">
-              {b.configured
-                ? "No offer yet. Create one to send the client a secure link where they review the owner-approved membership and confirm — with the first-payment date spelled out before anything is charged."
-                : "No offer yet — and none can be created until a membership is assigned. Use Edit on the pricing card to assign a plan (or an explicit $0 price for a deliberately free membership)."}
-            </p>
-          )}
-        </Card>
+        {/* ── Reactivation offer ── */}
+        {show.reactivation && (
+          <ReactivationCard
+            data={data}
+            canCreate={show.createOffer}
+            onOpen={() => setReactOpen(true)}
+            onMsg={setMsg}
+          />
+        )}
 
         {/* ── Migration triage ── */}
-        <TriageCard data={data} memberId={id} onSaved={() => load()} />
+        {show.triage && <TriageCard data={data} memberId={id} showFinalDate={show.triageFinalDate} onSaved={() => load()} />}
 
-        {/* ── Subscriptions ── */}
-        <Card title="Membership history (subscriptions)" className="lg:col-span-2">
-          {data.subscriptions.length === 0 ? (
-            <p className="text-sm text-text-muted">No subscriptions on record.</p>
-          ) : (
-            <div className="space-y-2">
-              {data.subscriptions.map((s) => (
-                <div key={s.id} className="border border-app-border rounded-lg px-3 py-2 text-sm flex flex-wrap gap-x-4 gap-y-1 items-center justify-between">
-                  <div>
-                    <span className="font-medium text-text-primary">{s.optionLabel}</span>{" "}
-                    <span className="text-text-muted text-xs">
-                      {/* A bare "Free" is what made a comp and a leftover
-                          placeholder indistinguishable. Say which one. */}
-                      {s.price <= 0
-                        ? s.deliberateFree ? "Free — comped on purpose" : "$0 — not marked as a comp"
-                        : `${fmtMoney(s.price)}${s.billingPeriod ? ` ${s.billingPeriod.toLowerCase()}` : ""}`} · {s.billingType.toLowerCase()} · {s.status}
-                      {s.stripeStatus && s.stripeStatus !== s.status ? ` (Stripe: ${s.stripeStatus})` : ""}
-                    </span>
-                    <div className="text-xs text-text-muted">
-                      {fmtDate(s.startDate)} → {s.endDate ? fmtDate(s.endDate) : "open-ended"}
-                      {s.currentPeriodEnd ? ` · next billing ${fmtDate(s.currentPeriodEnd)}` : ""}
-                      {s.card?.last4 ? ` · ${s.card.brand ?? "card"} ····${s.card.last4}` : ""}
-                    </div>
-                    {s.minimumTermEndsAt && (
-                      <div className="text-xs text-text-muted">Committed through {fmtDateUTC(s.minimumTermEndsAt)}{s.autoRenew ? " · renews after" : s.endDate ? "" : " · then ends"}</div>
-                    )}
-                    {s.notes && <div className="text-xs text-text-muted italic mt-0.5">{s.notes}</div>}
-                  </div>
-                  {/* B12 — a Stripe-billed row is changed HERE, never in the
-                      Stripe dashboard (Express has no Customers tab). Sync
-                      pulls what Stripe charges onto the row; Change plan
-                      pushes a new option to Stripe at the next invoice. */}
-                  {s.hasStripe && ["active", "pending", "past_due"].includes(s.status) && (
-                    <div className="flex gap-1.5 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => syncFromStripe(s.id)}
-                        disabled={syncingSubId === s.id}
-                        className="text-xs px-2.5 py-1.5 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50 inline-flex items-center gap-1"
-                      >
-                        <RefreshCw size={12} className={syncingSubId === s.id ? "animate-spin" : ""} /> Sync from Stripe
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPlanChangeSubId(s.id)}
-                        className="text-xs px-2.5 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover"
-                      >
-                        Change plan
-                      </button>
-                    </div>
-                  )}
-                  {s.price <= 0 && (
-                    <CompToggle
-                      memberId={id}
-                      sub={s}
-                      // Prepaid and comped both read $0, and the tell is the
-                      // OWNER PRICE OVERRIDE, not the term markers. The
-                      // migration stamped finalPeriodPaid on everyone who had
-                      // a term, money or not, so it says nothing — the first
-                      // cut of this guard used it and warned on the two real
-                      // comps. A $0 override is somebody deciding to give the
-                      // membership away; its absence on a non-renewing term
-                      // is what a lump-sum member looks like.
-                      prepaid={
-                        data.billing.priceOverride == null &&
-                        (data.billing.finalPeriodPaid || (!s.autoRenew && !!s.endDate))
-                      }
-                      comped={data.billing.priceOverride === 0}
-                      endDate={s.endDate}
-                      onDone={() => load()}
-                      onMsg={setMsg}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-
-        {/* ── Danger zone ── */}
-        <DangerCard data={data} memberId={id} onDone={() => load()} onMsg={setMsg} />
+        {/* ── Pending activation ── */}
+        {show.cancelPendingActivation && <DangerCard memberId={id} onDone={() => load()} onMsg={setMsg} />}
 
         {/* ── History ── */}
-        <Card title="Billing & migration history" className="lg:col-span-2">
-          {data.history.length === 0 ? (
-            <p className="text-sm text-text-muted">No history yet.</p>
-          ) : (
-            <div className="space-y-1.5 max-h-96 overflow-y-auto">
-              {data.history.map((h, i) => (
-                <div key={i} className="text-xs flex gap-2 items-start">
-                  <span className="text-text-muted whitespace-nowrap">{new Date(h.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
-                  <span className={`px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${h.kind === "BILLING" ? "bg-brand/10 text-brand" : "bg-app-bg text-text-muted"}`}>{h.action}</span>
-                  <span className="text-text-primary">
-                    {h.message || ""}
-                    {h.actorName ? <span className="text-text-muted"> — {h.actorName}</span> : ""}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
+        {show.history && (
+          <Card title="Billing & migration history" className="lg:col-span-2">
+            {data.history.length === 0 ? (
+              <p className="text-sm text-text-muted">No history yet.</p>
+            ) : (
+              <div className="max-h-96 space-y-1.5 overflow-y-auto">
+                {data.history.map((h, i) => (
+                  <div key={i} className="flex items-start gap-2 text-xs">
+                    <span className="whitespace-nowrap text-text-muted">{new Date(h.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                    <span className={`whitespace-nowrap rounded px-1.5 py-0.5 font-medium ${h.kind === "BILLING" ? "bg-brand/10 text-brand" : "bg-app-bg text-text-muted"}`}>{h.action}</span>
+                    <span className="text-text-primary">
+                      {h.message || ""}
+                      {h.actorName ? <span className="text-text-muted"> — {h.actorName}</span> : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
       </div>
 
       {cardActivateOpen && (
@@ -744,107 +515,132 @@ export default function MemberBillingPage() {
           data={data}
           memberId={id}
           onClose={() => setCardActivateOpen(false)}
-          onDone={(m) => { setCardActivateOpen(false); setMsg(m); load(); }}
+          onDone={(t) => { setCardActivateOpen(false); setMsg(t); load(); }}
         />
       )}
-      {planChangeSubId && (
-        <PlanChangeModal
-          data={data}
-          memberId={id}
-          subscriptionId={planChangeSubId}
-          initialOptionId={search.get("option")}
-          onClose={() => setPlanChangeSubId(null)}
-          onDone={(m) => { setPlanChangeSubId(null); setMsg(m); load(); }}
-        />
-      )}
-      {editOpen && <EditBillingModal data={data} memberId={id} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); load(); }} />}
-      {reactOpen && <ReactivationModal data={data} memberId={id} onClose={() => setReactOpen(false)} onChanged={() => load()} />}
+      {editOpen && show.setupEdit && <EditBillingModal data={data} memberId={id} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); load(); }} />}
+      {reactOpen && show.createOffer && <ReactivationModal data={data} memberId={id} onClose={() => setReactOpen(false)} onChanged={() => load()} />}
     </div>
   );
 }
 
-// ── Payment-method pieces ───────────────────────────────────────────────────
+// ── Reactivation offer card ──────────────────────────────────────────────────
 
-function PMButton({ id, intent, label, onMsg }: { id: string; intent: "ADD" | "REPLACE"; label: string; onMsg: (s: string) => void }) {
-  const [busy, setBusy] = useState(false);
+function ReactivationCard({ data, canCreate, onOpen, onMsg }: { data: Data; canCreate: boolean; onOpen: () => void; onMsg: (s: string) => void }) {
+  const b = data.billing;
+  const r = data.reactivation;
   return (
-    <button
-      disabled={busy}
-      onClick={async () => {
-        if (intent === "REPLACE" && !confirm("Collect a NEW card on a secure Stripe page?\n\nThe current card keeps being charged until you explicitly make the new one the default.")) return;
-        setBusy(true);
-        const r = await fetch(`/api/members/${id}/payment-methods/setup`, {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intent }),
-        });
-        const d = await r.json().catch(() => ({}));
-        setBusy(false);
-        if (r.ok && d.url) window.open(d.url, "_blank");
-        else onMsg(d.error || "Could not open the Stripe page.");
-      }}
-      className="text-xs inline-flex items-center gap-1 border border-app-border rounded-lg px-2.5 py-1.5 text-text-primary hover:bg-app-bg"
+    <Card
+      title="Reactivation offer"
+      className="lg:col-span-2"
+      action={canCreate ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          disabled={!b.configured}
+          title={!b.configured ? "Put a membership in the setup first" : undefined}
+          className="inline-flex min-h-[44px] items-center text-xs text-brand hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50 md:min-h-0"
+        >
+          {r && (r.status === "DRAFT" || r.status === "SENT") ? "Manage / resend" : "Create offer"}
+        </button>
+      ) : undefined}
     >
-      <CreditCard className="h-3 w-3" /> {busy ? "Opening…" : label}
-    </button>
-  );
-}
-
-function PaymentMethodRow({ pm, memberId, hasPendingCharge, onChanged, onMsg }: { pm: PaymentMethod; memberId: string; hasPendingCharge: boolean; onChanged: () => void; onMsg: (s: string) => void }) {
-  const [busy, setBusy] = useState(false);
-  const label = pm.type === "link"
-    ? `Link wallet${pm.linkEmail ? ` (${pm.linkEmail})` : ""}`
-    : `${(pm.brand || "Card").replace(/^\w/, (c) => c.toUpperCase())} ···· ${pm.last4}`;
-  const exp = pm.expMonth && pm.expYear ? `${String(pm.expMonth).padStart(2, "0")}/${String(pm.expYear).slice(-2)}` : null;
-
-  const makeDefault = async () => {
-    if (!confirm(`Make ${label} the default?\n\nThis repoints the customer default, any live subscription, and the card pending activation/reactivation will charge.`)) return;
-    setBusy(true);
-    const r = await fetch(`/api/members/${memberId}/payment-methods/make-default`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ref: pm.ref, confirm: true }),
-    });
-    const d = await r.json().catch(() => ({}));
-    setBusy(false);
-    if (r.ok) { onMsg(`${d.method || label} is now the default${d.liveSubscriptionsRepointed ? ` — ${d.liveSubscriptionsRepointed} live subscription(s) repointed` : ""}.`); onChanged(); }
-    else onMsg(d.error || "Could not make it the default.");
-  };
-  const remove = async () => {
-    if (!confirm(`Remove ${label}?\n\nRemoval is blocked automatically if anything live or pending still charges this method. Payment history is never deleted.`)) return;
-    setBusy(true);
-    const r = await fetch(`/api/members/${memberId}/payment-methods/remove`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ref: pm.ref, confirm: true }),
-    });
-    const d = await r.json().catch(() => ({}));
-    setBusy(false);
-    if (r.ok) { onMsg(`${d.removed || label} removed.`); onChanged(); }
-    else onMsg(d.error || "Removal blocked.");
-  };
-
-  return (
-    <div className="border border-app-border rounded-lg px-3 py-2 flex flex-wrap items-center justify-between gap-2">
-      <div className="text-sm">
-        <span className="font-medium text-text-primary">{label}</span>
-        {exp && <span className="text-text-muted text-xs"> · exp {exp}</span>}
-        {pm.cardholder && <span className="text-text-muted text-xs"> · {pm.cardholder}</span>}
-        <div className="text-xs text-text-muted mt-0.5 flex flex-wrap gap-x-2">
-          {pm.customerName || pm.customerEmail ? <span>Owner: {pm.customerName || pm.customerEmail}</span> : null}
-          {pm.isDefault && <span className="text-brand font-medium">Customer default</span>}
-          {pm.isCapturedForActivation && (
-            <span className="text-brand font-medium">
-              {hasPendingCharge ? "Will be charged when the pending activation completes" : "On file for future billing"}
-            </span>
+      {r ? (
+        <div>
+          {r.changeRequestStatus === "OPEN" && (
+            <div className="mb-2 rounded-lg border border-[var(--color-warn-text)] bg-[var(--color-warn-surface)] px-3 py-2">
+              <p className="text-xs font-semibold text-[var(--color-warn-text)]">Client requested changes — confirmation is locked</p>
+              {r.changeRequest?.fields && (
+                <p className="mt-0.5 text-xs text-text-primary">
+                  {Object.entries(r.changeRequest.fields).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(" · ") || ""}
+                </p>
+              )}
+              {r.changeRequest?.note && <p className="mt-0.5 text-xs italic text-text-primary">&ldquo;{r.changeRequest.note}&rdquo;</p>}
+              <p className="mt-1 text-[12px] text-text-muted">
+                Approve or deny it from <Link href="/dashboard/members/approvals" className="underline">Approvals</Link> —
+                approving regenerates a new offer version from the current setup.
+              </p>
+            </div>
           )}
-          {pm.backsLiveSubscription && <span className="text-orange-accent font-medium">Backs a live subscription</span>}
-          {pm.customerRole === "LEGACY" && <span>Legacy customer</span>}
+          <Row label="Status" strong>
+            {r.status}{r.status === "SENT" ? ` — to ${r.sentToEmail} (${r.emailSendCount}×)` : ""}
+          </Row>
+          <Row label="Offer version">v{r.offerVersion}</Row>
+          <Row label="Last updated">{fmtDate(r.updatedAt)}</Row>
+          {r.emailSentAt && <Row label="Last sent">{fmtDate(r.emailSentAt)}</Row>}
+          {r.viewedAt && <Row label="First viewed">{fmtDate(r.viewedAt)}</Row>}
+          {r.confirmedAt && <Row label="Confirmed">{fmtDate(r.confirmedAt)}</Row>}
+
+          {/* The offer is an immutable snapshot — show EXACTLY what the
+              client's link presents, independent of later setup edits. */}
+          <div className="mt-2 border-t border-app-border pt-2">
+            <p className="mb-1 text-xs font-semibold text-text-primary">What this offer contains (frozen at send time)</p>
+            <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+              <Row label="Plan">{r.offer.planName || "—"}{r.offer.optionLabel ? ` · ${r.offer.optionLabel}` : ""}</Row>
+              <Row label="Price">
+                {(r.offer.price ?? 0) <= 0 ? "Free" : `${fmtMoney(r.offer.price!)} ${(r.offer.billingPeriod || "").toLowerCase()}`}
+              </Row>
+              {r.offer.discount && (
+                <Row label="Discount" strong>{r.offer.discount.name} Discount Applied — final {fmtMoney(r.offer.discount.finalPrice)}</Row>
+              )}
+              {data.feeBreakdown?.passFees && (r.offer.price ?? 0) > 0 && r.offer.paymentMode === "CARD" && (() => {
+                const effective = r.offer.discount?.finalPrice ?? r.offer.price!;
+                if (effective <= 0) return null;
+                const fb = feeBreakdown(effective, true);
+                return <Row label="Total charged">{fmtMoney(fb.total)} (includes {fmtMoney(fb.fee)} processing fee)</Row>;
+              })()}
+              <Row label="Start">{fmtDateUTC(r.offer.startDate)}</Row>
+              <Row label="First payment">{r.offer.firstChargeDate ? fmtDateUTC(r.offer.firstChargeDate) : "No charge"}</Row>
+              <Row label="Commitment through">{fmtDateUTC(r.offer.commitmentEndDate)}</Row>
+              <Row label="Payment">
+                {(r.offer.paymentMethod && OFFER_METHOD_LABELS[r.offer.paymentMethod]) ||
+                  (r.offer.paymentMode === "CARD" ? "Saved card at confirmation" : r.offer.paymentMode === "OFFLINE" ? "Offline / club collects" : "Free — none")}
+              </Row>
+            </div>
+            {(r.offer.paymentMethod === "CASH" || r.offer.paymentMethod === "CHECK") && (
+              <p className="mt-1 text-xs text-text-muted">{offlineRuleLabel(data.offlineActivationPolicy)}</p>
+            )}
+          </div>
+
+          {r.open && r.sync && (
+            r.sync.matches ? (
+              <p className="mt-2 rounded-lg bg-lime-accent/20 px-2.5 py-1.5 text-xs text-text-primary">
+                ✓ Matches the current setup — the client will confirm exactly what this page shows.
+              </p>
+            ) : (
+              <div className="mt-2 rounded-lg border border-[var(--color-warn-text)] bg-[var(--color-warn-surface)] px-2.5 py-2 text-xs text-text-primary">
+                <p className="font-semibold">✗ Out of date — the setup changed after this offer was created</p>
+                <p className="mt-0.5 text-text-muted">Changed: {r.sync.changed.join(", ")}. The client&apos;s link is now{" "}
+                <strong className="text-text-primary">blocked from confirming</strong>. Regenerate the offer (new version + fresh link), preview, and resend.</p>
+              </div>
+            )
+          )}
+          {r.consent != null && (
+            <div className="mt-2 border-t border-app-border pt-2">
+              <p className="mb-1 text-xs font-semibold text-text-primary">Consent record</p>
+              <pre className="overflow-x-auto rounded-lg bg-app-bg p-2 text-xs text-text-muted">{JSON.stringify(r.consent, null, 2)}</pre>
+            </div>
+          )}
+          {r.url && (
+            <p className="mt-2 text-xs text-text-muted">
+              Secure link (expires {fmtDate(r.tokenExpires)}):{" "}
+              <button type="button" className="inline-flex min-h-[44px] items-center text-brand hover:underline md:min-h-0" onClick={() => { navigator.clipboard.writeText(r.url!); onMsg("Link copied."); }}>Copy</button>
+              {" · "}
+              <a className="inline-flex min-h-[44px] items-center text-brand hover:underline md:min-h-0" href={r.url} target="_blank" rel="noreferrer">Preview page</a>
+            </p>
+          )}
         </div>
-      </div>
-      <div className="flex gap-2">
-        {!pm.isCapturedForActivation && (
-          <button disabled={busy} onClick={makeDefault} className="text-xs border border-app-border rounded-lg px-2 py-1 hover:bg-app-bg text-text-primary">Make default</button>
-        )}
-        <button disabled={busy} onClick={remove} className="text-xs border border-app-border rounded-lg px-2 py-1 hover:bg-app-bg text-red-600">Remove</button>
-      </div>
-    </div>
+      ) : (
+        <p className="text-sm text-text-muted">
+          {b.configured
+            ? "No offer yet. Create one to send the client a secure link where they review the owner-approved membership and confirm — with the first-payment date spelled out before anything is charged."
+            : "No offer yet — and none can be created until the setup has a membership. Use Edit setup (or an explicit $0 price for a deliberately free membership)."}
+        </p>
+      )}
+    </Card>
   );
 }
+
 
 // ── Migration triage card ──────────────────────────────────────────────────
 
@@ -852,7 +648,7 @@ function PaymentMethodRow({ pm, memberId, hasPendingCharge, onChanged, onMsg }: 
 // longer offered. A member still carrying one shows it as a legacy value so
 // the owner can move them to an operational state.
 
-function TriageCard({ data, memberId, onSaved }: { data: Data; memberId: string; onSaved: () => void }) {
+function TriageCard({ data, memberId, showFinalDate, onSaved }: { data: Data; memberId: string; showFinalDate: boolean; onSaved: () => void }) {
   const mig = data.migration;
   const [note, setNote] = useState(mig.groupNote ?? "");
   const [finalDate, setFinalDate] = useState(dateInput(data.billing.finalBillingDate));
@@ -872,7 +668,9 @@ function TriageCard({ data, memberId, onSaved }: { data: Data; memberId: string;
         // second place a staffer was asked to classify someone by hand, which
         // the 7-step meter now answers from facts.
         migrationGroupNote: note || null,
-        migrationFinalBillingDate: finalDate || null,
+        // Once billing is live the final billing date means nothing (activation
+        // already happened) — it is not offered, and not sent.
+        ...(showFinalDate ? { migrationFinalBillingDate: finalDate || null } : {}),
       }),
     });
     const d = await r.json().catch(() => ({}));
@@ -890,142 +688,32 @@ function TriageCard({ data, memberId, onSaved }: { data: Data; memberId: string;
         {mig.activationEmailSentAt ? ` Activation email sent ${mig.activationEmailSendCount}× (last ${fmtDate(mig.activationEmailSentAt)}).` : " No activation email sent yet."}
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="text-xs text-text-muted">Final billing date
-          <input type="date" value={finalDate} onChange={(e) => setFinalDate(e.target.value)} className="mt-1 w-full border border-app-border rounded-lg px-2 py-1.5 text-sm bg-surface text-text-primary" />
-        </label>
+        {showFinalDate && (
+          <label className="text-xs text-text-muted">Final billing date
+            <input type="date" value={finalDate} onChange={(e) => setFinalDate(e.target.value)} className="mt-1 min-h-[44px] w-full rounded-lg border border-app-border bg-surface px-2 py-1.5 text-sm text-text-primary md:min-h-0" />
+          </label>
+        )}
         <label className="text-xs text-text-muted">Note
-          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. decide July payment" className="mt-1 w-full border border-app-border rounded-lg px-2 py-1.5 text-sm bg-surface text-text-primary" />
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. decide July payment" className="mt-1 min-h-[44px] w-full rounded-lg border border-app-border bg-surface px-2 py-1.5 text-sm text-text-primary md:min-h-0" />
         </label>
       </div>
-      {finalDate && new Date(finalDate + "T23:59:59") < new Date() && (
-        <p className="text-xs text-orange-accent mt-2">That date is in the past — activation flows will demand a new future date or an explicit immediate-charge confirmation.</p>
+      {showFinalDate && finalDate && new Date(finalDate + "T23:59:59") < new Date() && (
+        <p className="text-xs text-[var(--color-warn-text)] mt-2">That date is in the past — activation flows will demand a new future date or an explicit immediate-charge confirmation.</p>
       )}
       {err && <p className="text-xs text-red-600 mt-2">{err}</p>}
       <div className="mt-3 flex items-center gap-3">
-        <button disabled={busy} onClick={save} className="text-sm bg-charcoal text-white rounded-lg px-4 py-1.5 hover:bg-charcoal-hover">{busy ? "Saving…" : "Save triage"}</button>
+        <button type="button" disabled={busy} onClick={save} className="inline-flex min-h-[44px] items-center rounded-lg bg-charcoal px-4 text-sm text-white hover:bg-charcoal-hover md:min-h-[36px]">{busy ? "Saving…" : "Save triage"}</button>
         {saved && <span className="text-xs text-text-muted">Saved.</span>}
       </div>
     </Card>
   );
 }
 
-// ── Danger zone ────────────────────────────────────────────────────────────
-
-// The one control that writes MemberSubscription.deliberateFree.
-//
-// It only appears on $0 rows, because that is the only place the flag
-// changes the answer: a priced membership counts once a payment lands,
-// and the API refuses the write there rather than store a no-op that
-// would read as "I comped them" forever after.
-function CompToggle({
-  memberId,
-  sub,
-  prepaid,
-  comped,
-  endDate,
-  onDone,
-  onMsg,
-}: {
-  memberId: string;
-  sub: { id: string; optionLabel: string; deliberateFree: boolean; billingType: string };
-  prepaid: boolean;
-  comped: boolean;
-  endDate: string | null;
-  onDone: () => void;
-  onMsg: (s: string) => void;
-}) {
+function DangerCard({ memberId, onDone, onMsg }: { memberId: string; onDone: () => void; onMsg: (s: string) => void }) {
   const [busy, setBusy] = useState(false);
-  const turningOn = !sub.deliberateFree;
-
-  const run = async () => {
-    // Prepaid and comped both look like $0. Every $0 membership in this club
-    // today is prepaid, not comped, so the warning leads.
-    const prepaidWarning =
-      prepaid && turningOn
-        ? `CAUTION — this looks like a PREPAID membership, not a comp.\n\n` +
-          `It is non-renewing${endDate ? ` and ends ${fmtDate(endDate)}` : ""}, which is what a lump-sum ` +
-          `member looks like once the term is paid up front. Marking it comped would record that the club ` +
-          `gave this membership away for nothing, and the renewal would stop looking like money owed.\n\n` +
-          `If they paid up front, cancel this and record the payment instead.\n\n`
-        : "";
-
-    const reason = window.prompt(
-      turningOn
-        ? prepaidWarning +
-          `Mark "${sub.optionLabel}" as a membership the club gives away on purpose?\n\n` +
-          `This member will count as active with no payment expected.\n\n` +
-          `Why is it free? (coach's kid, scholarship, trade — optional, saved to the record)`
-        : `Remove the comp marker from "${sub.optionLabel}"?\n\n` +
-          `A $0 membership with no marker does not count as a membership, so this member ` +
-          `may drop to inactive.\n\nReason (optional):`,
-      "",
-    );
-    // A cancelled prompt returns null — an empty string is a real answer.
-    if (reason === null) return;
-    setBusy(true);
-    const r = await fetch(`/api/members/${memberId}/billing-admin/actions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "set_deliberate_free",
-        confirm: true,
-        subscriptionId: sub.id,
-        deliberateFree: turningOn,
-        reason: reason || undefined,
-      }),
-    });
-    const d = await r.json().catch(() => ({}));
-    setBusy(false);
-    if (r.ok) {
-      onMsg(
-        turningOn
-          ? `Marked as a deliberate comp${d.memberStatus ? ` — member is now ${String(d.memberStatus).toLowerCase()}` : ""}.`
-          : `Comp marker removed${d.memberStatus ? ` — member is now ${String(d.memberStatus).toLowerCase()}` : ""}.`,
-      );
-      onDone();
-    } else onMsg(d.error || "Could not update.");
-  };
-
-  return (
-    <div className="flex flex-col items-end gap-0.5">
-      <button
-        disabled={busy}
-        onClick={run}
-        className={`text-xs rounded-lg px-3 py-1.5 border ${
-          turningOn
-            ? "border-app-border text-text-primary hover:bg-app-bg"
-            : "border-app-border text-text-muted hover:bg-app-bg"
-        }`}
-      >
-        {busy ? "Saving…" : turningOn ? "Mark as comped" : "Remove comp"}
-      </button>
-      {/* MANUAL rows are exempt from the money test entirely, so the flag
-          is stored but changes nothing today. Say so rather than let a
-          coach think this is what is keeping them active. */}
-      {comped && turningOn ? (
-        <span className="text-[12px] text-text-muted max-w-[13rem] text-right">
-          Owner set a $0 price — looks like a comp
-        </span>
-      ) : prepaid && turningOn ? (
-        <span className="text-[12px] text-orange-accent max-w-[13rem] text-right">
-          Looks prepaid, not comped{endDate ? ` — term ends ${fmtDate(endDate)}` : ""}
-        </span>
-      ) : sub.billingType === "MANUAL" ? (
-        <span className="text-[12px] text-text-muted">Cash membership — counts either way</span>
-      ) : null}
-    </div>
-  );
-}
-
-function DangerCard({ data, memberId, onDone, onMsg }: { data: Data; memberId: string; onDone: () => void; onMsg: (s: string) => void }) {
-  const [busy, setBusy] = useState(false);
-  const pendingActivation =
-    data.migration.approvalStatus === "PENDING_APPROVAL" ||
-    data.migration.migrationStatus === "INVITED" ||
-    data.migration.migrationStatus === "ACTIVATED";
+  const [asking, setAsking] = useState(false);
 
   const cancelPending = async () => {
-    if (!confirm("Cancel the pending activation?\n\nBefore: the activation link works and the member awaits approval.\nAfter: the link stops working, approval state clears, and the member returns to the imported pool.\n\nAll history, requests, and any saved card are preserved. Nothing is charged.")) return;
     setBusy(true);
     const r = await fetch(`/api/members/${memberId}/billing-admin/actions`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -1033,24 +721,40 @@ function DangerCard({ data, memberId, onDone, onMsg }: { data: Data; memberId: s
     });
     const d = await r.json().catch(() => ({}));
     setBusy(false);
+    setAsking(false);
     if (r.ok) { onMsg("Pending activation canceled — history preserved."); onDone(); }
     else onMsg(d.error || "Could not cancel.");
   };
 
-  if (!pendingActivation) return null;
   return (
     <Card title="Pending activation" className="lg:col-span-2">
-      <p className="text-xs text-text-muted mb-2">
+      <p className="mb-2 text-xs text-text-muted">
         This member has an activation in flight. Canceling invalidates the link without deleting any history.
       </p>
-      <button disabled={busy} onClick={cancelPending} className="text-sm border border-red-300 text-red-600 rounded-lg px-4 py-1.5 hover:bg-red-50">
-        {busy ? "Working…" : "Cancel pending activation"}
+      <button type="button" disabled={busy} onClick={() => setAsking(true)} className="inline-flex min-h-[44px] items-center rounded-lg border border-red-300 px-4 text-sm text-red-600 hover:bg-red-50 md:min-h-[36px]">
+        Cancel pending activation
       </button>
+      <Sheet
+        open={asking}
+        onClose={() => { if (!busy) setAsking(false); }}
+        title="Cancel the pending activation?"
+        footer={
+          <>
+            <button type="button" onClick={() => setAsking(false)} disabled={busy} className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-app-border px-4 text-sm text-text-primary hover:bg-app-bg">Keep it</button>
+            <button type="button" onClick={cancelPending} disabled={busy} className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-red-600 px-4 text-sm text-white hover:bg-red-700 disabled:opacity-50">{busy ? "Working…" : "Cancel activation"}</button>
+          </>
+        }
+      >
+        <div className="space-y-1.5 text-sm text-text-primary">
+          <p><strong>Before:</strong> the activation link works and the member awaits approval.</p>
+          <p><strong>After:</strong> the link stops working, approval state clears, and the member returns to the imported pool.</p>
+          <p className="text-text-muted">All history, requests, and any saved card are preserved. Nothing is charged.</p>
+        </div>
+      </Sheet>
     </Card>
   );
 }
 
-// ── Edit modal (preview-diff → confirm) ────────────────────────────────────
 
 // "Activate this setup now" for a saved-card payer. One screen that states
 // the exact charge in the words the audit log will use, then runs
@@ -1080,16 +784,32 @@ function CardActivateModal({ data, memberId, onClose, onDone }: { data: Data; me
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
-      <div className="bg-surface rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-base font-semibold text-text-primary">Activate on the saved card</h3>
-        {error && <p className="text-xs text-white bg-red-600 rounded-lg px-2.5 py-2">{error}</p>}
-        <div className="text-sm text-text-primary bg-app-bg rounded-lg px-3 py-2.5 space-y-1">
+    <Sheet
+      open
+      onClose={() => { if (!busy) onClose(); }}
+      title="Activate on the saved card"
+      footer={
+        <>
+          <button type="button" onClick={onClose} disabled={busy} className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-app-border px-4 text-sm text-text-primary hover:bg-app-bg">Cancel</button>
+          <button
+            type="button"
+            onClick={run}
+            disabled={busy || (immediate && !ack)}
+            className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-brand px-4 text-sm text-white hover:bg-brand-hover disabled:opacity-50"
+          >
+            {busy ? "Working…" : immediate ? `Charge ${fmtMoney(total)} & activate` : "Activate"}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {error && <p className="rounded-lg bg-red-600 px-2.5 py-2 text-xs text-white">{error}</p>}
+        <div className="space-y-1 rounded-lg bg-app-bg px-3 py-2.5 text-sm text-text-primary">
           <p><strong>{data.member.firstName} {data.member.lastName}</strong> goes on <strong>{b.planName}{b.optionLabel ? ` · ${b.optionLabel}` : ""}</strong>.</p>
           <p>
             <strong>{fmtMoney(total)}</strong> {b.periodLabel}
             {fee?.passFees && (b.price ?? 0) > 0 ? <span className="text-text-muted"> ({fmtMoney(b.price ?? 0)} + {fmtMoney(fee.fee)} processing fee)</span> : null}
-            {" "}— first charge <strong className={immediate ? "text-orange-accent" : ""}>{firstCharge}</strong>.
+            {" "}— first charge <strong className={immediate ? "text-[var(--color-warn-text)]" : ""}>{firstCharge}</strong>.
           </p>
           <p className="text-text-muted">
             {ends ? `Ends ${ends} (the commitment date) — no charge after that.` : "Renews each period until it is turned off."}
@@ -1097,174 +817,13 @@ function CardActivateModal({ data, memberId, onClose, onDone }: { data: Data; me
           <p className="text-text-muted">Card: {pmPrefLabel(b.requestedPaymentMethod)}. Nothing else changes.</p>
         </div>
         {immediate && (
-          <label className="flex items-start gap-2 text-sm text-text-primary">
-            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5" />
+          <label className="flex min-h-[44px] items-start gap-2 text-sm text-text-primary">
+            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 h-5 w-5" />
             <span>I understand the saved card is charged <strong>{fmtMoney(total)} right now</strong>.</span>
           </label>
         )}
-        <div className="flex gap-2 justify-end pt-1">
-          <button onClick={onClose} disabled={busy} className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">Cancel</button>
-          <button
-            onClick={run}
-            disabled={busy || (immediate && !ack)}
-            className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
-          >
-            {busy ? "Working…" : immediate ? `Charge ${fmtMoney(total)} & activate` : "Activate"}
-          </button>
-        </div>
       </div>
-    </div>
-  );
-}
-
-// B12 — move a live Stripe subscription to another option. The dialog never
-// does its own math: every sentence comes from GET …/plan-change, computed
-// from Stripe's live period end, and the commit recomputes it server-side.
-type PlanChangePreview = {
-  // B13 slice 3 — which change this is; sent back on commit.
-  kind: "SAME_INTERVAL" | "SWITCH" | "OFFLINE";
-  current: { optionLabel: string; price: number; chargedTotal: number; cancelAt: string | null; minimumTermEndsAt: string | null; autoRenew: boolean };
-  target: { planName: string; optionLabel: string; price: number; billingPeriod: string; fee: number; total: number; contractMonths: number | null };
-  effectiveAt: string; autoRenew: boolean; minimumTermEndsAt: string | null; cancelAt: string | null; sameAmount: boolean; lines: string[];
-};
-
-function PlanChangeModal({ data, memberId, subscriptionId, initialOptionId, onClose, onDone }: { data: Data; memberId: string; subscriptionId: string; initialOptionId?: string | null; onClose: () => void; onDone: (msg: string) => void }) {
-  const sub = data.subscriptions.find((s) => s.id === subscriptionId) ?? null;
-  // B13 slice 3: every recurring option is offered. Same billing cycle swaps in
-  // place at the next invoice; a different cycle on a Stripe row becomes a
-  // switch at the period end; an offline row changes from its next payment.
-  // The picker says which, so the owner reads the consequence before choosing.
-  const choices = useMemo(() => {
-    const out: { id: string; label: string; planName: string; price: number; billingPeriod: string; contractMonths: number | null; sameInterval: boolean; isCurrent: boolean }[] = [];
-    for (const p of data.plans) {
-      for (const o of p.options) {
-        if (!o.id || o.billingPeriod === "ONE_TIME" || (sub?.hasStripe && o.price <= 0)) continue;
-        out.push({
-          id: o.id, label: o.label, planName: p.name, price: o.price, billingPeriod: o.billingPeriod,
-          contractMonths: o.contractMonths ?? p.contractMonths ?? null,
-          sameInterval: !!sub && o.billingPeriod === sub.billingPeriod,
-          isCurrent: !!sub && o.id === sub.optionId,
-        });
-      }
-    }
-    return out.sort((a, b) => Number(b.sameInterval) - Number(a.sameInterval) || a.planName.localeCompare(b.planName) || a.price - b.price);
-  }, [data.plans, sub]);
-  // B3 slice 2 — "Apply sibling discount" opens this on the current option.
-  const [optionId, setOptionId] = useState<string>(initialOptionId ?? "");
-  const [autoRenew, setAutoRenew] = useState<"default" | "on" | "off">("default");
-  const [preview, setPreview] = useState<PlanChangePreview | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [ack, setAck] = useState(false);
-
-  useEffect(() => {
-    if (!optionId) { setPreview(null); return; }
-    let alive = true;
-    setLoading(true); setError(""); setPreview(null); setAck(false);
-    const qs = new URLSearchParams({ subscriptionId, optionId });
-    if (autoRenew !== "default") qs.set("autoRenew", autoRenew === "on" ? "true" : "false");
-    fetch(`/api/members/${memberId}/billing-admin/plan-change?${qs.toString()}`)
-      .then(async (r) => { const d = await r.json().catch(() => ({})); if (!alive) return; if (!r.ok) setError(typeof d.error === "string" ? d.error : "Couldn't preview."); else setPreview(d as PlanChangePreview); })
-      .catch(() => alive && setError("Couldn't reach the server."))
-      .finally(() => alive && setLoading(false));
-    return () => { alive = false; };
-  }, [optionId, autoRenew, subscriptionId, memberId]);
-
-  const commit = async () => {
-    if (!optionId || !preview) return;
-    setBusy(true); setError("");
-    const r = await fetch(`/api/members/${memberId}/billing-admin/actions`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "change_plan", confirm: true, subscriptionId, optionId, expectedKind: preview?.kind, ...(autoRenew === "default" ? {} : { autoRenew: autoRenew === "on" }) }),
-    });
-    const d = await r.json().catch(() => ({}));
-    setBusy(false);
-    if (!r.ok) { setError(typeof d.error === "string" ? d.error : "Could not change the plan."); return; }
-    onDone(typeof d.message === "string" ? d.message : "Plan changed.");
-  };
-
-  if (!sub) return null;
-  const periodWord = (p: string | null) => (p ? p.toLowerCase().replace("_", "-") : "");
-  return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
-      <div className="bg-surface rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg p-5 space-y-3 max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div>
-          <h3 className="text-base font-semibold text-text-primary">Change plan</h3>
-          <p className="text-xs text-text-muted mt-0.5">
-            {sub.hasStripe ? (
-              <>{data.member.firstName} is on <strong>{sub.optionLabel}</strong> · {fmtMoney(sub.price)} {periodWord(sub.billingPeriod)} in Stripe. Nothing is charged or refunded today.</>
-            ) : (
-              <>{data.member.firstName} is on <strong>{sub.optionLabel}</strong> · {fmtMoney(sub.price)} {periodWord(sub.billingPeriod)}, billed offline. The new option starts from the next payment.</>
-            )}
-          </p>
-        </div>
-        {error && <p className="text-xs text-white bg-red-600 rounded-lg px-2.5 py-2">{error}</p>}
-
-        <label className="block">
-          <span className="block text-xs font-medium text-text-primary mb-1">Move to</span>
-          <select value={optionId} onChange={(e) => setOptionId(e.target.value)} className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface text-text-primary min-h-[44px] md:min-h-0">
-            <option value="">Pick an option…</option>
-            {choices.map((c) => (
-              <option key={c.id} value={c.id} disabled={c.isCurrent}>
-                {c.planName} · {c.label} — {fmtMoney(c.price)} {periodWord(c.billingPeriod)}{c.contractMonths ? `, ${c.contractMonths}-mo commitment` : ""}
-                {c.isCurrent ? " (current)" : !c.sameInterval && sub.hasStripe ? " — switches at period end" : ""}
-              </option>
-            ))}
-          </select>
-          <span className="block text-[12px] text-text-muted mt-1">
-            {sub.hasStripe
-              ? `Options billed ${periodWord(sub.billingPeriod)} swap in place at the next invoice. A different cycle (e.g. monthly → 3 months upfront) ends this subscription at its period end and starts the new one that day on the same card.`
-              : "Paid-through stays as it is; the next payment is at the new price."}
-          </span>
-        </label>
-
-        <div>
-          <span className="block text-xs font-medium text-text-primary mb-1">After the commitment</span>
-          <div className="flex gap-1.5 flex-wrap">
-            {([["default", "Option default"], ["off", "Ends — no renewal"], ["on", "Keeps renewing"]] as const).map(([v, l]) => (
-              <button key={v} type="button" onClick={() => setAutoRenew(v)}
-                className={`text-xs px-2.5 py-1.5 rounded-lg border ${autoRenew === v ? "border-brand bg-brand/10 text-brand font-medium" : "border-app-border text-text-primary hover:bg-app-bg"}`}>
-                {l}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {loading && <p className="text-xs text-text-muted">Checking with Stripe…</p>}
-        {preview && (
-          <div className="text-sm text-text-primary bg-app-bg rounded-lg px-3 py-2.5 space-y-1">
-            <p>
-              {preview.kind === "SWITCH" ? "Switch to " : ""}<strong>{preview.target.planName} · {preview.target.optionLabel}</strong>
-              {preview.kind === "OFFLINE" ? " from the next payment, " : " from "}<strong>{fmtDateUTC(preview.effectiveAt)}</strong>.
-            </p>
-            {preview.lines.map((l, i) => <p key={i} className={i === 0 ? "" : "text-text-muted"}>{l}</p>)}
-            {preview.kind !== "SWITCH" && preview.current.cancelAt && !preview.cancelAt && (
-              <p className="text-text-muted">The old end date ({fmtDateUTC(preview.current.cancelAt)}) is removed.</p>
-            )}
-          </div>
-        )}
-        {preview && (
-          <label className="flex items-start gap-2 text-sm text-text-primary">
-            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5" />
-            <span>
-              {preview.kind === "SWITCH"
-                ? `End the current Stripe subscription on ${fmtDateUTC(preview.effectiveAt)} and start the new one that day on the same card.`
-                : preview.kind === "OFFLINE"
-                  ? `Change ${data.member.firstName}'s membership. Nothing is charged.`
-                  : `Apply this to ${data.member.firstName}'s Stripe subscription.`}{" "}
-              {data.member.firstName} isn&apos;t emailed — tell the family yourself.
-            </span>
-          </label>
-        )}
-        <div className="flex gap-2 justify-end pt-1">
-          <button onClick={onClose} disabled={busy} className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg">Cancel</button>
-          <button onClick={commit} disabled={busy || !preview || !ack} className="text-sm px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">
-            {busy ? "Applying…" : preview?.kind === "SWITCH" ? "Switch plan" : "Change plan"}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -1351,14 +910,19 @@ function EditBillingModal({ data, memberId, onClose, onSaved }: { data: Data; me
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={() => !busy && onClose()}>
-      <div className="bg-surface w-full sm:max-w-lg rounded-t-2xl sm:rounded-xl p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-base font-semibold text-text-primary mb-1">Edit billing setup</h3>
-        <p className="text-xs text-text-muted mb-3">
-          Saving these changes does not charge the client. They take effect only when the client confirms
-          the reactivation offer or an authorized user explicitly activates the membership. If an offer is
-          already out, changing these fields marks it out of date — you&apos;ll regenerate and resend.
-        </p>
+    <Sheet
+      open
+      onClose={() => { if (!busy) onClose(); }}
+      title="Edit migration setup"
+      width={560}
+      description={
+        <>
+          A draft of what this member will be billed when they activate. Saving never charges anyone and never
+          changes a live membership. If an offer is already out, changing these fields marks it out of date —
+          you&apos;ll regenerate and resend.
+        </>
+      }
+    >
 
         {!diff ? (
           <div className="space-y-3">
@@ -1399,7 +963,7 @@ function EditBillingModal({ data, memberId, onClose, onSaved }: { data: Data; me
               originalPrice={discountBasePrice}
               passProcessingFees={!!data.feeBreakdown?.passFees}
             />
-            <label className="block text-xs text-text-muted">Payment method
+            <label className="block text-xs text-text-muted">Will pay by (after activation)
               <select value={payPref} onChange={(e) => setPayPref(e.target.value)} className="mt-1 w-full border border-app-border rounded-lg px-2 py-1.5 text-sm bg-surface text-text-primary">
                 <option value="CARD">Saved card</option>
                 <option value="LATER">New card (client adds)</option>
@@ -1439,8 +1003,8 @@ function EditBillingModal({ data, memberId, onClose, onSaved }: { data: Data; me
             </div>
             {err && <p className="text-xs text-red-600">{err}</p>}
             <div className="flex justify-end gap-2 pt-1">
-              <button disabled={busy} onClick={onClose} className="text-sm px-4 py-1.5 rounded-lg border border-app-border text-text-primary">Cancel</button>
-              <button disabled={busy} onClick={preview} className="text-sm px-4 py-1.5 rounded-lg bg-charcoal text-white hover:bg-charcoal-hover">{busy ? "Checking…" : "Preview changes"}</button>
+              <button disabled={busy} onClick={onClose} className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border px-4 text-sm text-text-primary md:min-h-[36px]">Cancel</button>
+              <button disabled={busy} onClick={preview} className="inline-flex min-h-[44px] items-center rounded-lg bg-charcoal px-4 text-sm text-white hover:bg-charcoal-hover md:min-h-[36px]">{busy ? "Checking…" : "Preview changes"}</button>
             </div>
           </div>
         ) : (
@@ -1464,15 +1028,14 @@ function EditBillingModal({ data, memberId, onClose, onSaved }: { data: Data; me
             )}
             {err && <p className="text-xs text-red-600 mb-2">{err}</p>}
             <div className="flex justify-end gap-2">
-              <button disabled={busy} onClick={() => setDiff(null)} className="text-sm px-4 py-1.5 rounded-lg border border-app-border text-text-primary">Back</button>
+              <button disabled={busy} onClick={() => setDiff(null)} className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border px-4 text-sm text-text-primary md:min-h-[36px]">Back</button>
               {diff.changed.length > 0 && (
-                <button disabled={busy} onClick={commit} className="text-sm px-4 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-hover">{busy ? "Applying…" : "Apply changes"}</button>
+                <button disabled={busy} onClick={commit} className="inline-flex min-h-[44px] items-center rounded-lg bg-brand px-4 text-sm text-white hover:bg-brand-hover md:min-h-[36px]">{busy ? "Applying…" : "Apply changes"}</button>
               )}
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -1504,7 +1067,7 @@ function ReactivationModal({ data, memberId, onClose, onChanged }: { data: Data;
     }
     else if (d.code === "PLAN_REQUIRED") {
       // No membership configured — the server refuses to draft a $0 offer.
-      setErr(d.error || "No membership is configured for this member. Assign a plan (or an explicit $0 price) in the billing setup before creating an offer.");
+      setErr(d.error || "No membership is configured for this member. Put a plan (or an explicit $0 price) in Edit setup before creating an offer.");
       onChanged(); // re-sync so the page flips to the "No membership" state
     }
     else setErr(d.error || "Could not create the offer.");
@@ -1519,8 +1082,9 @@ function ReactivationModal({ data, memberId, onClose, onChanged }: { data: Data;
     else setErr(d.error || "Preview failed — create the offer first.");
   };
 
+  const [confirmSend, setConfirmSend] = useState(false);
   const send = async () => {
-    if (!confirm(`Send the reactivation email now?\n\nIt goes to the client with the secure confirmation link. Sending never charges anything.`)) return;
+    setConfirmSend(false);
     setBusy(true); setErr(null);
     const r = await fetch(`/api/members/${memberId}/reactivation/send`, { method: "POST" });
     const d = await r.json().catch(() => ({}));
@@ -1530,9 +1094,7 @@ function ReactivationModal({ data, memberId, onClose, onChanged }: { data: Data;
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={() => !busy && onClose()}>
-      <div className="bg-surface w-full sm:max-w-2xl rounded-t-2xl sm:rounded-xl p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-base font-semibold text-text-primary mb-1">Reactivation offer</h3>
+    <Sheet open onClose={() => { if (!busy) onClose(); }} title="Reactivation offer" width={680}>
         <p className="text-xs text-text-muted mb-3">
           Offer: <strong className="text-text-primary">{data.billing.configured ? data.billing.planName : "No membership configured"}</strong>
           {data.billing.configured
@@ -1551,7 +1113,7 @@ function ReactivationModal({ data, memberId, onClose, onChanged }: { data: Data;
             <p>Discount: <strong className="text-text-primary font-mono">{data.billing.discountCode}</strong> — validated and frozen into the offer when it&apos;s created.</p>
           )}
           {(data.billing.requestedPaymentMethod === "CASH" || data.billing.requestedPaymentMethod === "CHECK") && (
-            <p className="text-orange-accent">{offlineRuleLabel(data.offlineActivationPolicy)}</p>
+            <p className="text-[var(--color-warn-text)]">{offlineRuleLabel(data.offlineActivationPolicy)}</p>
           )}
         </div>
 
@@ -1563,11 +1125,20 @@ function ReactivationModal({ data, memberId, onClose, onChanged }: { data: Data;
             </div>
             {err && <p className="text-xs text-red-600 mb-2">{err}</p>}
             {sentMsg && <p className="text-xs text-text-primary bg-lime-accent/20 rounded-lg px-2 py-1.5 mb-2">{sentMsg}</p>}
-            <div className="flex justify-end gap-2">
-              <button disabled={busy} onClick={() => setPreview(null)} className="text-sm px-4 py-1.5 rounded-lg border border-app-border text-text-primary">Back</button>
-              <button disabled={busy} onClick={send} className="text-sm px-4 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-hover">
-                {busy ? "Sending…" : open?.status === "SENT" ? "Resend email" : "Send email"}
-              </button>
+            {confirmSend && (
+              <p className="mb-2 text-xs text-text-muted">It goes to the client with the secure confirmation link. Sending never charges anything.</p>
+            )}
+            <div className="flex flex-wrap justify-end gap-2">
+              <button disabled={busy} onClick={() => { setPreview(null); setConfirmSend(false); }} className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border px-4 text-sm text-text-primary md:min-h-[36px]">Back</button>
+              {confirmSend ? (
+                <button type="button" disabled={busy} onClick={send} className="inline-flex min-h-[44px] items-center rounded-lg bg-brand px-4 text-sm text-white hover:bg-brand-hover md:min-h-[36px]">
+                  {busy ? "Sending…" : `Yes — send to ${preview.to}`}
+                </button>
+              ) : (
+                <button type="button" disabled={busy} onClick={() => setConfirmSend(true)} className="inline-flex min-h-[44px] items-center rounded-lg bg-brand px-4 text-sm text-white hover:bg-brand-hover md:min-h-[36px]">
+                  {open?.status === "SENT" ? "Resend email" : "Send email"}
+                </button>
+              )}
             </div>
           </div>
         ) : (
@@ -1587,27 +1158,26 @@ function ReactivationModal({ data, memberId, onClose, onChanged }: { data: Data;
                 className="mt-1 w-full border border-app-border rounded-lg px-2 py-1.5 text-sm bg-surface text-text-primary" />
             </label>
             {needsAck && (
-              <div className="border border-orange-accent/50 bg-orange-accent/10 rounded-lg px-3 py-2 text-xs text-text-primary">
+              <div className="border border-[var(--color-warn-text)] bg-[var(--color-warn-surface)] rounded-lg px-3 py-2 text-xs text-text-primary">
                 That date is today or already passed — if the client confirms, <strong>they are charged immediately</strong>.
                 Pick a future date (recommended), or explicitly proceed:
-                <button disabled={busy} onClick={() => createOffer(true)} className="ml-2 underline text-orange-accent font-medium">Proceed with immediate charge</button>
+                <button disabled={busy} onClick={() => createOffer(true)} className="ml-2 underline text-[var(--color-warn-text)] font-medium">Proceed with immediate charge</button>
               </div>
             )}
             {err && <p className="text-xs text-red-600">{err}</p>}
             {sentMsg && <p className="text-xs text-text-primary bg-lime-accent/20 rounded-lg px-2 py-1.5">{sentMsg}</p>}
-            <div className="flex justify-end gap-2 pt-1">
-              <button disabled={busy} onClick={onClose} className="text-sm px-4 py-1.5 rounded-lg border border-app-border text-text-primary">Close</button>
-              <button disabled={busy} onClick={() => createOffer(false)} className="text-sm px-4 py-1.5 rounded-lg bg-charcoal text-white hover:bg-charcoal-hover">
+            <div className="flex flex-wrap justify-end gap-2 pt-1">
+              <button disabled={busy} onClick={onClose} className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border px-4 text-sm text-text-primary md:min-h-[36px]">Close</button>
+              <button disabled={busy} onClick={() => createOffer(false)} className="inline-flex min-h-[44px] items-center rounded-lg bg-charcoal px-4 text-sm text-white hover:bg-charcoal-hover md:min-h-[36px]">
                 {busy ? "Working…" : open ? "Regenerate offer" : "Create offer"}
               </button>
               <button disabled={busy || !open} onClick={loadPreview} title={!open ? "Create the offer first" : undefined}
-                className="text-sm px-4 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-hover disabled:opacity-50">
+                className="inline-flex min-h-[44px] items-center rounded-lg bg-brand px-4 text-sm text-white hover:bg-brand-hover disabled:opacity-50 md:min-h-[36px]">
                 Preview email
               </button>
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Sheet>
   );
 }

@@ -19,6 +19,13 @@ import {
 import { MIGRATION_STATUS } from "@/lib/migration";
 import { eventFormFields } from "@/lib/eventForm";
 import { eventScheduledChargeAt } from "@/lib/eventPayments";
+import {
+  findPlanConflict,
+  conflictQueueLabel,
+  shortDate,
+  LIVE_SUBSCRIPTION_STATUSES,
+  type PlanConflict,
+} from "@/lib/billingDataRules";
 
 // GET /api/approvals
 //
@@ -161,6 +168,56 @@ export async function GET() {
       : []
     ).map((m) => [m.id, m.name]),
   );
+  // Cash purchase requests for a plan the member ALREADY holds — typically a
+  // family that asked to pay cash, then paid by card before anyone approved.
+  // One grouped read for the whole queue; the approve route re-checks.
+  const purchaseRows = rows.filter((r) => r.kind === MEMBERSHIP_PURCHASE_KIND);
+  const purchaseConflicts = new Map<string, PlanConflict>();
+  if (purchaseRows.length > 0) {
+    const liveSubs = await prisma.memberSubscription.findMany({
+      where: {
+        memberId: { in: Array.from(new Set(purchaseRows.map((r) => r.memberId))) },
+        member: { clubId },
+        status: { in: [...LIVE_SUBSCRIPTION_STATUSES] },
+      },
+      select: {
+        id: true, memberId: true, membershipId: true, status: true, billingType: true,
+        stripeSubscriptionId: true, startedAt: true, startDate: true, createdAt: true,
+      },
+    });
+    for (const r of purchaseRows) {
+      const planId = (r.payload as Payload | null)?.membershipId;
+      if (!planId) continue;
+      const c = findPlanConflict(liveSubs.filter((s) => s.memberId === r.memberId), planId);
+      if (c) purchaseConflicts.set(r.id, c);
+    }
+  }
+  // Package requests the family has since paid for by card (same package,
+  // bought after the request was made).
+  const packageRows = rows.filter((r) => r.kind === PRIVATE_PACKAGE_PURCHASE_KIND);
+  const packagePaidSince = new Map<string, Date>();
+  if (packageRows.length > 0) {
+    const ledgers = await prisma.privateCreditLedger.findMany({
+      where: {
+        clubId,
+        memberId: { in: Array.from(new Set(packageRows.map((r) => r.memberId))) },
+        OR: [{ stripeCheckoutSessionId: { not: null } }, { stripePaymentIntentId: { not: null } }],
+      },
+      select: { memberId: true, packageId: true, createdAt: true },
+    });
+    for (const r of packageRows) {
+      const pkgId = (r.payload as Payload | null)?.packageId;
+      if (!pkgId) continue;
+      const hit = ledgers
+        .filter((l) => l.memberId === r.memberId && l.packageId === pkgId && l.createdAt >= r.requestedAt)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+      if (hit) packagePaidSince.set(r.id, hit.createdAt);
+    }
+  }
+  const clubTz = purchaseConflicts.size || packagePaidSince.size
+    ? (await prisma.club.findUnique({ where: { id: clubId }, select: { timezone: true } }))?.timezone ?? null
+    : null;
+
   const packageIds = Array.from(
     new Set(
       rows
@@ -233,6 +290,14 @@ export async function GET() {
         paymentMethod: p.paymentMethod ?? null,
         amount: r.amount != null ? Number(r.amount) : null,
         discountCode: p.discountCode ?? null,
+        // Set when the member already holds a live subscription on this plan;
+        // the approve route refuses such a request.
+        conflict: (() => {
+          const c = purchaseConflicts.get(r.id);
+          return c
+            ? { label: conflictQueueLabel(c, clubTz), paidBy: c.paidBy, since: c.since ? c.since.toISOString() : null }
+            : null;
+        })(),
       };
     }
     if (r.kind === INVOICE_SPLIT_KIND) {
@@ -262,6 +327,16 @@ export async function GET() {
         paymentMethod: p.paymentMethod ?? null,
         amount: r.amount != null ? Number(r.amount) : null,
         discountCode: p.discountCode ?? null,
+        conflict: (() => {
+          const at = packagePaidSince.get(r.id);
+          return at
+            ? {
+                label: `Already bought this package (paid by card ${shortDate(at, clubTz)}) — decline or approve a second one`,
+                paidBy: "card" as const,
+                since: at.toISOString(),
+              }
+            : null;
+        })(),
       };
     }
     if (r.kind === MEMBERSHIP_TRANSFER_KIND) {

@@ -73,7 +73,10 @@ const DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 type Summary = {
+  /** Distinct members holding a live subscription (lib/activeMembers) — not Member.status. */
   activeMembers: number;
+  /** Live subscriptions; exceeds activeMembers when someone holds two. */
+  activeMemberships?: number;
   totalMembers: number;
   newMembers: number;
   revenueMonth: number;
@@ -219,7 +222,22 @@ export default function DashboardPage() {
     const v = (x: string | number) => (loading || !s ? "—" : String(x));
     switch (key) {
       case "activeMembers":
-        return <StatCard key={key} label="Active members" value={v(s?.activeMembers ?? 0)} sub={s ? `of ${s.totalMembers} total` : ""} href="/dashboard/members" accent="var(--color-success)" />;
+        return (
+          <StatCard
+            key={key}
+            label="Active members"
+            value={v(s?.activeMembers ?? 0)}
+            sub={
+              !s
+                ? ""
+                : s.activeMemberships != null && s.activeMemberships !== s.activeMembers
+                  ? `${s.activeMemberships} memberships · of ${s.totalMembers} total`
+                  : `of ${s.totalMembers} total`
+            }
+            href="/dashboard/members"
+            accent="var(--color-success)"
+          />
+        );
       case "newMembers":
         return <StatCard key={key} label="New members" value={v(s?.newMembers ?? 0)} sub="joined this month" href="/dashboard/members" accent="var(--color-success)" />;
       case "revenueMonth":

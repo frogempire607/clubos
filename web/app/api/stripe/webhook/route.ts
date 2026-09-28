@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { releaseStock } from "@/lib/productStock";
 import { recordProductMoney } from "@/lib/productMoney";
 import { confirmBookingPayment } from "@/lib/productBookingServer";
-import { recomputeMemberStatus } from "@/lib/memberStatus";
+import { activateMemberStatus, recomputeMemberStatus } from "@/lib/memberStatus";
 import {
   sendBookingConfirmationEmail,
   sendMembershipActivatedEmail,
@@ -321,8 +321,13 @@ export async function POST(req: Request) {
               });
             }
 
-            // Now that this member has an active subscription, promote them to ACTIVE.
-            await recomputeMemberStatus(memberSub.memberId, memberSub.member.clubId);
+            // Activation. For a priced card subscription this only promotes
+            // once invoice.paid has recorded the first payment — and
+            // invoice.paid activates again when it lands, so whichever of the
+            // two events arrives second flips the member. A $0 first invoice
+            // (free trial) promotes nothing until the first real charge; that
+            // is the owner-confirmed status rule, not a missed write.
+            await activateMemberStatus(memberSub.memberId, memberSub.member.clubId);
 
             // Email: membership activated
             const contact = await memberContact(memberSub.memberId);
@@ -1113,9 +1118,18 @@ export async function POST(req: Request) {
         // Redelivery / double-processing guard: one Transaction per invoice.
         const already = await prisma.transaction.findFirst({
           where: { stripeInvoiceId: invoice.id },
-          select: { id: true },
+          select: { id: true, memberId: true, clubId: true },
         });
-        if (already) break;
+        if (already) {
+          // The money is already recorded, but a previous delivery may have
+          // died between writing it and activating the member (this route
+          // answers 200 on errors, so Stripe never retries). Activation is
+          // idempotent — run it again rather than leave them PROSPECT.
+          if (already.memberId && already.clubId) {
+            await activateMemberStatus(already.memberId, already.clubId);
+          }
+          break;
+        }
 
         const memberSub = await prisma.memberSubscription.findFirst({
           where: { stripeSubscriptionId: subscriptionId },
@@ -1262,7 +1276,7 @@ export async function POST(req: Request) {
         // subscriptions between 2026-07-17 and 2026-08-24 for exactly that
         // reason; the ones who came out ACTIVE simply had invoice.paid
         // delivered before checkout.session.completed.
-        await recomputeMemberStatus(memberId, clubId);
+        await activateMemberStatus(memberId, clubId);
 
         // Receipt — every real subscription charge emails a receipt.
         {
