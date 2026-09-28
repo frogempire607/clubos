@@ -11,6 +11,7 @@ import { ArrowRight, Lock, Plus, X } from "lucide-react";
 import Reveal from "@/components/staff/access/Reveal";
 import Switch from "@/components/staff/access/Switch";
 import ScopePicker, { type CompOptions } from "@/components/staff/pay/ScopePicker";
+import PayScheduleCard from "@/components/staff/pay/PayScheduleCard";
 import {
   BASE_META,
   BONUS_META,
@@ -41,6 +42,7 @@ export default function PayTab({ data, reload, setDirty }: StaffTabProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const [scheduleDirty, setScheduleDirty] = useState(false);
 
   const load = useCallback(async () => {
     const r = await fetch(`/api/staff/${staff.id}/compensation`, { cache: "no-store" });
@@ -66,8 +68,8 @@ export default function PayTab({ data, reload, setDirty }: StaffTabProps) {
   const changeCount = dirty && saved && draft ? payChangeCount(saved, draft) : 0;
 
   useEffect(() => {
-    setDirty(dirty);
-  }, [dirty, setDirty]);
+    setDirty(dirty || scheduleDirty);
+  }, [dirty, scheduleDirty, setDirty]);
   useEffect(() => () => setDirty(false), [setDirty]);
 
   if (!viewer.canViewPay) {
@@ -246,6 +248,13 @@ export default function PayTab({ data, reload, setDirty }: StaffTabProps) {
         </section>
 
         <div className="flex min-w-0 flex-col gap-4">
+          <PayScheduleCard
+            staffId={staff.id}
+            first={first}
+            readOnly={readOnly}
+            isSelf={viewer.isSelf}
+            onDirtyChange={setScheduleDirty}
+          />
           <section className="rounded-xl border border-app-border bg-surface p-4 sm:p-5">
             <h2 className="text-[15px] font-semibold text-text-primary">The plan as shown</h2>
             <ul className="mt-2 space-y-1.5">

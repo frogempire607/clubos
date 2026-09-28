@@ -1188,3 +1188,51 @@ export function receiptDiscountLine(label: string | null | undefined, amount: un
   if (!name || !(off > 0)) return null;
   return `${name} — $${off.toFixed(2)} off`;
 }
+
+// ── Payday reminder digest (to the club owner) ──────────────────────────────
+// One email per club per morning, sent by /api/cron/pay-reminders when a staff
+// payday is due today (or went overdue without an email). Lines are already
+// plain text; they are escaped here.
+export async function sendPayReminderDigestEmail({
+  to,
+  clubName,
+  lines,
+  payrollUrl,
+}: {
+  to: string;
+  clubName: string;
+  lines: { heading: string; detail: string }[];
+  payrollUrl: string;
+}) {
+  const count = lines.length;
+  const subject =
+    count === 1 ? `Payday today: ${lines[0].heading}` : `${count} staff paydays need you today`;
+  const items = lines
+    .map(
+      (l) => `
+      <li style="margin:0 0 12px;padding:0;list-style:none">
+        <p style="color:#1C1917;font-size:15px;font-weight:600;margin:0">${escapeHtml(l.heading)}</p>
+        <p style="color:#57534e;font-size:14px;margin:2px 0 0">${escapeHtml(l.detail)}</p>
+      </li>`,
+    )
+    .join("");
+  await sendEmail({
+    to,
+    subject,
+    fromName: clubName,
+    html: baseLayout(`
+      <h2 style="color:#1C1917;margin:0 0 8px">Payday reminder</h2>
+      <p style="color:#57534e;line-height:1.6;margin:0 0 16px">
+        ${count === 1 ? "A staff member is" : `${count} staff members are`} due to be paid at <strong>${escapeHtml(clubName)}</strong>.
+        Amounts are estimates from each pay plan — check them on the Payroll page before you pay.
+      </p>
+      <ul style="margin:0 0 20px;padding:0">${items}</ul>
+      <a href="${escapeHtml(payrollUrl)}" style="display:inline-block;background:#1C1917;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
+        Open Payroll · Mark paid
+      </a>
+      <p style="color:#a8a29e;font-size:13px;margin:20px 0 0">
+        You get one email per payday. Change a pay schedule from the staff member's profile → Pay.
+      </p>
+    `),
+  });
+}

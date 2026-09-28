@@ -16,22 +16,20 @@ import { SkeletonCard } from "@/components/LoadingSkeleton";
 import { useLeaveGuard } from "@/components/staff/useLeaveGuard";
 import { STAFF_TABS, TAB_RULE, type StaffProfileData, type StaffTabKey, type StaffTabProps } from "@/components/staff/types";
 import OverviewTab from "@/components/staff/tabs/OverviewTab";
-import PersonalTab from "@/components/staff/tabs/PersonalTab";
+import ProfileTab from "@/components/staff/tabs/ProfileTab";
 import ScheduleTab from "@/components/staff/tabs/ScheduleTab";
 import AccessTab from "@/components/staff/tabs/AccessTab";
 import PayTab from "@/components/staff/tabs/PayTab";
 import LessonsTab from "@/components/staff/tabs/LessonsTab";
-import PortalTab from "@/components/staff/tabs/PortalTab";
 import DocumentsTab from "@/components/staff/tabs/DocumentsTab";
 
 const TAB_COMPONENT: Record<StaffTabKey, (p: StaffTabProps) => JSX.Element> = {
   overview: OverviewTab,
-  personal: PersonalTab,
+  profile: ProfileTab,
   schedule: ScheduleTab,
   access: AccessTab,
   pay: PayTab,
   lessons: LessonsTab,
-  portal: PortalTab,
   documents: DocumentsTab,
 };
 
@@ -39,10 +37,20 @@ function isTab(v: string | null): v is StaffTabKey {
   return !!v && STAFF_TABS.some((t) => t.key === v);
 }
 
+// Tabs that were merged away. Old links, bookmarks and emails still land on
+// the tab that now holds their content.
+const LEGACY_TAB: Record<string, StaffTabKey> = { personal: "profile", portal: "profile" };
+
+function tabFromParam(v: string | null): StaffTabKey {
+  if (isTab(v)) return v;
+  if (v && LEGACY_TAB[v]) return LEGACY_TAB[v];
+  return "overview";
+}
+
 export default function StaffProfile({ staffId, selfRoute = false }: { staffId: string; selfRoute?: boolean }) {
   const router = useRouter();
   const params = useSearchParams();
-  const tab: StaffTabKey = isTab(params.get("tab")) ? (params.get("tab") as StaffTabKey) : "overview";
+  const tab: StaffTabKey = tabFromParam(params.get("tab"));
 
   const [data, setData] = useState<StaffProfileData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -176,7 +184,7 @@ export default function StaffProfile({ staffId, selfRoute = false }: { staffId: 
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           {viewer.isSelf ? (
-            <button type="button" onClick={() => goTo("personal")} className={`${btn} bg-brand text-white hover:opacity-90`}>
+            <button type="button" onClick={() => goTo("profile")} className={`${btn} bg-brand text-white hover:opacity-90`}>
               Edit my info
             </button>
           ) : (
@@ -190,7 +198,7 @@ export default function StaffProfile({ staffId, selfRoute = false }: { staffId: 
                 </button>
               )}
               {viewer.canEditRecord && (
-                <button type="button" onClick={() => goTo("personal")} className={`${btn} bg-brand text-white hover:opacity-90`}>
+                <button type="button" onClick={() => goTo("profile")} className={`${btn} bg-brand text-white hover:opacity-90`}>
                   Edit staff
                 </button>
               )}

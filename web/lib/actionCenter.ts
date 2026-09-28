@@ -23,6 +23,8 @@ import { GUARDIAN_LINK_KIND } from "@/lib/guardianLink";
 import { MEMBERSHIP_CANCEL_KIND } from "@/lib/approvals";
 import { MIGRATION_STATUS } from "@/lib/migration";
 import { UNPAID_REGISTRATION_STATUSES } from "@/lib/eventPayments";
+import { loadClubReminders, formatUsdShort } from "@/lib/payReminders";
+import { statusLabel } from "@/lib/paySchedule";
 
 export type ActionSeverity = "high" | "medium" | "low";
 
@@ -468,6 +470,28 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
     },
   );
 
+  // ── Paydays — staff due to be paid (lib/payReminders) ─────────────────
+  // One item per staff payday: upcoming (≤ 2 days), due today, or overdue and
+  // not yet settled by a PAYROLL payout. Clears itself once marked paid.
+  const paydayItems: Promise<ActionItem[]> = can("finances", "view")
+    ? loadClubReminders(clubId)
+        .then(({ reminders }) =>
+          reminders.map((r): ActionItem => {
+            const amount =
+              r.estimate !== null && r.estimate > 0 ? ` · about ${formatUsdShort(Math.round(r.estimate))}` : "";
+            return {
+              kind: `PAYDAY:${r.userId}:${r.payday}`,
+              label: `Pay ${r.name} — ${statusLabel(r)}${amount}`,
+              count: 1,
+              severity: r.status === "upcoming" ? "medium" : "high",
+              href: "/dashboard/staff/payroll",
+            };
+          }),
+        )
+        // Like every probe: a failure here must never break the command center.
+        .catch(() => [])
+    : Promise.resolve([]);
+
   // ── Onboarding in progress (informational, low severity) ─────────────
   probe(
     can("members", "view"),
@@ -484,6 +508,7 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
   );
 
   const items = (await Promise.all(probes)).filter((x): x is ActionItem => x !== null);
+  items.push(...(await paydayItems));
   items.sort(
     (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || b.count - a.count,
   );

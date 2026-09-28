@@ -17,6 +17,7 @@ import { useSearchParams } from "next/navigation";
 import { Search, UserPlus, CheckCircle2, CreditCard, Banknote, Send, ChevronLeft, Sparkles, AlertTriangle } from "lucide-react";
 import { todayLocalISO } from "@/lib/datetime";
 import { pickCurrentSession } from "@/lib/frontDesk";
+import CheckInModeSwitch from "@/components/CheckInModeSwitch";
 
 type SessionRow = { id: string; startsAt: string; endsAt: string; canceled: boolean; recurringClass: { name: string }; _count: { attendance: number } };
 type Person = { id: string; name: string; firstName: string; isMinor: boolean; guardianName: string | null; status: string; plans: string[] };
@@ -92,7 +93,7 @@ function FrontDeskInner() {
     <div className="max-w-xl mx-auto px-4 sm:px-6 py-4 sm:py-6 pb-28">
       <div className="flex items-center justify-between gap-2 mb-4">
         <h1 className="text-xl font-semibold text-text-primary">Front desk</h1>
-        <Link href="/dashboard/attendance" className="text-sm text-brand min-h-[44px] inline-flex items-center">Full roster →</Link>
+        <CheckInModeSwitch />
       </div>
 
       {/* 1 · Which class */}

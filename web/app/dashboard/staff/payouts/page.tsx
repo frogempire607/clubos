@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
+import PayrollTabs from "@/components/PayrollTabs";
 import {
   PAYEE_TYPES,
   PAYOUT_KINDS,
@@ -88,6 +89,7 @@ export default function PayoutsPage() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
+      <PayrollTabs className="mb-5" />
       <PageHeader
         title="Payouts"
         description="Track money owed and paid to staff, guests, contractors, and event workers"

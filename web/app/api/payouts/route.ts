@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { selfRule, SELF_DENY_MESSAGE } from "@/lib/staffSelf";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
@@ -105,6 +106,11 @@ export async function POST(req: Request) {
         select: { id: true, firstName: true, lastName: true },
       });
       if (!u) return NextResponse.json({ error: "Staff member not found." }, { status: 400 });
+      // Julian's rule: staff never touch their own pay — that includes
+      // recording a payout to themselves. Owners are exempt.
+      if (selfRule(session!.user.role, session!.user.id, u.id, "edit_pay") === "deny") {
+        return NextResponse.json({ error: SELF_DENY_MESSAGE.edit_pay }, { status: 403 });
+      }
       payeeUserId = u.id;
       if (!payeeName) payeeName = `${u.firstName} ${u.lastName}`.trim();
     }

@@ -280,7 +280,7 @@ export default function OverviewTab({ data, goTo }: StaffTabProps) {
             <div className="flex items-center justify-between gap-3">
               <h2 className={h2}>Contact &amp; identity</h2>
               {(viewer.canEditRecord || self) && (
-                <button type="button" onClick={() => goTo("personal")} className={cardLink}>
+                <button type="button" onClick={() => goTo("profile")} className={cardLink}>
                   Edit
                 </button>
               )}

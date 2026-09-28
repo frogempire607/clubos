@@ -3,13 +3,11 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
-import { Menu } from "lucide-react";
 import GlobalSearch from "@/components/GlobalSearch";
 import BackButton from "@/components/BackButton";
 import UserMenu from "@/components/UserMenu";
 import NotificationBell from "@/components/NotificationBell";
 import DashboardSidebar from "@/components/DashboardSidebar";
-import DashboardMobileDrawer from "@/components/DashboardMobileDrawer";
 import DashboardBottomNav from "@/components/DashboardBottomNav";
 
 const BACKGROUND = "var(--color-bg)";
@@ -36,7 +34,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const [me, setMe] = useState<Me>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Gate /api/me on an authenticated session. Without the gate, the
   // fetch can race the NextAuth cookie commit (especially in WKWebView
@@ -56,12 +53,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
   }, [status, router]);
-
-  // Close the mobile drawer on every route change so a tap on a nav
-  // link doesn't leave the overlay open over the new page.
-  useEffect(() => {
-    setDrawerOpen(false);
-  }, [pathname]);
 
   if (status === "loading") {
     return (
@@ -98,15 +89,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <DashboardSidebar email={email} me={me} pathname={pathname} />
       </aside>
 
-      {/* Mobile drawer — slides in from the left at < md */}
-      <DashboardMobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        <DashboardSidebar
-          email={email}
-          me={me}
-          pathname={pathname}
-          onNavigate={() => setDrawerOpen(false)}
-        />
-      </DashboardMobileDrawer>
+      {/* Phones have no drawer: the bottom tab bar + /dashboard/more cover
+          every destination (audit §6.2/§6.6). */}
 
       {/* ── Main content column ── */}
       {/* overflowX: "hidden" — safety net. CSS grid items inside `/dashboard`
@@ -116,21 +100,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <main style={{ flex: 1, overflowY: "auto", overflowX: "hidden", display: "flex", flexDirection: "column" }}>
         {/* Mobile topbar (charcoal, matches sidebar tone for native-app feel) */}
         <div
-          className="md:hidden sticky top-0 z-30 flex items-center gap-2 px-3 py-2 border-b border-white/10"
+          className="md:hidden sticky top-0 z-30 flex items-center gap-2 px-4 py-2 border-b border-white/10"
           style={{
             background: "var(--color-sidebar-bg)",
             paddingTop: "max(8px, env(safe-area-inset-top))",
           }}
         >
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            aria-label="Open menu"
-            className="w-11 h-11 rounded-lg flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10"
-          >
-            <Menu className="h-5 w-5" strokeWidth={2} />
-          </button>
-          <div className="flex-1 flex items-center gap-2 min-w-0">
+          <div className="flex-1 flex items-center gap-2 min-w-0 min-h-[44px]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/brand/icon.png"
@@ -183,7 +159,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           STAFF so they don't see tabs that dead-end on a 403 redirect. */}
       <DashboardBottomNav
         pathname={pathname}
-        onMore={() => setDrawerOpen(true)}
         role={me?.role}
         permissions={me?.permissions}
       />

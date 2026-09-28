@@ -56,7 +56,10 @@ function Row({
 const inputCls =
   "w-full min-h-[44px] rounded-lg border border-app-border bg-surface px-3 text-[14px] text-text-primary focus:outline-none focus:ring-2 focus:ring-brand disabled:bg-app-bg disabled:text-text-muted md:min-h-[38px]";
 
-export default function PersonalTab({ data, reload, setDirty, goTo }: StaffTabProps) {
+/** id of the member-portal card ProfileTab renders under this one. */
+export const PORTAL_CARD_ID = "staff-portal-profile";
+
+export default function PersonalTab({ data, reload, setDirty }: StaffTabProps) {
   const { staff, viewer } = data;
   const isSelf = viewer.isSelf;
   const canEdit = isSelf || viewer.canEditRecord;
@@ -191,8 +194,12 @@ export default function PersonalTab({ data, reload, setDirty, goTo }: StaffTabPr
             note={
               <>
                 Shown in the member portal.{" "}
-                <button type="button" onClick={() => goTo("portal")} className="inline-flex min-h-[44px] items-center font-medium text-brand hover:underline md:min-h-0">
-                  Change it on Portal profile
+                <button
+                  type="button"
+                  onClick={() => document.getElementById(PORTAL_CARD_ID)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  className="inline-flex min-h-[44px] items-center font-medium text-brand hover:underline md:min-h-0"
+                >
+                  Change it in Member portal profile below
                 </button>
               </>
             }

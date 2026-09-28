@@ -1,7 +1,9 @@
 "use client";
 
+import PayrollTabs from "@/components/PayrollTabs";
 import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
+import PaydaysCard from "@/components/staff/pay/PaydaysCard";
 
 type BonusLine = {
   id: string;
@@ -147,10 +149,11 @@ export default function StaffPayrollPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="mx-auto max-w-7xl p-4 sm:p-8">
+      <PayrollTabs className="mb-5" />
       <div className="mb-6 flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Payroll</h1>
+          <h2 className="text-lg font-semibold text-text-primary">Payroll</h2>
           <p className="text-sm text-text-muted mt-1">
             Calculated from each staff member&apos;s compensation plan (base + bonuses) over the selected period.
             This page only calculates — to record what you actually paid, use{" "}
@@ -165,6 +168,8 @@ export default function StaffPayrollPage() {
           Export CSV
         </button>
       </div>
+
+      <PaydaysCard />
 
       {/* Range selector */}
       <div className="bg-surface border border-app-border rounded-xl p-4 mb-4 flex flex-wrap items-end gap-3">
@@ -188,12 +193,12 @@ export default function StaffPayrollPage() {
         </div>
         <div className="flex items-center gap-2">
           <div>
-            <label className="block text-[10px] uppercase tracking-wider text-text-muted mb-0.5">From</label>
+            <label className="block text-[12px] uppercase tracking-wider text-text-muted mb-0.5">From</label>
             <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPreset("custom"); }}
               className="px-2 py-1 border border-app-border rounded text-sm bg-surface" />
           </div>
           <div>
-            <label className="block text-[10px] uppercase tracking-wider text-text-muted mb-0.5">To</label>
+            <label className="block text-[12px] uppercase tracking-wider text-text-muted mb-0.5">To</label>
             <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPreset("custom"); }}
               className="px-2 py-1 border border-app-border rounded text-sm bg-surface" />
           </div>
@@ -221,14 +226,14 @@ export default function StaffPayrollPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-app-bg border-b border-app-border">
-                  <th className="text-left px-4 py-2 font-medium text-text-muted uppercase tracking-wider text-[11px]">Staff</th>
-                  <th className="text-left px-3 py-2 font-medium text-text-muted uppercase tracking-wider text-[11px]">Base</th>
-                  <th className="text-right px-3 py-2 font-medium text-text-muted uppercase tracking-wider text-[11px]">Classes</th>
-                  <th className="text-right px-3 py-2 font-medium text-text-muted uppercase tracking-wider text-[11px]">Attendance</th>
-                  <th className="text-right px-3 py-2 font-medium text-text-muted uppercase tracking-wider text-[11px]">Signups</th>
-                  <th className="text-right px-3 py-2 font-medium text-text-muted uppercase tracking-wider text-[11px]">Base pay</th>
-                  <th className="text-right px-3 py-2 font-medium text-text-muted uppercase tracking-wider text-[11px]">Bonuses</th>
-                  <th className="text-right px-3 py-2 font-medium text-text-muted uppercase tracking-wider text-[11px]">Total</th>
+                  <th className="text-left px-4 py-2 font-medium text-text-muted uppercase tracking-wider text-[12px]">Staff</th>
+                  <th className="text-left px-3 py-2 font-medium text-text-muted uppercase tracking-wider text-[12px]">Base</th>
+                  <th className="text-right px-3 py-2 font-medium text-text-muted uppercase tracking-wider text-[12px]">Classes</th>
+                  <th className="text-right px-3 py-2 font-medium text-text-muted uppercase tracking-wider text-[12px]">Attendance</th>
+                  <th className="text-right px-3 py-2 font-medium text-text-muted uppercase tracking-wider text-[12px]">Signups</th>
+                  <th className="text-right px-3 py-2 font-medium text-text-muted uppercase tracking-wider text-[12px]">Base pay</th>
+                  <th className="text-right px-3 py-2 font-medium text-text-muted uppercase tracking-wider text-[12px]">Bonuses</th>
+                  <th className="text-right px-3 py-2 font-medium text-text-muted uppercase tracking-wider text-[12px]">Total</th>
                   <th />
                 </tr>
               </thead>
@@ -269,7 +274,7 @@ export default function StaffPayrollPage() {
                             </button>
                           )}
                           {!s.hasPlan && (
-                            <Link href="/dashboard/staff" className="text-xs text-brand hover:underline">Set up</Link>
+                            <Link href={`/dashboard/staff/${s.id}?tab=pay`} className="text-xs text-brand hover:underline">Set up</Link>
                           )}
                         </td>
                       </tr>
@@ -318,9 +323,9 @@ export default function StaffPayrollPage() {
             </table>
           </div>
 
-          <p className="text-[11px] text-text-muted mt-3">
-            Set or change a staff member&apos;s compensation plan from the{" "}
-            <Link href="/dashboard/staff" className="underline">Staff directory</Link> → Edit.
+          <p className="text-[12px] text-text-muted mt-3">
+            Set or change a staff member&apos;s pay plan and pay schedule on their profile →{" "}
+            <Link href="/dashboard/staff" className="underline">Staff</Link> → Pay.
           </p>
         </>
       )}
@@ -340,7 +345,7 @@ function Total({ label, value, accent }: { label: string; value: string; accent?
 function Mini({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-surface border border-app-border rounded-lg p-2.5">
-      <p className="text-[10px] uppercase tracking-wider text-text-muted">{label}</p>
+      <p className="text-[12px] uppercase tracking-wider text-text-muted">{label}</p>
       <p className="text-sm font-semibold text-text-primary">{value}</p>
     </div>
   );

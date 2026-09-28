@@ -4,14 +4,15 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { UserCircle2, Eye, HelpCircle, LogOut, ChevronRight, type LucideIcon } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
-import { canAccessPath } from "@/lib/permissions";
 import { signOutEverywhere } from "@/lib/signOutEverywhere";
 import {
   NAV,
   type NavChild,
   type NavItem,
+  isEntryActive,
   isGroupActive,
   isItemActive,
+  visibleNavFor,
 } from "@/lib/dashboardNav";
 
 const PRIMARY = "var(--color-primary)";
@@ -23,8 +24,8 @@ const TEXT_HOVER = "#fff";
 
 type Me = { role?: string; permissions?: Record<string, unknown> | null; title?: string | null } | null;
 
-// Extracted sidebar. Used by both the always-visible desktop column and
-// the mobile slide-in drawer. Caller controls width/visibility — the
+// Extracted sidebar. Used by the always-visible desktop column (phones use
+// the bottom bar + /dashboard/more instead of a drawer since 2026-09-28). Caller controls width/visibility — the
 // component just renders the nav tree.
 //
 // `onNavigate` fires after any link click so the mobile drawer can close
@@ -62,16 +63,7 @@ export default function DashboardSidebar({
   const perms = me?.permissions ?? null;
   const isStaff = role === "STAFF";
 
-  const visibleNav: NavItem[] = NAV.flatMap((item) => {
-    if (!isStaff) return [item];
-    if ("children" in item && item.children) {
-      const kids = item.children.filter((c) => canAccessPath(role, perms, c.href));
-      if (kids.length === 0) return [];
-      return [{ ...item, children: kids }];
-    }
-    const href = (item as { href: string }).href;
-    return canAccessPath(role, perms, href) ? [item] : [];
-  });
+  const visibleNav: NavItem[] = visibleNavFor(role, perms);
 
   return (
     <div
@@ -143,7 +135,7 @@ export default function DashboardSidebar({
 
           if (!hasChildren) {
             const href = (item as { href: string }).href;
-            const active = isItemActive(href, pathname);
+            const active = isEntryActive(item, pathname);
             const Icon = item.icon;
             return (
               <Link
@@ -245,7 +237,7 @@ export default function DashboardSidebar({
                   }}
                 >
                   {(item as { children: NavChild[] }).children.map((child) => {
-                    const active = isItemActive(child.href, pathname);
+                    const active = isEntryActive(child, pathname);
                     return (
                       <Link
                         key={child.id}
