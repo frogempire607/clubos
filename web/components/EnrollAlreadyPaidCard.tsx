@@ -264,7 +264,7 @@ export default function EnrollAlreadyPaidCard({
                     className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface text-text-primary"
                   />
                   {amountMismatch && (
-                    <p className="text-[11px] text-orange-accent mt-1">
+                    <p className="text-[12px] text-orange-accent mt-1">
                       {option.label} is ${option.price.toFixed(2)}. Recording a different figure needs a
                       second confirmation below.
                     </p>
@@ -304,7 +304,7 @@ export default function EnrollAlreadyPaidCard({
                   onChange={(e) => setCoversUntil(e.target.value)}
                   className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface text-text-primary"
                 />
-                <p className="text-[11px] text-text-muted mt-1">
+                <p className="text-[12px] text-text-muted mt-1">
                   The last day the money buys. Billing resumes after it — this is the single most
                   important field on this form.
                 </p>
@@ -318,7 +318,7 @@ export default function EnrollAlreadyPaidCard({
                 />
                 <span>
                   Start card billing when that runs out
-                  <span className="block text-[11px] text-text-muted">
+                  <span className="block text-[12px] text-text-muted">
                     Needs a usable saved card. Nothing is charged today unless the date above has
                     already passed.
                   </span>

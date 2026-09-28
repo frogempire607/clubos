@@ -142,7 +142,7 @@ function fmtDate(d: string) {
 function Avatar({ src, name }: { src: string | null; name: string }) {
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase();
   return (
-    <div className="h-8 w-8 shrink-0 rounded-full bg-app-border overflow-hidden flex items-center justify-center text-[11px] font-semibold text-text-primary">
+    <div className="h-8 w-8 shrink-0 rounded-full bg-app-border overflow-hidden flex items-center justify-center text-[12px] font-semibold text-text-primary">
       {src ? <img src={src} alt="" className="h-full w-full object-cover" /> : initials || "?"}
     </div>
   );
@@ -228,7 +228,7 @@ function PermCells({
               <span
                 key={p.key}
                 title={`${label} — confirm this link before changing what it allows`}
-                className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                className={`text-[12px] px-1.5 py-0.5 rounded font-medium ${
                   on ? "bg-lime-accent/25 text-charcoal" : "bg-app-bg text-text-muted line-through"
                 }`}
               >
@@ -245,7 +245,7 @@ function PermCells({
               aria-checked={on}
               aria-label={`${p.label} — ${label}`}
               title={`${label}. Click to change.`}
-              className={`min-h-[44px] min-w-[44px] rounded px-1.5 text-[10px] font-medium transition-colors disabled:opacity-60 md:min-h-[26px] md:min-w-0 ${
+              className={`min-h-[44px] min-w-[44px] rounded px-1.5 text-[12px] font-medium transition-colors disabled:opacity-60 md:min-h-[26px] md:min-w-0 ${
                 on
                   ? "bg-lime-accent/25 text-charcoal hover:bg-lime-accent/40"
                   : "bg-app-bg text-text-muted line-through hover:bg-app-border"
@@ -256,7 +256,7 @@ function PermCells({
           );
         })}
       </div>
-      {failed && <p className="mt-1 text-[10px] text-orange-accent">{failed}</p>}
+      {failed && <p className="mt-1 text-[12px] text-orange-accent">{failed}</p>}
     </div>
   );
 }
@@ -265,7 +265,7 @@ function StatusChip({ status }: { status: string }) {
   if (status === "PENDING") {
     return (
       <span
-        className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-orange-accent/15 text-orange-accent font-medium"
+        className="inline-flex items-center gap-1 text-[12px] px-1.5 py-0.5 rounded bg-orange-accent/15 text-orange-accent font-medium"
         title="A staff member suggested this link. It grants nothing until someone with full member permissions confirms it here."
       >
         <Clock className="h-2.5 w-2.5" strokeWidth={2.5} /> Suggested by staff — confirm here
@@ -273,7 +273,7 @@ function StatusChip({ status }: { status: string }) {
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-lime-accent/25 text-charcoal font-medium">
+    <span className="inline-flex items-center gap-1 text-[12px] px-1.5 py-0.5 rounded bg-lime-accent/25 text-charcoal font-medium">
       <ShieldCheck className="h-2.5 w-2.5" strokeWidth={2.5} /> Active
     </span>
   );
@@ -309,16 +309,16 @@ function AccountHolderHeader({
         <div className="min-w-0">
           <p className="text-[15px] font-semibold text-text-primary">{g.name}</p>
           <div className="mt-1 flex flex-wrap items-center gap-1">
-            <span className="rounded bg-charcoal px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+            <span className="rounded bg-charcoal px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-white">
               Account holder
             </span>
             {g.relationship && (
-              <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-medium text-text-primary border border-app-border">
+              <span className="rounded bg-surface px-1.5 py-0.5 text-[12px] font-medium text-text-primary border border-app-border">
                 {g.relationship}
               </span>
             )}
             {roles.length > 0 && (
-              <span className="rounded bg-lime-accent/25 px-1.5 py-0.5 text-[10px] font-medium text-charcoal">
+              <span className="rounded bg-lime-accent/25 px-1.5 py-0.5 text-[12px] font-medium text-charcoal">
                 {roles.join(" · ")}
               </span>
             )}
@@ -503,7 +503,7 @@ export default function FamilyAccessCard({
           <p className="text-xs text-text-primary">
             No parent account yet. Guardian on file: <strong>{guardian.name || "—"}</strong> · {guardian.email}
           </p>
-          <p className="text-[11px] text-text-muted mt-0.5">
+          <p className="text-[12px] text-text-muted mt-0.5">
             Sends a “set up your parent account” link to that address. It creates their login and links them
             here — no membership change, nothing charged. Check the email is right before sending.
           </p>
@@ -538,7 +538,7 @@ export default function FamilyAccessCard({
           </div>
 
           {!caps?.canGrantLink && (
-            <p className="text-[11px] text-orange-accent mb-2">
+            <p className="text-[12px] text-orange-accent mb-2">
               Your access lets you suggest a link. It grants nothing until someone with full member
               permissions confirms it here.
             </p>
@@ -582,9 +582,9 @@ export default function FamilyAccessCard({
                     </p>
                     <p className="text-xs text-text-muted truncate">{c.email}</p>
                     {c.reasons.map((r) => (
-                      <p key={r} className="text-[11px] text-orange-accent mt-0.5">{r}</p>
+                      <p key={r} className="text-[12px] text-orange-accent mt-0.5">{r}</p>
                     ))}
-                    {c.neverSignedIn && <p className="text-[11px] text-text-muted mt-0.5">This account has never signed in.</p>}
+                    {c.neverSignedIn && <p className="text-[12px] text-text-muted mt-0.5">This account has never signed in.</p>}
                   </div>
                   <button
                     disabled={busy}
@@ -622,7 +622,7 @@ export default function FamilyAccessCard({
       )}
 
       {/* ── Guardians ────────────────────────────────────────────────────── */}
-      <p className="text-[11px] uppercase tracking-wide text-text-muted font-semibold mb-1.5">
+      <p className="text-[12px] uppercase tracking-wide text-text-muted font-semibold mb-1.5">
         Can sign in and manage {memberName}
       </p>
       {guardians.length === 0 ? (
@@ -651,7 +651,7 @@ export default function FamilyAccessCard({
                       <p className="text-sm font-medium text-text-primary flex items-center gap-1.5 flex-wrap">
                         {g.name}
                         {g.isPrimary && (
-                          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-charcoal text-white font-medium" title="The primary guardian holds parental controls">
+                          <span className="inline-flex items-center gap-1 text-[12px] px-1.5 py-0.5 rounded bg-charcoal text-white font-medium" title="The primary guardian holds parental controls">
                             <Star className="h-2.5 w-2.5" strokeWidth={2.5} /> Manages controls
                           </span>
                         )}
@@ -704,9 +704,9 @@ export default function FamilyAccessCard({
 
                 {editing === g.linkId && canManage && (
                   <div className="mt-2 pt-2 border-t border-app-border flex flex-wrap items-center gap-2">
-                    <span className="text-[11px] text-text-muted">Allow:</span>
+                    <span className="text-[12px] text-text-muted">Allow:</span>
                     {PERMS.map((p) => (
-                      <label key={p.key} className="inline-flex items-center gap-1 text-[11px] text-text-primary cursor-pointer">
+                      <label key={p.key} className="inline-flex items-center gap-1 text-[12px] text-text-primary cursor-pointer">
                         <input
                           type="checkbox"
                           checked={!!g[p.key]}
@@ -754,7 +754,7 @@ export default function FamilyAccessCard({
             <ArrowRightLeft className="h-3.5 w-3.5" strokeWidth={2} /> Transfer membership…
           </button>
           {!onTransferManagement && transferDisabledReason && (
-            <span className="text-[11px] text-text-muted">{transferDisabledReason}</span>
+            <span className="text-[12px] text-text-muted">{transferDisabledReason}</span>
           )}
         </div>
       </div>
@@ -762,7 +762,7 @@ export default function FamilyAccessCard({
       {/* ── Reciprocal direction ─────────────────────────────────────────── */}
       {family?.hasOwnLogin && (
         <>
-          <p className="text-[11px] uppercase tracking-wide text-text-muted font-semibold mb-1.5">
+          <p className="text-[12px] uppercase tracking-wide text-text-muted font-semibold mb-1.5">
             {memberName} can manage
           </p>
           {managed.length === 0 ? (

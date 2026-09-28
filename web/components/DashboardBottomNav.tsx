@@ -50,7 +50,7 @@ export default function DashboardBottomNav({
               <Link
                 href={item.href}
                 aria-current={active ? "page" : undefined}
-                className={`w-full h-full min-h-[56px] flex flex-col items-center justify-center gap-1 py-2 ${
+                className={`sidebar-focus w-full h-full min-h-[56px] flex flex-col items-center justify-center gap-1 py-2 ${
                   active ? "text-white" : "text-white/60 hover:text-white"
                 }`}
               >

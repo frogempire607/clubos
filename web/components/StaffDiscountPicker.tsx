@@ -123,7 +123,7 @@ export default function StaffDiscountPicker({
             <span>Final price</span>
             <span>${math.finalPrice.toFixed(2)}</span>
           </div>
-          <p className="text-[11px] text-text-muted mt-1">
+          <p className="text-[12px] text-text-muted mt-1">
             Preview only — the exact amount is recomputed server-side when saved.
             {passProcessingFees ? " Card payments add the processing fee on the final price." : ""}
           </p>

@@ -75,7 +75,7 @@ export default function OfflinePaymentsCard({
         <p className="text-xs text-text-muted">
           No outstanding cash or check payment to record for this member.
         </p>
-        <p className="text-[11px] text-text-muted mt-1.5">
+        <p className="text-[12px] text-text-muted mt-1.5">
           This records money against a balance the member already owes. If they have{" "}
           <strong>paid you and have no membership yet</strong>, enrol them from the billing centre
           instead — that records the payment and starts the membership together.
@@ -109,7 +109,7 @@ function Wrapper({ variant, className, children }: { variant: "card" | "inline";
   if (variant === "inline") {
     return (
       <div className={`rounded-lg border border-orange-accent/40 bg-orange-accent/5 p-3 ${className ?? ""}`}>
-        <p className="text-[10px] uppercase tracking-wide font-semibold text-text-muted mb-1.5">Outstanding cash/check</p>
+        <p className="text-[12px] uppercase tracking-wide font-semibold text-text-muted mb-1.5">Outstanding cash/check</p>
         {children}
       </div>
     );
@@ -204,7 +204,7 @@ function PendingPaymentRow({
                 className="mt-1 w-full border border-app-border rounded-lg px-2 py-1.5 text-sm bg-surface text-text-primary" />
             </label>
           </div>
-          <p className="text-[11px] text-text-muted mt-1.5">
+          <p className="text-[12px] text-text-muted mt-1.5">
             Must equal the ${row.amount.toFixed(2)} due — adjust the member&apos;s billing first if the agreed amount changed.
           </p>
           {err && <p className="text-xs text-red-600 mt-1.5">{err}</p>}

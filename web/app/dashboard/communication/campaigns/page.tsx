@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import PageHeader from "@/components/PageHeader";
 
 type RangeKey = "last_30" | "last_90" | "month" | "ytd";
 
@@ -110,14 +111,11 @@ export default function CampaignsPage() {
 
   return (
     <div className="p-6 md:p-8 max-w-7xl">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between mb-6">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-text-muted font-medium mb-1">Communication</p>
-          <h1 className="text-3xl font-semibold text-text-primary">Campaigns</h1>
-          <p className="text-sm text-text-muted mt-1 max-w-2xl">
-            Track lead conversion, intro offers, win-backs, and revenue attribution for sports club marketing.
-          </p>
-        </div>
+      <PageHeader
+        eyebrow="Communication"
+        title="Campaigns"
+        description="Track lead conversion, intro offers, win-backs, and revenue attribution for sports club marketing."
+        actions={<>
         <div className="flex gap-1 bg-app-bg rounded-lg p-1 w-fit">
           {ranges.map((item) => (
             <button
@@ -133,7 +131,8 @@ export default function CampaignsPage() {
             </button>
           ))}
         </div>
-      </div>
+        </>}
+      />
 
       {error ? (
         <div className="bg-surface border border-app-border rounded-xl p-8 text-center">
@@ -209,7 +208,7 @@ export default function CampaignsPage() {
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="text-sm font-semibold text-text-primary">{campaign.name}</p>
-                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
+                          <span className="text-[12px] px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
                             {statusLabels[campaign.status] || campaign.status}
                           </span>
                         </div>
@@ -257,7 +256,7 @@ function KpiCard({ kpi }: { kpi: Kpi }) {
         </span>
         <span className="text-xs text-text-muted">vs previous period</span>
       </div>
-      <p className="text-[11px] text-text-muted mt-2 leading-relaxed">{kpi.helper}</p>
+      <p className="text-[12px] text-text-muted mt-2 leading-relaxed">{kpi.helper}</p>
     </div>
   );
 }

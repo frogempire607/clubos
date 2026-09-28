@@ -232,7 +232,7 @@ export default function AlertsDrawer({ open, onClose }: { open: boolean; onClose
                   {saving ? "Saving…" : "Save thresholds"}
                 </button>
               </div>
-              <div className="mt-3 flex items-start gap-2 text-[11px] text-text-muted">
+              <div className="mt-3 flex items-start gap-2 text-[12px] text-text-muted">
                 <Info size={12} className="flex-shrink-0 mt-0.5" />
                 <p>These thresholds also drive the Action Items feed on Snapshot.</p>
               </div>

@@ -149,7 +149,7 @@ function PayMethodChips({ value, onChange }: { value: PayMethod; onChange: (m: P
           key={pm}
           type="button"
           onClick={() => onChange(pm)}
-          className={`px-2 py-1 text-[11px] rounded border ${
+          className={`px-2 py-1 text-[12px] rounded border ${
             value === pm ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted"
           }`}
         >
@@ -206,7 +206,7 @@ function DiscountSelect({
   value: string;
   onChange: (code: string) => void;
 }) {
-  if (discounts === null) return <p className="text-[11px] text-text-muted">Loading discounts…</p>;
+  if (discounts === null) return <p className="text-[12px] text-text-muted">Loading discounts…</p>;
   if (discounts.length === 0) return null;
   return (
     <select
@@ -230,7 +230,7 @@ function DiscountMathRows({ orig, discount }: { orig: number; discount: Eligible
   const math = discountMathFor(orig, discount);
   if (!math || !discount) return null;
   return (
-    <div className="text-[11px] text-text-muted space-y-0.5">
+    <div className="text-[12px] text-text-muted space-y-0.5">
       <div className="flex justify-between">
         <span>Original</span>
         <span>${math.original.toFixed(2)}</span>
@@ -301,7 +301,7 @@ function CoverageChip({ v, onClick }: { v: CoverageVerdict; onClick: () => void 
       type="button"
       onClick={onClick}
       title={v.message}
-      className="ml-1.5 align-middle text-[10px] rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 font-medium hover:bg-amber-200"
+      className="ml-1.5 align-middle text-[12px] rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 font-medium hover:bg-amber-200"
     >
       {days ? `${days} plan` : "Not included"}
       {v.dropIn ? ` · drop-in $${v.dropIn.amount}` : ""}
@@ -313,7 +313,7 @@ function CoveragePanel({ v }: { v: CoverageVerdict }) {
   return (
     <div className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
       <p className="text-xs text-amber-900">{v.message}</p>
-      <p className="text-[11px] text-amber-800 mt-0.5">
+      <p className="text-[12px] text-amber-800 mt-0.5">
         Attendance can still be recorded — this is a heads-up, not a block.
       </p>
     </div>
@@ -328,7 +328,7 @@ function OwesChip({ rows, onClick }: { rows: OwedRow[]; onClick: () => void }) {
       type="button"
       onClick={onClick}
       title="Outstanding cash/check payment — click for options"
-      className="ml-1.5 align-middle text-[10px] rounded-full bg-orange-100 text-orange-700 px-2 py-0.5 font-medium hover:bg-orange-200"
+      className="ml-1.5 align-middle text-[12px] rounded-full bg-orange-100 text-orange-700 px-2 py-0.5 font-medium hover:bg-orange-200"
     >
       Owes ${total.toFixed(2)} ({methods})
     </button>
@@ -355,7 +355,7 @@ function OwesPanel({
   return (
     <div className="mt-2 rounded-lg border border-orange-accent/40 bg-orange-accent/5 p-2 space-y-2">
       {rows.map((r) => (
-        <p key={r.transactionId} className="text-[11px] text-text-muted">
+        <p key={r.transactionId} className="text-[12px] text-text-muted">
           <span className="font-medium text-text-primary">${r.amount.toFixed(2)}</span> · {r.stateLabel}
           {r.description ? ` — ${r.description}` : ""}
         </p>
@@ -367,21 +367,21 @@ function OwesPanel({
           <button
             type="button"
             onClick={onRecord}
-            className="px-2 py-1 text-[11px] rounded bg-brand text-white hover:bg-brand-hover"
+            className="px-2 py-1 text-[12px] rounded bg-brand text-white hover:bg-brand-hover"
           >
             Record payment received
           </button>
           <button
             type="button"
             onClick={onAllow}
-            className="px-2 py-1 text-[11px] rounded border border-app-border bg-white text-text-primary hover:bg-app-bg"
+            className="px-2 py-1 text-[12px] rounded border border-app-border bg-white text-text-primary hover:bg-app-bg"
           >
             Allow attendance anyway
           </button>
           <button
             type="button"
             onClick={onDeny}
-            className="px-2 py-1 text-[11px] rounded border border-app-border bg-white text-text-primary hover:bg-app-bg"
+            className="px-2 py-1 text-[12px] rounded border border-app-border bg-white text-text-primary hover:bg-app-bg"
           >
             Deny until paid
           </button>
@@ -626,8 +626,8 @@ function ChargeSavedCardPanel({
       >
         {linkState.state === "sending" ? "Sending payment link…" : "Email payment link to payer"}
       </button>
-      {linkState.state === "sent" && <p className="text-[11px] text-text-primary">{linkState.detail}</p>}
-      {linkState.state === "error" && <p className="text-[11px] text-red-600">{linkState.detail}</p>}
+      {linkState.state === "sent" && <p className="text-[12px] text-text-primary">{linkState.detail}</p>}
+      {linkState.state === "error" && <p className="text-[12px] text-red-600">{linkState.detail}</p>}
     </div>
   );
 
@@ -640,7 +640,7 @@ function ChargeSavedCardPanel({
   if (!preview.hasSavedCard || !card || result?.kind === "no_card") {
     return (
       <div className="space-y-2">
-        <div className="rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-[11px] text-text-muted">
+        <div className="rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-[12px] text-text-muted">
           No saved card on file for {preview.member.name}.
         </div>
         {paymentLinkBlock}
@@ -676,11 +676,11 @@ function ChargeSavedCardPanel({
     <div className="space-y-2">
       <div className="rounded-lg border border-app-border bg-app-bg px-2 py-2 space-y-1">
         <p className="text-xs font-medium text-text-primary">{preview.member.name}</p>
-        <p className="text-[11px] text-text-muted">
+        <p className="text-[12px] text-text-muted">
           {titleCaseBrand(card.brand)} •••• {card.last4} — cardholder {card.cardholder}
         </p>
         {preview.guardians.length > 0 && (
-          <p className="text-[11px] text-text-muted">
+          <p className="text-[12px] text-text-muted">
             Guardians:{" "}
             {preview.guardians
               .map((g) => `${g.name}${g.relationship ? ` (${g.relationship})` : ""}`)
@@ -688,7 +688,7 @@ function ChargeSavedCardPanel({
           </p>
         )}
         {preview.payerManagesOthers.length > 0 && (
-          <p className="text-[11px] text-orange-accent">
+          <p className="text-[12px] text-orange-accent">
             This card&apos;s payer also manages: {preview.payerManagesOthers.join(", ")}
           </p>
         )}
@@ -700,7 +700,7 @@ function ChargeSavedCardPanel({
             key={`${p.label}-${p.price}`}
             type="button"
             onClick={() => setSelectedPrice(p.price)}
-            className={`px-2 py-1 text-[11px] rounded border ${
+            className={`px-2 py-1 text-[12px] rounded border ${
               selectedPrice === p.price ? "border-brand bg-brand/10 text-brand" : "border-app-border text-text-muted"
             }`}
           >
@@ -708,12 +708,12 @@ function ChargeSavedCardPanel({
           </button>
         ))}
         {preview.allowedPrices.length === 0 && (
-          <p className="text-[11px] text-text-muted">No chargeable prices are configured for this class.</p>
+          <p className="text-[12px] text-text-muted">No chargeable prices are configured for this class.</p>
         )}
       </div>
 
       {base != null && (preview.passProcessingFees || math) && (
-        <div className="text-[11px] text-text-muted space-y-0.5">
+        <div className="text-[12px] text-text-muted space-y-0.5">
           <div className="flex justify-between">
             <span>Base price</span>
             <span>${base.toFixed(2)}</span>
@@ -737,7 +737,7 @@ function ChargeSavedCardPanel({
         </div>
       )}
 
-      <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+      <label className="flex items-center gap-1.5 text-[12px] text-text-muted">
         <input
           type="checkbox"
           checked={emailReceipt}
@@ -748,7 +748,7 @@ function ChargeSavedCardPanel({
       </label>
 
       {result?.kind === "processing" ? (
-        <p className="text-[11px] text-orange-accent">
+        <p className="text-[12px] text-orange-accent">
           Payment is processing — do not retry; it will appear in Financials when it settles.
         </p>
       ) : (
@@ -1232,7 +1232,7 @@ function QuickAddForm({
                 </div>
               </div>
               {owesNotes[m.id] ? (
-                <p className="mt-2 text-[11px] text-text-muted bg-app-bg border border-app-border rounded px-2 py-1">
+                <p className="mt-2 text-[12px] text-text-muted bg-app-bg border border-app-border rounded px-2 py-1">
                   {owesNotes[m.id]}
                 </p>
               ) : null}
@@ -1287,7 +1287,7 @@ function QuickAddForm({
                       ? `${m.firstName} gets “${freeTrial.name}” — ${freeTrial.days} day${freeTrial.days === 1 ? "" : "s"} free, active like a membership, then it ends automatically.${freeTrial.renewable ? "" : " One per client — it can't be renewed later."}`
                       : `${m.firstName} gets the club's free trial and can book like a member until it ends.`}
                   </p>
-                  <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                  <label className="flex items-center gap-1.5 text-[12px] text-text-muted">
                     <input
                       type="checkbox"
                       checked={trialEmailReceipt}
@@ -1339,7 +1339,7 @@ function QuickAddForm({
                     className="w-full border border-app-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand"
                   />
                   {payMethod === "CREDIT" && (
-                    <p className="text-[11px] text-orange-accent">
+                    <p className="text-[12px] text-orange-accent">
                       AthletixOS does NOT charge the card — record only, collected on your external card reader.
                     </p>
                   )}
@@ -1358,7 +1358,7 @@ function QuickAddForm({
                   ) : (
                     <>
                       <DiscountMathRows orig={Number(payAmount || 0)} discount={payDiscount} />
-                      <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                      <label className="flex items-center gap-1.5 text-[12px] text-text-muted">
                         <input
                           type="checkbox"
                           checked={payEmailReceipt}
@@ -1386,7 +1386,7 @@ function QuickAddForm({
                   )}
                   {hasAnyPricing && (
                     <div className="pt-2 border-t border-app-border space-y-1.5">
-                      <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">
+                      <p className="text-[12px] font-medium text-text-muted uppercase tracking-wide">
                         Or open a Stripe checkout page:
                       </p>
                       {acceptsMembership && (
@@ -1396,7 +1396,7 @@ function QuickAddForm({
                           className="w-full text-left px-2 py-1.5 text-xs rounded border border-brand/40 bg-brand/5 text-text-primary hover:bg-brand/10"
                         >
                           <span className="font-medium">Use accepted membership</span>
-                          <span className="block text-[10px] text-text-muted">
+                          <span className="block text-[12px] text-text-muted">
                             Free if active on: {acceptedMemberships.map((a) => a.name).join(", ")}
                           </span>
                         </button>
@@ -1833,7 +1833,7 @@ function AttendancePanel({
                         {/* "Owes" note + panel — informational; only the embedded
                             record flow changes data. */}
                         {owesNotes[rec.member.id] ? (
-                          <p className="mt-2 text-[11px] text-text-muted bg-app-bg border border-app-border rounded px-2 py-1">
+                          <p className="mt-2 text-[12px] text-text-muted bg-app-bg border border-app-border rounded px-2 py-1">
                             {owesNotes[rec.member.id]}
                           </p>
                         ) : null}
@@ -1903,11 +1903,11 @@ function AttendancePanel({
                                 />
                                 <DiscountMathRows orig={chargeAmountNum} discount={chargeDiscount} />
                                 {chargeMethod === "CREDIT" && (
-                                  <p className="text-[11px] text-orange-accent">
+                                  <p className="text-[12px] text-orange-accent">
                                     AthletixOS does NOT charge the card — record only, collected on your external card reader.
                                   </p>
                                 )}
-                                <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                                <label className="flex items-center gap-1.5 text-[12px] text-text-muted">
                                   <input
                                     type="checkbox"
                                     checked={chargeEmailReceipt}
@@ -1977,7 +1977,7 @@ function AttendancePanel({
                                 ? `${rec.member.firstName} gets “${data.freeTrial.name}” — ${data.freeTrial.days} day${data.freeTrial.days === 1 ? "" : "s"} free, active like a membership, then it ends automatically.${data.freeTrial.renewable ? "" : " One per client — it can't be renewed later."}`
                                 : `${rec.member.firstName} gets the club's free trial and can book like a member until it ends.`}
                             </p>
-                            <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                            <label className="flex items-center gap-1.5 text-[12px] text-text-muted">
                               <input
                                 type="checkbox"
                                 checked={trialEmailReceipt}

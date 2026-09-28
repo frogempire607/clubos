@@ -119,7 +119,7 @@ export default function PnlTab({ range, customFrom, customTo }: { range: RangeKe
       <ScrollTable stickyFirst={false} className="hidden md:block bg-surface border border-app-border rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-[11px] text-text-muted uppercase tracking-wide font-semibold border-b border-app-border bg-app-bg">
+            <tr className="text-[12px] text-text-muted uppercase tracking-wide font-semibold border-b border-app-border bg-app-bg">
               <th className="text-left py-2 pl-4 pr-3 sticky left-0 bg-app-bg z-10 min-w-[180px]">Line</th>
               {data.columns.map((c) => (
                 <th key={c.key} className={`text-right py-2 pr-3 min-w-[100px] ${c.isPartial ? "text-orange-accent" : ""}`}>
@@ -220,10 +220,10 @@ function MobilePnl({ data, onDrill }: { data: PnlResponse; onDrill: (lineKey: st
           ))}
         </div>
       )}
-      {c.isPartial && <p className="text-[11px] text-orange-accent">* {c.label} is still in progress.</p>}
+      {c.isPartial && <p className="text-[12px] text-orange-accent">* {c.label} is still in progress.</p>}
       {data.sections.map((section) => (
         <div key={section.key} className="bg-surface border border-app-border rounded-xl overflow-hidden">
-          <div className="bg-app-bg px-3 py-2 text-[11px] uppercase tracking-wide font-semibold text-text-muted">{section.label}</div>
+          <div className="bg-app-bg px-3 py-2 text-[12px] uppercase tracking-wide font-semibold text-text-muted">{section.label}</div>
           <ul className="divide-y divide-app-border">
             {section.lines.map((line) => (
               <li key={line.key}>
@@ -269,7 +269,7 @@ function SectionRows({
   return (
     <>
       <tr className="bg-app-bg">
-        <td colSpan={columns.length + 1} className="py-2 pl-4 text-[11px] uppercase tracking-wide font-semibold text-text-muted">
+        <td colSpan={columns.length + 1} className="py-2 pl-4 text-[12px] uppercase tracking-wide font-semibold text-text-muted">
           {section.label}
         </td>
       </tr>
@@ -421,7 +421,7 @@ function DrillSheet({
                       >
                         <div className="min-w-0">
                           <p className="text-sm text-text-primary truncate">{t.description}</p>
-                          <p className="text-[11px] text-text-muted">
+                          <p className="text-[12px] text-text-muted">
                             {new Date(t.date + "T00:00:00").toLocaleDateString()}
                             {t.counterparty ? ` · ${t.counterparty}` : ""}
                             {" · "}{t.source}

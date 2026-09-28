@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Mail } from "lucide-react";
 import { batchStateLabel, type BatchState } from "@/lib/emailResults";
+import PageHeader from "@/components/PageHeader";
 
 interface Batch {
   sendBatchId: string;
@@ -58,11 +59,13 @@ export default function EmailResultsListPage() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-5xl">
-      <h1 className="text-2xl sm:text-3xl font-semibold text-text-primary mb-1">Email sends</h1>
-      <p className="text-sm text-text-muted mb-6">
+      <PageHeader
+        title="Email sends"
+        description={<>
         Every batch you have sent — from the Members tab, from announcements, or from a price change —
         with what actually happened to each one.
-      </p>
+        </>}
+      />
 
       {!batches ? (
         <div className="text-sm text-text-muted">Loading…</div>

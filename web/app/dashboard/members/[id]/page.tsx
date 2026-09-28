@@ -1161,7 +1161,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
                     <span className="min-w-0 flex-1 text-[13px] text-text-primary">
                       {e.message || e.type}
                     </span>
-                    <span className="shrink-0 text-[11.5px] tabular-nums text-text-muted">
+                    <span className="shrink-0 text-[12px] tabular-nums text-text-muted">
                       {new Date(e.createdAt).toLocaleString("en-US", {
                         month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
                       })}
@@ -1394,11 +1394,11 @@ function DocumentsCard({ documents, memberName }: { documents?: MemberDocument[]
                 <div className="min-w-0">
                   <span className="text-text-primary">{d.title}</span>
                   {d.requiredAt.length > 0 && (
-                    <span className="ml-2 text-[11px] uppercase tracking-wide text-text-muted">
+                    <span className="ml-2 text-[12px] uppercase tracking-wide text-text-muted">
                       required · {d.requiredAt.join(", ").toLowerCase()}
                     </span>
                   )}
-                  <div className="text-[11.5px] text-text-muted">
+                  <div className="text-[12px] text-text-muted">
                     {d.signedAt
                       ? d.expired
                         ? `Signed ${fmtDate(d.signedAt)} by ${d.signerName ?? "—"} · expired ${fmtDate(d.expiresAt)}`
@@ -1424,7 +1424,7 @@ function DocumentsCard({ documents, memberName }: { documents?: MemberDocument[]
         </div>
       )}
       {missing.length > 0 && (
-        <p className="mt-3 text-[11.5px] text-text-muted">
+        <p className="mt-3 text-[12px] text-text-muted">
           {memberName} can sign these from the member portal under Documents. Nothing here changes their membership or
           billing.
         </p>
@@ -1459,7 +1459,7 @@ function MigrationActivityCard({ events, sourceLabel }: { events?: MigrationEven
               />
               <div className="min-w-0">
                 <div className="text-text-primary">{e.message || e.type.replace(/_/g, " ").toLowerCase()}</div>
-                <div className="text-[11.5px] text-text-muted">
+                <div className="text-[12px] text-text-muted">
                   {new Date(e.createdAt).toLocaleString("en-US", {
                     month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
                   })}
@@ -1562,7 +1562,7 @@ function CommunicationsCard({ memberId, className }: { memberId: string; classNa
                   </div>
                   <div className="flex-shrink-0 text-right">
                     <DeliveryBadge row={r} clubTracksOpens={clubTracksOpens} />
-                    <div className="text-[11px] text-text-muted mt-0.5">{fmtDate(r.sentAt ?? r.queuedAt)}</div>
+                    <div className="text-[12px] text-text-muted mt-0.5">{fmtDate(r.sentAt ?? r.queuedAt)}</div>
                   </div>
                 </div>
                 {r.bodyPreview && (
@@ -1623,7 +1623,7 @@ function Pill({ tone, children }: { tone: "grey" | "blue" | "lime" | "orange" | 
     red: "bg-red-50 text-red-700",
   };
   return (
-    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${styles[tone]}`}>
+    <span className={`text-[12px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${styles[tone]}`}>
       {children}
     </span>
   );

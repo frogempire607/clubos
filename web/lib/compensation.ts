@@ -42,7 +42,8 @@ export type TaughtSession = {
 };
 
 export type CompContext = {
-  // Class sessions in range whose RecurringClass.assignedStaffIds includes this staff.
+  // Class sessions in range this staff member actually coached: the session's
+  // staffOverride when set, else RecurringClass.assignedStaffIds (lib/staffAssignments).
   taughtSessions: TaughtSession[];
   // Attendance rows in range. classId derived from the session's parent class.
   attendance: { classId: string | null; eventId: string | null; status: string }[];

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { UserCheck, Ban, CreditCard, ChevronDown, ChevronUp, AlertTriangle, FilePen, ArrowRightLeft } from "lucide-react";
 import MembersTabs from "@/components/MembersTabs";
 import OfflinePaymentsCard from "@/components/OfflinePaymentsCard";
+import PageHeader from "@/components/PageHeader";
 
 type Requester = { name: string | null; email: string | null } | null;
 
@@ -703,12 +704,10 @@ export default function MembersApprovalsPage() {
   return (
     <div className="max-w-3xl mx-auto px-4 md:px-6 py-6">
       <MembersTabs />
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-text-primary">Approvals</h1>
-        <p className="text-sm text-text-muted mt-1">
-          Requests that need your sign-off — new membership billing, guardian access, cancellations, and event registrations waiting on a coach.
-        </p>
-      </div>
+      <PageHeader
+        title="Approvals"
+        description="Requests that need your sign-off — new membership billing, guardian access, cancellations, and event registrations waiting on a coach."
+      />
 
       {error && (
         <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>
@@ -754,7 +753,7 @@ export default function MembersApprovalsPage() {
             <div className="space-y-3">
               {groups.map((g) => (
                 <div key={g.memberId} className="rounded-xl border border-app-border bg-surface p-4">
-                  <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-orange-700 bg-orange-100 rounded px-2 py-0.5 mb-2">
+                  <span className="inline-flex items-center gap-1 text-[12px] uppercase tracking-wide font-semibold text-orange-700 bg-orange-100 rounded px-2 py-0.5 mb-2">
                     Awaiting cash/check payment
                   </span>
                   <p className="text-sm text-text-primary">
@@ -812,7 +811,7 @@ export default function MembersApprovalsPage() {
               return (
                 <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
                   <div className="min-w-0">
-                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
+                    <span className="inline-flex items-center gap-1 text-[12px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
                       <CreditCard size={11} /> Membership billing
                     </span>
                     {unconfigured && a.price == null ? (
@@ -888,7 +887,7 @@ export default function MembersApprovalsPage() {
               return (
                 <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
                   <div className="min-w-0">
-                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-orange-accent bg-orange-accent/10 rounded px-2 py-0.5 mb-2">
+                    <span className="inline-flex items-center gap-1 text-[12px] uppercase tracking-wide font-semibold text-orange-accent bg-orange-accent/10 rounded px-2 py-0.5 mb-2">
                       <FilePen size={11} /> Offer change request
                     </span>
                     <p className="text-sm text-text-primary">
@@ -942,7 +941,7 @@ export default function MembersApprovalsPage() {
               return (
                 <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
                   <div className="min-w-0">
-                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
+                    <span className="inline-flex items-center gap-1 text-[12px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
                       <CreditCard size={11} /> {isPack ? "Lesson package" : "Membership purchase"} — {method}
                     </span>
                     <p className="text-sm text-text-primary">
@@ -986,7 +985,7 @@ export default function MembersApprovalsPage() {
               return (
                 <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
                   <div className="min-w-0">
-                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
+                    <span className="inline-flex items-center gap-1 text-[12px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
                       <UserCheck size={11} /> Event registration
                     </span>
                     <p className="text-sm text-text-primary">
@@ -1052,7 +1051,7 @@ export default function MembersApprovalsPage() {
                           className="flex-1 min-w-[160px] px-2 py-1.5 border border-app-border rounded-lg text-sm bg-surface text-text-primary"
                         />
                       </div>
-                      <p className="text-[11px] text-text-muted">Replaces any discount already on it. Nothing is charged until you approve.</p>
+                      <p className="text-[12px] text-text-muted">Replaces any discount already on it. Nothing is charged until you approve.</p>
                       <div className="flex gap-2">
                         <button onClick={() => applyEventDiscount(a)} disabled={busyId === a.id} className="text-sm px-3 py-1.5 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50">
                           {busyId === a.id ? "Saving…" : "Apply discount"}
@@ -1133,7 +1132,7 @@ export default function MembersApprovalsPage() {
               return (
                 <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
                   <div className="min-w-0">
-                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
+                    <span className="inline-flex items-center gap-1 text-[12px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
                       <CreditCard size={11} /> Invoice split
                     </span>
                     <p className="text-sm text-text-primary">
@@ -1178,7 +1177,7 @@ export default function MembersApprovalsPage() {
               return (
                 <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
                   <div className="min-w-0">
-                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
+                    <span className="inline-flex items-center gap-1 text-[12px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
                       <ArrowRightLeft size={11} /> Plan change requested
                     </span>
                     <p className="text-sm text-text-primary">
@@ -1234,7 +1233,7 @@ export default function MembersApprovalsPage() {
               return (
                 <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
                   <div className="min-w-0">
-                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
+                    <span className="inline-flex items-center gap-1 text-[12px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
                       <ArrowRightLeft size={11} /> Membership transfer
                     </span>
                     <p className="text-sm text-text-primary">
@@ -1280,7 +1279,7 @@ export default function MembersApprovalsPage() {
               return (
                 <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
                   <div className="min-w-0">
-                    <span className="inline-block text-[10px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
+                    <span className="inline-block text-[12px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5 mb-2">
                       Guardian access
                     </span>
                     <p className="text-sm text-text-primary">
@@ -1316,7 +1315,7 @@ export default function MembersApprovalsPage() {
             return (
               <div key={a.id} className="rounded-xl border border-app-border bg-surface p-4">
                 <div className="min-w-0">
-                  <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-orange-accent bg-orange-accent/10 rounded px-2 py-0.5 mb-2">
+                  <span className="inline-flex items-center gap-1 text-[12px] uppercase tracking-wide font-semibold text-orange-accent bg-orange-accent/10 rounded px-2 py-0.5 mb-2">
                     <Ban size={11} /> Cancellation
                   </span>
                   <p className="text-sm text-text-primary">
@@ -1329,7 +1328,7 @@ export default function MembersApprovalsPage() {
                 </div>
                 <div className="mt-3 space-y-2">
                   <div>
-                    <label className="block text-[11px] font-medium text-text-muted mb-1">When it takes effect</label>
+                    <label className="block text-[12px] font-medium text-text-muted mb-1">When it takes effect</label>
                     <select
                       value={cancelMode[a.id] || "PERIOD_END"}
                       onChange={(e) => setCancelMode((m) => ({ ...m, [a.id]: e.target.value as CancelMode }))}
@@ -1551,7 +1550,7 @@ function BillingReviewPanel({
     <div className="mt-3 rounded-lg border border-app-border bg-app-bg/60 p-3 space-y-3">
       {/* Authoritative state */}
       <div>
-        <span className="inline-block text-[10px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5">
+        <span className="inline-block text-[12px] uppercase tracking-wide font-semibold text-brand bg-brand/10 rounded px-2 py-0.5">
           {data.billingState?.label || data.billingState?.key || "Billing state unknown"}
         </span>
         {data.billingState?.explanation && (
@@ -1656,7 +1655,7 @@ function BillingReviewPanel({
       {/* Subscriptions */}
       {subscriptions.length > 0 && (
         <div>
-          <p className="text-[10px] uppercase tracking-wide font-semibold text-text-muted mb-1">Subscriptions</p>
+          <p className="text-[12px] uppercase tracking-wide font-semibold text-text-muted mb-1">Subscriptions</p>
           <ul className="space-y-1">
             {subscriptions.map((s, i) => (
               <li key={s.id || i} className="text-xs text-text-primary">
@@ -1671,7 +1670,7 @@ function BillingReviewPanel({
 
       {/* Offer status */}
       <div>
-        <p className="text-[10px] uppercase tracking-wide font-semibold text-text-muted mb-1">Reactivation offer</p>
+        <p className="text-[12px] uppercase tracking-wide font-semibold text-text-muted mb-1">Reactivation offer</p>
         {reactivation ? (
           <p className="text-xs text-text-primary">
             v{reactivation.offerVersion ?? "?"} · {reactivation.status || "unknown"}
@@ -1690,7 +1689,7 @@ function BillingReviewPanel({
       {/* Recent history */}
       {history.length > 0 && (
         <div>
-          <p className="text-[10px] uppercase tracking-wide font-semibold text-text-muted mb-1">Recent history</p>
+          <p className="text-[12px] uppercase tracking-wide font-semibold text-text-muted mb-1">Recent history</p>
           <ul className="space-y-0.5">
             {history.map((h, i) => (
               <li key={i} className="text-xs text-text-muted">

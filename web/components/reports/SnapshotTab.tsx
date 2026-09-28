@@ -134,7 +134,7 @@ function DidIMakeMoneyCard({
         <div>
           <p className="text-xs text-text-muted uppercase tracking-wide font-semibold">Did I make money?</p>
           {partialNote && (
-            <p className="text-[11px] text-text-muted mt-0.5">{partialNote}</p>
+            <p className="text-[12px] text-text-muted mt-0.5">{partialNote}</p>
           )}
         </div>
         <Link href="/dashboard/reports?tab=pnl" className="text-xs font-semibold text-brand hover:underline flex items-center gap-1">
@@ -166,7 +166,7 @@ function MetricInline({ label, value, accent }: { label: string; value: string; 
   const cls = accent === "green" ? "text-green-700" : accent === "red" ? "text-red-700" : "text-text-primary";
   return (
     <div>
-      <p className="text-[11px] text-text-muted uppercase tracking-wide">{label}</p>
+      <p className="text-[12px] text-text-muted uppercase tracking-wide">{label}</p>
       <p className={`text-base sm:text-lg font-semibold tabular-nums break-all ${cls}`}>{value}</p>
     </div>
   );
@@ -235,7 +235,7 @@ function MembershipsGrowingCard({ data, rangeLabel }: { data: SnapshotResponse["
         </div>
       </div>
       {data.reliability === "ESTIMATED" && data.reliabilityNote && (
-        <p className="text-[11px] text-text-muted italic mb-2 border-l-2 border-app-border pl-2">
+        <p className="text-[12px] text-text-muted italic mb-2 border-l-2 border-app-border pl-2">
           {data.reliabilityNote}
         </p>
       )}
@@ -355,7 +355,7 @@ function CashRunwayCard({ cash, runway }: { cash: SnapshotResponse["cash"]; runw
         <>
           <div className="flex items-baseline gap-2 mb-1">
             <p className="text-base font-semibold text-text-primary tabular-nums">{runway.months} mo runway</p>
-            <span className={`text-[11px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${runway.status === "healthy" ? "bg-lime-accent/25 text-lime-800" : runway.status === "tight" ? "bg-orange-accent/25 text-orange-accent" : "bg-red-50 text-red-700"}`}>
+            <span className={`text-[12px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${runway.status === "healthy" ? "bg-lime-accent/25 text-lime-800" : runway.status === "tight" ? "bg-orange-accent/25 text-orange-accent" : "bg-red-50 text-red-700"}`}>
               {runway.status}
             </span>
           </div>
@@ -365,7 +365,7 @@ function CashRunwayCard({ cash, runway }: { cash: SnapshotResponse["cash"]; runw
               style={{ width: `${Math.min(100, ((runway.months ?? 0) / 12) * 100)}%` }}
             />
           </div>
-          <p className="text-[11px] text-text-muted mt-2">{runway.basisLabel}</p>
+          <p className="text-[12px] text-text-muted mt-2">{runway.basisLabel}</p>
         </>
       )}
     </div>
@@ -384,7 +384,7 @@ function MoneyInVsOutChart({ trend }: { trend: SnapshotResponse["trend"] }) {
     <div className="bg-surface border border-app-border rounded-xl p-5">
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <p className="text-xs text-text-muted uppercase tracking-wide font-semibold">Money in vs money out</p>
-        <div className="flex items-center gap-3 text-[11px] text-text-muted">
+        <div className="flex items-center gap-3 text-[12px] text-text-muted">
           <span className="flex items-center gap-1">
             <span className="inline-block w-2 h-2 bg-brand rounded-sm" /> Money in
           </span>
@@ -422,7 +422,7 @@ function MoneyInVsOutChart({ trend }: { trend: SnapshotResponse["trend"] }) {
         })}
       </div>
       {visible.some((b) => b.isPartial) && (
-        <p className="text-[10px] text-text-muted mt-2">* Partial period — not yet complete.</p>
+        <p className="text-[12px] text-text-muted mt-2">* Partial period — not yet complete.</p>
       )}
     </div>
   );

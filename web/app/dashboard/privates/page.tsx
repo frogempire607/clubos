@@ -1,5 +1,6 @@
 "use client";
 
+import PageHeader from "@/components/PageHeader";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import {
@@ -406,7 +407,7 @@ function LessonTypeModal({
                     </button>
                   </div>
                   <div className="flex items-center gap-2">
-                    <label className="text-[11px] text-text-muted">Who can pick this rate:</label>
+                    <label className="text-[12px] text-text-muted">Who can pick this rate:</label>
                     <select
                       value={o.audience ?? "ALL"}
                       onChange={(e) => updateOption(o.id, { audience: e.target.value as PriceOption["audience"] })}
@@ -419,7 +420,7 @@ function LessonTypeModal({
                   </div>
                   {staffList.length > 0 && (
                     <div>
-                      <p className="text-[11px] text-text-muted mb-1">
+                      <p className="text-[12px] text-text-muted mb-1">
                         Coaches for this option {o.coachIds.length === 0 ? "(any eligible coach)" : ""}
                       </p>
                       <div className="flex flex-wrap gap-1.5">
@@ -674,7 +675,7 @@ function PackageModal({
           {/* Tier-aware pricing preview */}
           {form.pricingMode !== "FLAT" && previewTypes.length > 0 && previewCredits > 0 && (previewDiscount > 0) && (
             <div className="border border-app-border rounded-md p-3 bg-app-bg/40">
-              <p className="text-[11px] uppercase tracking-wider text-text-muted font-medium mb-2">Pricing preview</p>
+              <p className="text-[12px] uppercase tracking-wider text-text-muted font-medium mb-2">Pricing preview</p>
               <div className="space-y-3 max-h-48 overflow-y-auto">
                 {previewTypes.map((lt) => {
                   const opts = lt.priceOptions ?? [];
@@ -830,7 +831,7 @@ function BookingModal({
               <span>
                 {booking.paymentType ?? "—"}{booking.pricePaid != null ? ` · $${Number(booking.pricePaid).toFixed(2)}` : ""}
                 {(booking.paymentType === "CASH" || booking.paymentType === "CHECK") && !["CANCELED", "DECLINED"].includes(booking.status) && (
-                  <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded-full ${booking.ownerApproved ? "bg-lime-accent/25 text-charcoal" : "bg-orange-accent/20 text-text-primary"}`}>
+                  <span className={`ml-2 text-[12px] px-1.5 py-0.5 rounded-full ${booking.ownerApproved ? "bg-lime-accent/25 text-charcoal" : "bg-orange-accent/20 text-text-primary"}`}>
                     {booking.ownerApproved ? "payment confirmed" : "payment pending"}
                   </span>
                 )}
@@ -1096,7 +1097,7 @@ function PartnersPanel({ booking, onChanged }: { booking: Booking; onChanged: ()
                   {p.kind === "OUTSIDE" && p.outsidePhone ? ` · ${p.outsidePhone}` : ""}
                 </p>
               </div>
-              <span className={`text-[11px] px-2 py-0.5 rounded border ${PARTNER_STATUS_STYLE[p.status] || "bg-app-bg text-text-muted border-app-border"}`}>
+              <span className={`text-[12px] px-2 py-0.5 rounded border ${PARTNER_STATUS_STYLE[p.status] || "bg-app-bg text-text-muted border-app-border"}`}>
                 {PARTNER_STATUS_LABEL[p.status] || p.status}
               </span>
             </div>
@@ -1107,11 +1108,11 @@ function PartnersPanel({ booking, onChanged }: { booking: Booking; onChanged: ()
                   readOnly
                   value={`${typeof window !== "undefined" ? window.location.origin : ""}/privates/partner/${p.inviteToken}`}
                   onFocus={(e) => e.currentTarget.select()}
-                  className="flex-1 text-[11px] px-2 py-1 border border-app-border rounded bg-app-bg text-text-muted"
+                  className="flex-1 text-[12px] px-2 py-1 border border-app-border rounded bg-app-bg text-text-muted"
                 />
                 <button
                   onClick={() => copy(p.inviteToken!)}
-                  className="text-[11px] px-2 py-1 border border-app-border rounded hover:bg-app-bg"
+                  className="text-[12px] px-2 py-1 border border-app-border rounded hover:bg-app-bg"
                 >
                   Copy
                 </button>
@@ -1123,7 +1124,7 @@ function PartnersPanel({ booking, onChanged }: { booking: Booking; onChanged: ()
                 <button
                   disabled={busyId === p.id}
                   onClick={() => regenerate(p.id)}
-                  className="text-[11px] px-2 py-1 border border-app-border rounded text-text-primary hover:bg-app-bg disabled:opacity-50"
+                  className="text-[12px] px-2 py-1 border border-app-border rounded text-text-primary hover:bg-app-bg disabled:opacity-50"
                 >
                   {p.inviteToken ? "Regenerate link" : "Generate link"}
                 </button>
@@ -1131,7 +1132,7 @@ function PartnersPanel({ booking, onChanged }: { booking: Booking; onChanged: ()
               <button
                 disabled={busyId === p.id}
                 onClick={() => remove(p.id)}
-                className="text-[11px] px-2 py-1 border border-red-200 rounded text-red-600 hover:bg-red-50 disabled:opacity-50"
+                className="text-[12px] px-2 py-1 border border-red-200 rounded text-red-600 hover:bg-red-50 disabled:opacity-50"
               >
                 Remove
               </button>
@@ -1173,7 +1174,7 @@ function BookingRow({ booking, onClick }: { booking: Booking; onClick: () => voi
       <td className="px-4 py-3 text-sm font-medium text-text-primary">
         {booking.member.firstName} {booking.member.lastName}
         {parts.length > 0 && (
-          <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-app-bg text-text-muted">
+          <span className="ml-2 text-[12px] font-medium px-1.5 py-0.5 rounded bg-app-bg text-text-muted">
             +{parts.length} partner{parts.length === 1 ? "" : "s"}
           </span>
         )}
@@ -1192,7 +1193,7 @@ function BookingRow({ booking, onClick }: { booking: Booking; onClick: () => voi
             {STATUS_LABEL[booking.status] ?? booking.status}
           </span>
           {parts.length > 0 && (
-            <span className={`inline-block text-[10px] px-1.5 py-0.5 rounded border w-fit ${
+            <span className={`inline-block text-[12px] px-1.5 py-0.5 rounded border w-fit ${
               needsHelp
                 ? "bg-amber-50 text-amber-700 border-amber-200"
                 : confirmed === parts.length
@@ -1704,13 +1705,12 @@ export default function PrivatesPage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Private Lessons</h1>
-          <p className="text-sm text-text-muted mt-0.5">Manage booking requests, lesson types, and lesson quantity packages</p>
-        </div>
+      <PageHeader
+        title="Private Lessons"
+        description="Manage booking requests, lesson types, and lesson quantity packages"
+        actions={canManage ? (<>
         {canManage && tab === "bookings" && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button onClick={copyPublicPrivatesLink} className="px-4 py-2 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">
               {copiedLink ? "Copied!" : "Copy public link"}
             </button>
@@ -1725,7 +1725,7 @@ export default function PrivatesPage() {
           </button>
         )}
         {canManage && tab === "packages" && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button onClick={() => setAssignPkg(true)} className="px-4 py-2 text-sm border border-app-border rounded-md text-text-primary hover:bg-app-bg">
               Assign package
             </button>
@@ -1734,7 +1734,8 @@ export default function PrivatesPage() {
             </button>
           </div>
         )}
-      </div>
+        </>) : undefined}
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-app-border mb-6">

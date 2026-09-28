@@ -208,7 +208,7 @@ export default function ReportsPage() {
               <Bell size={14} strokeWidth={2} />
               Alerts
               {alertsBadge != null && alertsBadge > 0 && (
-                <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-orange-accent text-white text-[10px] font-bold tabular-nums">
+                <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-orange-accent text-white text-[12px] font-bold tabular-nums">
                   {alertsBadge}
                 </span>
               )}

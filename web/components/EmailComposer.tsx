@@ -945,7 +945,7 @@ function LogoEditor({
         />
         <span className="text-xs text-text-muted">px</span>
       </div>
-      <p className="text-[11px] text-text-muted">
+      <p className="text-[12px] text-text-muted">
         Set width to size the logo — height auto-scales. Add a max height to cap tall/square logos. Aspect ratio is always preserved.
       </p>
     </div>
@@ -1413,7 +1413,7 @@ function PersonalizationHint({ subject, blocks }: { subject: string; blocks: Ema
                   ? `${info?.label}: nothing in this send can fill this in — it will be blank.`
                   : info?.description ?? t
               }
-              className={`px-1.5 py-0.5 rounded-md border text-[11px] ${
+              className={`px-1.5 py-0.5 rounded-md border text-[12px] ${
                 unavailable
                   ? "bg-orange-accent/20 border-orange-accent text-charcoal"
                   : "bg-surface border-app-border"
@@ -1425,7 +1425,7 @@ function PersonalizationHint({ subject, blocks }: { subject: string; blocks: Ema
           );
         })}
         {typos.map((t) => (
-          <span key={t} className="px-1.5 py-0.5 rounded-md bg-orange-accent/20 border border-orange-accent text-charcoal font-mono text-[11px]" title="Unknown token — will render blank">
+          <span key={t} className="px-1.5 py-0.5 rounded-md bg-orange-accent/20 border border-orange-accent text-charcoal font-mono text-[12px]" title="Unknown token — will render blank">
             {"{{"}{t}{"}}"} ← unknown
           </span>
         ))}

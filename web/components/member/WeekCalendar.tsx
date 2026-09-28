@@ -92,7 +92,7 @@ export default function WeekCalendar({
       </div>
       <div className="grid grid-cols-7 gap-1.5 mb-1.5">
         {DAY_LABELS.map((l) => (
-          <span key={l} className="text-[10px] font-bold uppercase tracking-[0.05em] text-stone-400 pl-0.5">
+          <span key={l} className="text-[12px] font-bold uppercase tracking-[0.05em] text-stone-400 pl-0.5">
             {l}
           </span>
         ))}

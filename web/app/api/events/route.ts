@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { setEventStaff } from "@/lib/staffAssignmentsServer";
 import { loadEventMoneySummaries } from "@/lib/eventAttendeesServer";
 import { requirePermission } from "@/lib/apiGuard";
 
@@ -313,15 +314,8 @@ export async function POST(req: Request) {
     });
 
     if (data.staffUserIds.length > 0) {
-      await prisma.eventStaffAssignment.createMany({
-        data: data.staffUserIds.map((userId) => ({
-          clubId: session.user.clubId,
-          eventId: event.id,
-          userId,
-          role: "COACH",
-        })),
-        skipDuplicates: true,
-      });
+      // Same write path as the editor/calendar: ids validated to this club's OWNER/STAFF.
+      await setEventStaff(session.user.clubId, event.id, data.staffUserIds, { keepResponsibleCoach: true });
     }
 
     return NextResponse.json(event, { status: 201 });

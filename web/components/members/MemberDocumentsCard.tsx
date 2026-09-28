@@ -116,16 +116,16 @@ export function MemberDocumentsCard({ memberId, className }: { memberId: string;
                       <FileText className="h-3.5 w-3.5 shrink-0 text-text-muted" />
                       <span className="text-[13.5px] font-medium text-text-primary">{d.title}</span>
                       {d.requiredForOnboarding && (
-                        <span className="rounded px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.05em]"
+                        <span className="rounded px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-[0.05em]"
                           style={{ background: "var(--color-chip-surface)", color: "var(--color-chip-text)" }}>
                           Required
                         </span>
                       )}
                       {d.requiresGuardianSignature && (
-                        <span className="text-[11px] text-text-muted">guardian must sign</span>
+                        <span className="text-[12px] text-text-muted">guardian must sign</span>
                       )}
                     </div>
-                    <div className="mt-0.5 pl-5 text-[11.5px] text-text-muted">
+                    <div className="mt-0.5 pl-5 text-[12px] text-text-muted">
                       {d.signature ? (
                         <>
                           Signed by {d.signature.signerName}
@@ -145,7 +145,7 @@ export function MemberDocumentsCard({ memberId, className }: { memberId: string;
                     </div>
                   </div>
                   <span
-                    className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-medium"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-medium"
                     style={{ background: s.surface, color: s.text }}
                   >
                     {d.status === "SIGNED" ? <Check className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
@@ -155,7 +155,7 @@ export function MemberDocumentsCard({ memberId, className }: { memberId: string;
               );
             })}
           </ul>
-          <p className="mt-3 text-[11.5px] leading-relaxed text-text-muted">
+          <p className="mt-3 text-[12px] leading-relaxed text-text-muted">
             Staff can&rsquo;t sign on a member&rsquo;s behalf — a signature records who signed, from where, and when.
             Ask them to sign in the member portal under Documents.
           </p>

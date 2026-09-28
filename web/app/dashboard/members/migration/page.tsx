@@ -26,6 +26,7 @@ import { MIGRATION_STEPS } from "@/lib/memberTracks";
 import { MigrationMeterBar } from "@/components/members/MemberTracks";
 import { MigrationDetailDrawer } from "@/components/members/MigrationDetailDrawer";
 import MembersTabs from "@/components/MembersTabs";
+import PageHeader from "@/components/PageHeader";
 
 // ── CSV parser (handles quoted cells / embedded commas / CRLF) ───────────────
 function parseCSV(text: string): string[][] {
@@ -647,15 +648,13 @@ export default function MigrationPage() {
         <span>/</span>
         <span className="text-text-primary">Import / Migrate</span>
       </div>
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Member Migration</h1>
-          <p className="text-sm text-text-muted mt-1">
+      <PageHeader
+        title="Member Migration"
+        description={<>
             Switch to AthletixOS without interrupting anyone's membership. Import your roster,
             send activation links, and members continue billing on their existing date.
-          </p>
-        </div>
-        <div className="flex gap-2 flex-shrink-0">
+        </>}
+        actions={<>
           <button
             onClick={() => setShowMembershipImport(true)}
             className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 border border-app-border text-text-primary rounded-lg hover:bg-app-bg transition"
@@ -668,8 +667,8 @@ export default function MigrationPage() {
           >
             Import / Migrate Members
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       {/* Two-step import — members first, then (optionally) match their memberships */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
@@ -929,7 +928,7 @@ export default function MigrationPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wider text-text-muted border-b border-app-border bg-app-bg/40">
+              <tr className="text-left text-[12px] uppercase tracking-wider text-text-muted border-b border-app-border bg-app-bg/40">
                 <th className="px-3 py-2.5 w-8">
                   <input
                     type="checkbox"
@@ -1004,7 +1003,7 @@ export default function MigrationPage() {
                         {r.email || r.guardianEmail || <span className="text-red-600">No email on file</span>}
                         {r.isMinor && <span className="ml-1">· minor</span>}
                       </p>
-                      {r.legacySource && <p className="text-[10px] text-text-muted">from {r.legacySource}</p>}
+                      {r.legacySource && <p className="text-[12px] text-text-muted">from {r.legacySource}</p>}
                     </td>
                     <td className="px-3 py-3 text-text-muted text-xs">
                       {r.legacyMembershipName || "—"}
@@ -1027,26 +1026,26 @@ export default function MigrationPage() {
                       {r.meter?.applicable ? (
                         <div className="min-w-[150px]">
                           <MigrationMeterBar meter={r.meter} />
-                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-text-muted">
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-text-muted">
                             <span>Step {r.meter.step} of {r.meter.total}</span>
                             {r.meter.step < r.meter.total && <MigrationWaitingOnPill waitingOn={r.meter.waitingOn} />}
                           </div>
                         </div>
                       ) : (
-                        <span className="text-[11px] text-text-muted">—</span>
+                        <span className="text-[12px] text-text-muted">—</span>
                       )}
                       {r.reactivationStatus && (
-                        <span className="mt-1 inline-flex items-center whitespace-nowrap rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-medium text-brand">
+                        <span className="mt-1 inline-flex items-center whitespace-nowrap rounded-full bg-brand/10 px-2 py-0.5 text-[12px] font-medium text-brand">
                           Offer {r.reactivationStatus.toLowerCase()}
                         </span>
                       )}
                     </td>
                     <td className="px-3 py-3">
-                      <span className={`inline-flex items-center whitespace-nowrap text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_STYLE[r.migrationStatus] || "bg-app-bg text-text-muted"}`}>
+                      <span className={`inline-flex items-center whitespace-nowrap text-[12px] px-2 py-0.5 rounded-full font-medium ${STATUS_STYLE[r.migrationStatus] || "bg-app-bg text-text-muted"}`}>
                         {statusLabel(r.migrationStatus)}
                       </span>
                       {r.approvalStatus === "PENDING_APPROVAL" && (
-                        <span className="inline-flex items-center whitespace-nowrap mt-1 text-[10px] px-2 py-0.5 rounded-full font-medium bg-orange-accent/20 text-text-primary">
+                        <span className="inline-flex items-center whitespace-nowrap mt-1 text-[12px] px-2 py-0.5 rounded-full font-medium bg-orange-accent/20 text-text-primary">
                           Needs approval
                         </span>
                       )}
@@ -1055,7 +1054,7 @@ export default function MigrationPage() {
                           status pill already says so). */}
                       {r.setupComplete && r.migrationStatus !== "COMPLETED" && (
                         <span
-                          className="inline-flex items-center whitespace-nowrap mt-1 text-[10px] px-2 py-0.5 rounded-full font-medium bg-lime-accent/25 text-text-primary"
+                          className="inline-flex items-center whitespace-nowrap mt-1 text-[12px] px-2 py-0.5 rounded-full font-medium bg-lime-accent/25 text-text-primary"
                           title={
                             r.setupBy
                               ? `Set up by ${r.setupBy}${r.setupAt ? ` on ${new Date(r.setupAt).toLocaleDateString()}` : ""} — no need to redo it.`
@@ -1235,7 +1234,7 @@ function FamiliesPanel({
                       {f.guardianName || "Guardian"}{" "}
                       <span className="text-text-muted font-normal">· {f.guardianEmail}</span>
                     </p>
-                    <p className="text-[11px] text-text-muted">
+                    <p className="text-[12px] text-text-muted">
                       {f.childCount} athlete{f.childCount === 1 ? "" : "s"} ·{" "}
                       {f.pendingCount} pending · {f.completedCount} done
                     </p>
@@ -1252,7 +1251,7 @@ function FamiliesPanel({
                   {f.children.map((c) => (
                     <span
                       key={c.id}
-                      className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                      className={`text-[12px] px-2 py-0.5 rounded-full border ${
                         c.migrationStatus === "COMPLETED"
                           ? "border-lime-accent/40 bg-lime-accent/15 text-text-primary"
                           : c.approvalStatus === "PENDING_APPROVAL"
@@ -1504,7 +1503,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                   )}
                   <div className="flex flex-wrap items-end gap-2 pt-1">
                     <div>
-                      <label className="block text-[11px] text-text-muted mb-1">Approve billing on</label>
+                      <label className="block text-[12px] text-text-muted mb-1">Approve billing on</label>
                       <input type="date" value={approveDate} onChange={(e) => setApproveDate(e.target.value)}
                         className="inp" style={{ width: 160 }} />
                     </div>
@@ -1528,7 +1527,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                   <option value="">— Use imported plan ({d.legacyMembershipName || "none"}) —</option>
                   {memberships.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
-                <p className="text-[11px] text-text-muted mt-1">
+                <p className="text-[12px] text-text-muted mt-1">
                   Imported: {d.legacyMembershipName || "—"}
                   {d.legacyMembershipPrice != null ? ` · $${Number(d.legacyMembershipPrice).toFixed(2)}` : ""}
                   {d.legacyBillingFrequency ? ` / ${d.legacyBillingFrequency.toLowerCase()}` : ""}
@@ -1550,7 +1549,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                         </option>
                       ))}
                     </select>
-                    <p className="text-[11px] text-text-muted mt-1">
+                    <p className="text-[12px] text-text-muted mt-1">
                       Which option under this membership the client continues on. Set a custom price below if theirs differs.
                     </p>
                   </div>
@@ -1569,7 +1568,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                     placeholder="Leave blank to use plan price"
                     className="inp"
                   />
-                  <p className="text-[11px] text-text-muted mt-1">
+                  <p className="text-[12px] text-text-muted mt-1">
                     Set the exact recurring price (e.g. a discounted rate). Wins
                     over the plan &amp; imported price. The client sees this
                     amount on their activation page.
@@ -1587,7 +1586,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                     maxLength={200}
                     className="inp"
                   />
-                  <p className="text-[11px] text-text-muted mt-1">Internal note — why the price differs.</p>
+                  <p className="text-[12px] text-text-muted mt-1">Internal note — why the price differs.</p>
                 </div>
               </div>
 
@@ -1595,7 +1594,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                 <div>
                   <label className="block text-sm font-medium text-text-primary mb-1">Next billing date</label>
                   <input type="date" value={anchor} onChange={(e) => setAnchor(e.target.value)} className="inp" />
-                  <p className="text-[11px] text-text-muted mt-1">
+                  <p className="text-[12px] text-text-muted mt-1">
                     Defaults to the imported date. If it has already passed when you approve, the member is charged right away and the cycle restarts from that charge.
                   </p>
                 </div>
@@ -1609,12 +1608,12 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                     <option value="SEMI_ANNUAL">Every 6 months</option>
                     <option value="ANNUAL">Annual</option>
                   </select>
-                  <p className="text-[11px] text-text-muted mt-1">How often the membership renews</p>
+                  <p className="text-[12px] text-text-muted mt-1">How often the membership renews</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-text-primary mb-1">End / commitment date</label>
                   <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="inp" />
-                  <p className="text-[11px] text-text-muted mt-1">Optional — matches prior contract</p>
+                  <p className="text-[12px] text-text-muted mt-1">Optional — matches prior contract</p>
                 </div>
               </div>
 
@@ -1622,7 +1621,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                 <input type="checkbox" checked={finalPeriodPaid} onChange={(e) => setFinalPeriodPaid(e.target.checked)} className="mt-0.5" />
                 <span>
                   Final period already paid — no further billing
-                  <span className="block text-[11px] text-text-muted font-normal mt-0.5">
+                  <span className="block text-[12px] text-text-muted font-normal mt-0.5">
                     For a member whose membership is ending: the activation link shows “active through {endDate ? new Date(endDate).toLocaleDateString() : "the end date above"}”, charges nothing, and creates no subscription. They can <strong>optionally save a card on file</strong> so re-enrolling later is one tap. Set the end / commitment date above.
                   </span>
                 </span>
@@ -1653,7 +1652,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
                       {copied ? "Copied!" : "Copy"}
                     </button>
                   </div>
-                  <p className="text-[11px] text-text-muted mt-1">
+                  <p className="text-[12px] text-text-muted mt-1">
                     Share this directly if email isn&apos;t configured — it works the same as the emailed link.
                   </p>
                 </div>
@@ -1705,7 +1704,7 @@ function HistoryDrawer({ row, onClose }: { row: Row; onClose: () => void }) {
                 <div key={e.id} className="border-l-2 border-brand/40 pl-3">
                   <p className="text-xs font-semibold text-text-primary">{e.type.replace(/_/g, " ")}</p>
                   {e.message && <p className="text-xs text-text-muted">{e.message}</p>}
-                  <p className="text-[10px] text-text-muted mt-0.5">{new Date(e.createdAt).toLocaleString()}</p>
+                  <p className="text-[12px] text-text-muted mt-0.5">{new Date(e.createdAt).toLocaleString()}</p>
                 </div>
               ))}
             </div>
@@ -1935,7 +1934,7 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
                 <input value={legacySource} onChange={(e) => setLegacySource(e.target.value)}
                   placeholder="Your previous system"
                   className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface" />
-                <p className="mt-1 text-[11px] text-text-muted">
+                <p className="mt-1 text-[12px] text-text-muted">
                   Shown to staff as &ldquo;As imported from &hellip;&rdquo;. Leave blank and it reads &ldquo;your previous system&rdquo;.
                 </p>
               </div>
@@ -1948,7 +1947,7 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
                   <option value="ymd">ISO — YYYY-MM-DD (e.g. 2015-08-25)</option>
                   <option value="auto">Let the system guess</option>
                 </select>
-                <p className="text-[11px] text-text-muted mt-1">Applies to date of birth, billing, start &amp; commitment dates.</p>
+                <p className="text-[12px] text-text-muted mt-1">Applies to date of birth, billing, start &amp; commitment dates.</p>
               </div>
               <p className="text-sm font-medium text-text-primary mb-2">Map your columns</p>
               <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
@@ -1962,7 +1961,7 @@ function ImportWizard({ onClose, onDone }: { onClose: () => void; onDone: () => 
                     >
                       {mappingFields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
                     </select>
-                    <span className="text-[10px] text-text-muted w-28 truncate">{data[0]?.[i] || ""}</span>
+                    <span className="text-[12px] text-text-muted w-28 truncate">{data[0]?.[i] || ""}</span>
                   </div>
                 ))}
               </div>

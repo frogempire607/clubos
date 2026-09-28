@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Plus, Copy, Archive, ArchiveRestore, Trash2, Pencil, Save, X } from "lucide-react";
 import EmailComposer, { clearComposerDraft } from "@/components/EmailComposer";
 import type { EmailBlock } from "@/lib/emailBlocks";
+import PageHeader from "@/components/PageHeader";
 
 interface TemplateRow {
   id: string;
@@ -80,16 +81,14 @@ export default function TemplatesPage() {
         </Link>
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary mb-1">Email templates</h1>
-          <p className="text-sm text-text-muted">
+      <PageHeader
+        title="Email templates"
+        description={<>
             Reusable email starting points. Every template ships with your club logo up top and
             contact info at the bottom — auto-inserted at send time so you don&apos;t have to keep
             re-adding them.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        </>}
+        actions={<>
           <button
             type="button"
             onClick={() => setShowArchived((v) => !v)}
@@ -104,8 +103,8 @@ export default function TemplatesPage() {
           >
             <Plus className="h-4 w-4" strokeWidth={2} /> New template
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       {error && (
         <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">
@@ -131,10 +130,10 @@ export default function TemplatesPage() {
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <h3 className="text-sm font-semibold text-text-primary truncate">{t.name}</h3>
                     {t.isSystem && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand/10 text-brand font-medium">System</span>
+                      <span className="text-[12px] px-1.5 py-0.5 rounded-full bg-brand/10 text-brand font-medium">System</span>
                     )}
                     {t.archivedAt && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-app-bg text-text-muted">Archived</span>
+                      <span className="text-[12px] px-1.5 py-0.5 rounded-full bg-app-bg text-text-muted">Archived</span>
                     )}
                   </div>
                   <p className="text-xs text-text-muted mt-1 line-clamp-2">{t.description || t.subject || "No description"}</p>

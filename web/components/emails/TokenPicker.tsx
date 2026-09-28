@@ -57,11 +57,11 @@ export function TokenPicker({
           {groupedTokens().map((group) => (
             <div key={group.source} className="mb-1 last:mb-0">
               <div className="px-2 pt-2 pb-1">
-                <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted">
+                <div className="text-[12px] font-medium uppercase tracking-wider text-text-muted">
                   {SOURCE_LABEL[group.source]}
                 </div>
                 {SOURCE_NOTE[group.source] && (
-                  <div className="text-[11px] text-orange-accent mt-0.5 leading-snug">
+                  <div className="text-[12px] text-orange-accent mt-0.5 leading-snug">
                     {SOURCE_NOTE[group.source]}
                   </div>
                 )}
@@ -75,8 +75,8 @@ export function TokenPicker({
                   className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-app-bg"
                 >
                   <div className="text-sm text-text-primary">{t.label}</div>
-                  <div className="text-[11px] text-text-muted leading-snug">{t.description}</div>
-                  <div className="text-[11px] font-mono text-text-muted mt-0.5">{tokenSyntax(t.token)}</div>
+                  <div className="text-[12px] text-text-muted leading-snug">{t.description}</div>
+                  <div className="text-[12px] font-mono text-text-muted mt-0.5">{tokenSyntax(t.token)}</div>
                 </button>
               ))}
             </div>

@@ -27,6 +27,7 @@ import {
 import type { WidgetDef, WidgetPrefs } from "@/lib/dashboardWidgets";
 import { fmtTime, kindIsWallClockUTC, dayNumber, sameMonth } from "@/lib/datetime";
 import ActionCenterWidget from "@/components/ActionCenterWidget";
+import PageHeader from "@/components/PageHeader";
 
 type CalItem = { kind: string; id: string; name: string; startsAt: string };
 
@@ -317,7 +318,7 @@ export default function DashboardPage() {
                         className="flex items-center gap-3 py-1.5 border-b border-app-border last:border-0"
                       >
                         <div className="w-9 text-center bg-app-bg rounded-md py-1 flex-shrink-0">
-                          <div className="text-[9px] uppercase font-semibold text-text-muted tracking-wider tabular-nums">
+                          <div className="text-[12px] uppercase font-semibold text-text-muted tracking-wider tabular-nums">
                             {d.toLocaleString("en-US", {
                               month: "short",
                               ...(useUTC ? { timeZone: "UTC" as const } : {}),
@@ -331,7 +332,7 @@ export default function DashboardPage() {
                           <p className="text-sm font-medium text-text-primary truncate">
                             {e.name}
                           </p>
-                          <p className="text-[11px] text-text-muted tabular-nums">
+                          <p className="text-[12px] text-text-muted tabular-nums">
                             {fmtTime(e.startsAt, { utc: useUTC })}
                           </p>
                         </div>
@@ -354,7 +355,7 @@ export default function DashboardPage() {
                 {DAYS.map((d) => (
                   <div
                     key={d}
-                    className="text-center text-[10px] font-semibold uppercase tracking-wider text-text-muted py-1"
+                    className="text-center text-[12px] font-semibold uppercase tracking-wider text-text-muted py-1"
                   >
                     {d}
                   </div>
@@ -477,7 +478,7 @@ export default function DashboardPage() {
                         <div className="text-sm font-medium text-text-primary truncate">{m.firstName} {m.lastName}</div>
                         <div className="text-xs text-text-muted">{new Date(m.joinedAt).toLocaleDateString()}{m.isMinor ? " · Minor" : ""}</div>
                       </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0" style={{ background: statusBg[m.status] || "var(--color-bg)", color: statusColor[m.status] || "var(--color-muted)" }}>
+                      <span className="text-[12px] px-2 py-0.5 rounded-full font-medium flex-shrink-0" style={{ background: statusBg[m.status] || "var(--color-bg)", color: statusColor[m.status] || "var(--color-muted)" }}>
                         {m.status.charAt(0) + m.status.slice(1).toLowerCase()}
                       </span>
                     </div>
@@ -508,16 +509,16 @@ export default function DashboardPage() {
                   return (
                     <div key={e.id} className="flex items-start sm:items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3.5">
                       <div className="w-12 text-center bg-app-bg rounded-lg py-1.5 flex-shrink-0">
-                        <div className="text-[9px] uppercase font-semibold text-text-muted tracking-wider">{start.toLocaleString("en-US", { month: "short" })}</div>
+                        <div className="text-[12px] uppercase font-semibold text-text-muted tracking-wider">{start.toLocaleString("en-US", { month: "short" })}</div>
                         <div className="text-lg font-bold text-text-primary leading-tight tabular-nums">{start.getDate()}</div>
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-semibold text-text-primary line-clamp-2 leading-snug">{e.name}</div>
                         <div className="text-xs text-text-muted mt-0.5 tabular-nums">{start.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}</div>
                         {/* On mobile, badge sits below the name. On desktop it floats to the right. */}
-                        <span className="sm:hidden mt-1.5 inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide" style={{ background: typeBg, color: typeFg }}>{typeName}</span>
+                        <span className="sm:hidden mt-1.5 inline-block text-[12px] px-2 py-0.5 rounded-full font-semibold tracking-wide" style={{ background: typeBg, color: typeFg }}>{typeName}</span>
                       </div>
-                      <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide flex-shrink-0" style={{ background: typeBg, color: typeFg }}>{typeName}</span>
+                      <span className="hidden sm:inline-block text-[12px] px-2 py-0.5 rounded-full font-semibold tracking-wide flex-shrink-0" style={{ background: typeBg, color: typeFg }}>{typeName}</span>
                     </div>
                   );
                 })}
@@ -543,7 +544,7 @@ export default function DashboardPage() {
                   return (
                     <div key={c.id} className="flex items-start sm:items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3.5">
                       <div className="w-12 text-center bg-app-bg rounded-lg py-1.5 flex-shrink-0">
-                        <div className="text-[9px] uppercase font-semibold text-text-muted tracking-wider">{start.toLocaleString("en-US", { month: "short", timeZone: "UTC" })}</div>
+                        <div className="text-[12px] uppercase font-semibold text-text-muted tracking-wider">{start.toLocaleString("en-US", { month: "short", timeZone: "UTC" })}</div>
                         <div className="text-lg font-bold text-text-primary leading-tight tabular-nums">{start.getUTCDate()}</div>
                       </div>
                       <div className="flex-1 min-w-0">
@@ -588,7 +589,7 @@ export default function DashboardPage() {
                           <p className={`text-sm truncate ${isUnread ? "font-semibold text-text-primary" : "text-text-primary"}`}>
                             {m.sender.firstName} {m.sender.lastName}
                           </p>
-                          <span className="text-[11px] text-text-muted shrink-0 tabular-nums">
+                          <span className="text-[12px] text-text-muted shrink-0 tabular-nums">
                             {sent.toLocaleString("en-US", { month: "short", day: "numeric" })}
                           </span>
                         </div>
@@ -645,7 +646,7 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex flex-col items-end gap-1 shrink-0">
                         <span
-                          className={`text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full ${
+                          className={`text-[12px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full ${
                             b.status === "CONFIRMED"
                               ? "bg-lime-accent text-charcoal"
                               : b.status === "WAITLISTED"
@@ -655,7 +656,7 @@ export default function DashboardPage() {
                         >
                           {b.status}
                         </span>
-                        <span className="text-[11px] text-text-muted tabular-nums">
+                        <span className="text-[12px] text-text-muted tabular-nums">
                           {created.toLocaleString("en-US", { month: "short", day: "numeric" })}
                         </span>
                       </div>
@@ -682,7 +683,7 @@ export default function DashboardPage() {
             <div className="grid grid-cols-2 gap-2">
               {(setup?.items ?? []).map((it) => (
                 <div key={it.key} className="flex items-center gap-2 text-sm">
-                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] flex-shrink-0 ${it.done ? "bg-lime-accent text-text-primary" : "bg-app-bg text-text-muted border border-app-border"}`}>
+                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[12px] flex-shrink-0 ${it.done ? "bg-lime-accent text-text-primary" : "bg-app-bg text-text-muted border border-app-border"}`}>
                     {it.done ? "✓" : ""}
                   </span>
                   <span className={it.done ? "text-text-muted line-through" : "text-text-primary"}>{it.label}</span>
@@ -714,22 +715,18 @@ export default function DashboardPage() {
     // native iOS shell" needed.
     <div className="p-4 sm:p-6 lg:p-8 w-full max-w-full min-w-0 overflow-hidden">
       {/* Greeting + Customize. Stacks on mobile; row on sm+. */}
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-2xl sm:text-3xl font-semibold text-text-primary leading-tight tracking-tight">
-            {greeting}{firstName ? `, ${firstName}` : ""}
-          </h1>
-          <p className="text-sm text-text-muted mt-1">
-            Here&apos;s what&apos;s happening at your club today.
-          </p>
-        </div>
+      <PageHeader
+        title={<>{greeting}{firstName ? `, ${firstName}` : ""}</>}
+        description={<>Here&apos;s what&apos;s happening at your club today.</>}
+        actions={<>
         <button
           onClick={() => setCustomizing(true)}
           className="text-xs px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg transition self-start sm:self-auto sm:flex-shrink-0"
         >
           Customize
         </button>
-      </div>
+        </>}
+      />
 
       {/* Primary quick-action bar. Previously used a `-mx-4 ... overflow-x-auto`
           trick to bleed the scroll track to the screen edges; that pattern
@@ -818,11 +815,11 @@ function StatCard({ label, value, sub, href, accent }: { label: string; value: s
   return (
     <Link href={href} className="bg-surface rounded-xl border border-app-border p-4 sm:p-5 hover:shadow-sm transition group min-w-0">
       <div className="flex items-start justify-between mb-2 sm:mb-3 gap-2">
-        <div className="text-[10px] sm:text-xs text-text-muted uppercase tracking-wider truncate">{label}</div>
+        <div className="text-[12px] sm:text-xs text-text-muted uppercase tracking-wider truncate">{label}</div>
         <div className="w-2 h-2 rounded-full mt-0.5 shrink-0" style={{ background: accent }} />
       </div>
       <div className="text-2xl sm:text-3xl font-semibold text-text-primary mb-1 leading-tight truncate">{value}</div>
-      <div className="text-[11px] sm:text-xs text-text-muted truncate">{sub}</div>
+      <div className="text-[12px] sm:text-xs text-text-muted truncate">{sub}</div>
     </Link>
   );
 }
@@ -895,7 +892,7 @@ function CustomizeModal({
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-text-primary">
                     {m.label}
-                    <span className="ml-2 text-[10px] uppercase tracking-wider text-text-muted">{m.kind}</span>
+                    <span className="ml-2 text-[12px] uppercase tracking-wider text-text-muted">{m.kind}</span>
                   </div>
                   <div className="text-xs text-text-muted truncate">{m.description}</div>
                 </div>

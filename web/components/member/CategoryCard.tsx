@@ -36,7 +36,7 @@ export function CategoryCard({
         <span className="block text-[12.5px] md:text-[15px] font-bold text-stone-900 leading-tight">{title}</span>
         <span className="hidden md:block text-xs text-stone-500 leading-snug mt-1">{desc}</span>
       </span>
-      <span className="mt-auto block text-[10.5px] md:text-[11px] font-bold" style={{ color: "var(--club-accent)" }}>
+      <span className="mt-auto block text-[12px] font-bold" style={{ color: "var(--club-accent)" }}>
         {count} →
       </span>
     </Link>

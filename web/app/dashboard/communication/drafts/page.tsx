@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FileEdit } from "lucide-react";
+import PageHeader from "@/components/PageHeader";
 
 interface Draft {
   id: string;
@@ -49,11 +50,13 @@ export default function EmailDraftsPage() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-4xl">
-      <h1 className="text-2xl sm:text-3xl font-semibold text-text-primary mb-1">Drafts</h1>
-      <p className="text-sm text-text-muted mb-6">
+      <PageHeader
+        title="Drafts"
+        description={<>
         Unsent emails, with the people they were addressed to. Drafts are saved for the whole club,
         not just your browser.
-      </p>
+        </>}
+      />
 
       {!drafts ? (
         <div className="text-sm text-text-muted">Loading…</div>

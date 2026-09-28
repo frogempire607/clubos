@@ -68,7 +68,7 @@ export default function GroupRatesCard() {
             <label className="flex items-center gap-2 text-sm text-text-primary">
               <input type="checkbox" checked={r.on} onChange={(e) => set(i, { on: e.target.checked })} /> On
             </label>
-            <button type="button" onClick={() => setRates(rates.filter((_, j) => j !== i))} className="text-[11px] text-text-muted hover:text-red-600">Remove</button>
+            <button type="button" onClick={() => setRates(rates.filter((_, j) => j !== i))} className="text-[12px] text-text-muted hover:text-red-600">Remove</button>
           </div>
           <label className="block">
             <span className="block text-xs font-medium text-text-primary mb-1">What they share (the question on the profile)</span>
@@ -87,7 +87,7 @@ export default function GroupRatesCard() {
           <label className="block">
             <span className="block text-xs font-medium text-text-primary mb-1">Pick-list (optional, one per line)</span>
             <textarea rows={2} value={r.optionsText} onChange={(e) => set(i, { optionsText: e.target.value })} className={input} />
-            <span className="block text-[11px] text-text-muted mt-1">A list keeps spellings together. Blank = typed (case and spacing don&apos;t matter).</span>
+            <span className="block text-[12px] text-text-muted mt-1">A list keeps spellings together. Blank = typed (case and spacing don&apos;t matter).</span>
           </label>
           {plans.length > 0 && (
             <div>
@@ -100,7 +100,7 @@ export default function GroupRatesCard() {
               </div>
             </div>
           )}
-          {r.id && <p className="text-[11px] text-text-muted">{answered[r.id] ?? 0} athlete{answered[r.id] === 1 ? "" : "s"} answered so far.</p>}
+          {r.id && <p className="text-[12px] text-text-muted">{answered[r.id] ?? 0} athlete{answered[r.id] === 1 ? "" : "s"} answered so far.</p>}
         </div>
       ))}
       <button type="button" onClick={() => setRates([...rates, { on: true, label: "", threshold: 3, amount: { type: "PERCENT", value: 10 }, options: [], membershipIds: [], optionsText: "" }])} className="text-[12.5px] font-medium text-brand">+ Add a group rate</button>

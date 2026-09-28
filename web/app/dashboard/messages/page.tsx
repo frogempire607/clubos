@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { MessageSquare } from "lucide-react";
+import PageHeader from "@/components/PageHeader";
 
 type GroupMessage = {
   id: string;
@@ -83,10 +84,10 @@ export default function MessagesPage() {
 
   return (
     <div className="p-8 max-w-6xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-text-primary mb-1">Messages</h1>
-        <p className="text-sm text-text-muted">Group chats and direct messages. Posting to the whole club? Use <a href="/dashboard/announcements" className="text-brand hover:underline font-medium">Announcements</a>.</p>
-      </div>
+      <PageHeader
+        title="Messages"
+        description={<>Group chats and direct messages. Posting to the whole club? Use <a href="/dashboard/announcements" className="text-brand hover:underline font-medium">Announcements</a>.</>}
+      />
 
       <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-6 w-fit">
         {(["groups", "dms"] as const).map((t) => (
@@ -231,14 +232,14 @@ function GroupsTab() {
                           <div className="flex items-center gap-1">
                             <span className="text-xs font-medium text-text-primary truncate">{g.name}</span>
                             {isBroadcast && (
-                              <span className="text-[9px] px-1 py-0.5 rounded bg-orange-accent/10 text-orange-accent font-medium flex-shrink-0">Broadcast</span>
+                              <span className="text-[12px] px-1 py-0.5 rounded bg-orange-accent/10 text-orange-accent font-medium flex-shrink-0">Broadcast</span>
                             )}
                           </div>
-                          <p className="text-[10px] text-text-muted">
+                          <p className="text-[12px] text-text-muted">
                             {g.members.length} member{g.members.length !== 1 ? "s" : ""}
                           </p>
                           {lastMsg && (
-                            <p className="text-[10px] text-text-muted truncate mt-0.5">{lastMsg.body}</p>
+                            <p className="text-[12px] text-text-muted truncate mt-0.5">{lastMsg.body}</p>
                           )}
                         </div>
                       </div>
@@ -266,7 +267,7 @@ function GroupsTab() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-text-primary">{activeGroup.name}</span>
                         {activeGroup.type === "BROADCAST" && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-accent/10 text-orange-accent font-medium">Broadcast</span>
+                          <span className="text-[12px] px-1.5 py-0.5 rounded bg-orange-accent/10 text-orange-accent font-medium">Broadcast</span>
                         )}
                       </div>
                       <p className="text-xs text-text-muted">
@@ -291,17 +292,17 @@ function GroupsTab() {
                         return (
                           <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                             {!mine && (
-                              <div className="w-6 h-6 rounded-full bg-app-border flex items-center justify-center text-[10px] font-medium text-text-primary mr-2 flex-shrink-0 mt-1">
+                              <div className="w-6 h-6 rounded-full bg-app-border flex items-center justify-center text-[12px] font-medium text-text-primary mr-2 flex-shrink-0 mt-1">
                                 {m.sender.firstName[0]}
                               </div>
                             )}
                             <div className={`max-w-[70%] ${mine ? "" : ""}`}>
                               {!mine && (
-                                <p className="text-[10px] text-text-muted mb-0.5">{m.sender.firstName} {m.sender.lastName}</p>
+                                <p className="text-[12px] text-text-muted mb-0.5">{m.sender.firstName} {m.sender.lastName}</p>
                               )}
                               <div className={`px-3 py-2 rounded-xl text-sm ${mine ? "bg-brand text-white" : "bg-app-bg text-text-primary"}`}>
                                 <p>{m.body}</p>
-                                <p className={`text-[10px] mt-1 ${mine ? "text-white/75" : "text-text-muted"}`}>
+                                <p className={`text-[12px] mt-1 ${mine ? "text-white/75" : "text-text-muted"}`}>
                                   {new Date(m.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                                   {mine && typeof m.readCount === "number" && m.readCount > 0 ? (
                                     <>
@@ -323,7 +324,7 @@ function GroupsTab() {
                                   ) : null}
                                 </p>
                                 {mine && expandedReadersId === m.id && m.readers && m.readers.length > 0 && (
-                                  <ul className={`mt-1 text-[10px] space-y-0.5 ${mine ? "text-white/80" : "text-text-muted"}`}>
+                                  <ul className={`mt-1 text-[12px] space-y-0.5 ${mine ? "text-white/80" : "text-text-muted"}`}>
                                     {m.readers.map((r) => (
                                       <li key={r.userId}>
                                         {r.firstName} {r.lastName} ·{" "}
@@ -608,8 +609,8 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
                   {filteredUsers.length} people · {selectedIds.size} selected
                 </span>
                 <div className="flex gap-2">
-                  <button type="button" onClick={selectAll} className="text-[10px] text-text-muted hover:text-text-primary">Select all</button>
-                  <button type="button" onClick={clearAll} className="text-[10px] text-text-muted hover:text-text-muted">Clear</button>
+                  <button type="button" onClick={selectAll} className="text-[12px] text-text-muted hover:text-text-primary">Select all</button>
+                  <button type="button" onClick={clearAll} className="text-[12px] text-text-muted hover:text-text-muted">Clear</button>
                 </div>
               </div>
               <div className="max-h-48 overflow-y-auto">
@@ -630,7 +631,7 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
                     <span className="text-sm text-text-primary">{u.firstName} {u.lastName}</span>
                     <span className="text-xs text-text-muted">{u.role.charAt(0) + u.role.slice(1).toLowerCase()}</span>
                     {!u.hasLogin && (
-                      <span className="text-[10px] text-text-muted ml-auto" title="Chats reach portal accounts. This athlete hasn't set up their login yet.">
+                      <span className="text-[12px] text-text-muted ml-auto" title="Chats reach portal accounts. This athlete hasn't set up their login yet.">
                         no portal login
                       </span>
                     )}
@@ -744,15 +745,15 @@ function DMsTab() {
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-medium text-text-primary">{c.user.firstName} {c.user.lastName}</span>
                         {c.unread > 0 && (
-                          <span className="text-[10px] bg-brand text-white rounded-full w-4 h-4 flex items-center justify-center">{c.unread}</span>
+                          <span className="text-[12px] bg-brand text-white rounded-full w-4 h-4 flex items-center justify-center">{c.unread}</span>
                         )}
                       </div>
                       {c.forMember && (
-                        <span className="inline-block text-[9px] px-1.5 py-0.5 rounded-full bg-brand/10 text-brand font-medium mb-0.5">
+                        <span className="inline-block text-[12px] px-1.5 py-0.5 rounded-full bg-brand/10 text-brand font-medium mb-0.5">
                           For {c.forMember.firstName} {c.forMember.lastName}
                         </span>
                       )}
-                      <p className="text-[10px] text-text-muted truncate">{c.lastMessage.body}</p>
+                      <p className="text-[12px] text-text-muted truncate">{c.lastMessage.body}</p>
                     </div>
                   </div>
                 </button>
@@ -779,7 +780,7 @@ function DMsTab() {
                 </div>
                 <span className="text-sm font-semibold text-text-primary">{active.user.firstName} {active.user.lastName}</span>
                 {active.forMember ? (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand/10 text-brand font-medium">For {active.forMember.firstName} {active.forMember.lastName}</span>
+                  <span className="text-[12px] px-1.5 py-0.5 rounded-full bg-brand/10 text-brand font-medium">For {active.forMember.firstName} {active.forMember.lastName}</span>
                 ) : (
                   <span className="text-xs text-text-muted">{active.user.role.charAt(0) + active.user.role.slice(1).toLowerCase()}</span>
                 )}
@@ -795,7 +796,7 @@ function DMsTab() {
                         {/* Timestamp + read/sent receipt. Use white/75 on the
                             violet bubble for legibility — text-text-muted on
                             purple is effectively invisible. */}
-                        <p className={`text-[10px] mt-1 ${mine ? "text-white/75" : "text-text-muted"}`}>
+                        <p className={`text-[12px] mt-1 ${mine ? "text-white/75" : "text-text-muted"}`}>
                           {new Date(m.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                           {mine
                             ? ` · ${

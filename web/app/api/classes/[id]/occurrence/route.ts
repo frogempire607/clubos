@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { syncFutureSessions } from "@/lib/classSessionSync";
+import { staffOverrideValue, validScheduleStaffIds } from "@/lib/staffAssignmentsServer";
 
 const TIME = /^\d{2}:\d{2}$/;
 
@@ -61,6 +62,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
 
   const seriesStaff = Array.isArray(cls.assignedStaffIds) ? (cls.assignedStaffIds as string[]) : [];
+  // Only this club's OWNER/STAFF can be put on a class.
+  if (Array.isArray(body.staffIds)) body.staffIds = await validScheduleStaffIds(cls.clubId, body.staffIds);
 
   // ── SERIES: change the recurring class itself ──
   if (body.scope === "series") {
@@ -103,7 +106,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         startsAt: atUTC(body.date, body.startTime ?? cls.startTime),
         endsAt: atUTC(body.date, body.endTime ?? cls.endTime),
         canceled: body.canceled ?? false,
-        staffOverride: body.staffIds !== undefined ? (body.staffIds as any) : undefined,
+        // null = inherit the series. Prisma needs DbNull for a Json column —
+        // a bare null here threw, so "reset to the series" never saved.
+        staffOverride: body.staffIds !== undefined ? staffOverrideValue(body.staffIds) : undefined,
         note: body.note ?? null,
         overridden: true,
       },
@@ -117,7 +122,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const data: Record<string, unknown> = { overridden: true };
     if (body.staffIds !== undefined) {
       // null clears the override (re-inherit the series); array sets it.
-      data.staffOverride = body.staffIds === null ? null : (body.staffIds as any);
+      data.staffOverride = staffOverrideValue(body.staffIds);
     }
     if (body.note !== undefined) data.note = body.note;
     if (body.canceled !== undefined) data.canceled = body.canceled;

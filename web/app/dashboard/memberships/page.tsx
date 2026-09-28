@@ -14,6 +14,7 @@ import {
   type BillingPeriod,
   type MembershipOption,
 } from "@/lib/membershipOptions";
+import PageHeader from "@/components/PageHeader";
 
 // The editor edits the SAME option shape the rest of the app reads. It used to
 // declare its own three-field type and rebuild options from scratch on every
@@ -230,12 +231,10 @@ export default function MembershipsPage() {
 
   return (
     <div className="p-8 max-w-7xl">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary mb-1">Memberships</h1>
-          <p className="text-sm text-text-muted">{memberships.length} plan{memberships.length === 1 ? "" : "s"}</p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title="Memberships"
+        description={<>{memberships.length} plan{memberships.length === 1 ? "" : "s"}</>}
+        actions={<>
           <button
             onClick={() => setShowFreeTrial(true)}
             className="px-4 py-2 border border-app-border rounded-lg text-sm font-medium text-text-primary hover:bg-app-bg"
@@ -250,8 +249,8 @@ export default function MembershipsPage() {
           <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
             + Add membership
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       {loading ? (
         <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
@@ -668,7 +667,7 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               <div>
                 <label className="block text-sm font-medium text-text-primary mb-1">Default billing day <span className="text-text-muted font-normal">(1-28)</span></label>
                 <input type="number" min="1" max="28" value={defaultBillingDay} onChange={(e) => setDefaultBillingDay(e.target.value)} placeholder="Signup date" className="w-full px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand" />
@@ -688,7 +687,7 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
             <div className="flex items-center justify-between gap-3">
               <div>
                 <label className="text-sm text-text-primary block">Include this plan in the club&apos;s Free Trial offer</label>
-                <p className="text-[11px] text-text-muted">
+                <p className="text-[12px] text-text-muted">
                   {trialConfig
                     ? `Uses “${trialConfig.name}” — ${trialConfig.days} day${trialConfig.days === 1 ? "" : "s"}. Configure the offer from the Free trial button on the Memberships page.`
                     : "Saving creates the club-wide Free Trial offer with this plan attached — configure it anytime from the Free trial button."}
@@ -1054,7 +1053,7 @@ function FreeTrialModal({ info, memberships, onClose, onSaved }: {
           <div className="flex items-center justify-between">
             <div>
               <label className="text-sm text-text-primary block">Offer a free trial</label>
-              <p className="text-[11px] text-text-muted">Off = no trial anywhere (signup link, subscriptions, trial check-ins).</p>
+              <p className="text-[12px] text-text-muted">Off = no trial anywhere (signup link, subscriptions, trial check-ins).</p>
             </div>
             <button type="button" onClick={() => setActive(!active)} className={`relative inline-flex h-5 w-9 rounded-full transition flex-shrink-0 ${active ? "bg-brand" : "bg-app-border"}`}>
               <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform mt-0.5 ${active ? "translate-x-4" : "translate-x-0.5"}`} />
@@ -1095,7 +1094,7 @@ function FreeTrialModal({ info, memberships, onClose, onSaved }: {
           <div className="flex items-center justify-between">
             <div>
               <label className="text-sm text-text-primary block">Renewable</label>
-              <p className="text-[11px] text-text-muted">Off = once a client&apos;s trial window expires, they can never get another one.</p>
+              <p className="text-[12px] text-text-muted">Off = once a client&apos;s trial window expires, they can never get another one.</p>
             </div>
             <button type="button" onClick={() => setRenewable(!renewable)} className={`relative inline-flex h-5 w-9 rounded-full transition flex-shrink-0 ${renewable ? "bg-brand" : "bg-app-border"}`}>
               <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform mt-0.5 ${renewable ? "translate-x-4" : "translate-x-0.5"}`} />
@@ -1105,7 +1104,7 @@ function FreeTrialModal({ info, memberships, onClose, onSaved }: {
           <div className="flex items-center justify-between">
             <div>
               <label className="text-sm text-text-primary block">Same client can use it multiple times</label>
-              <p className="text-[11px] text-text-muted">Off = no subscription trial on a plan they already had before (abuse-proof default).</p>
+              <p className="text-[12px] text-text-muted">Off = no subscription trial on a plan they already had before (abuse-proof default).</p>
             </div>
             <button type="button" onClick={() => setAllowRepeatUse(!allowRepeatUse)} className={`relative inline-flex h-5 w-9 rounded-full transition flex-shrink-0 ${allowRepeatUse ? "bg-brand" : "bg-app-border"}`}>
               <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform mt-0.5 ${allowRepeatUse ? "translate-x-4" : "translate-x-0.5"}`} />

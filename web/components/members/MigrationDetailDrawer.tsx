@@ -257,13 +257,13 @@ export function MigrationDetailDrawer({
                             {/* Receipts on the done steps. A step marked done
                                 with no date is what makes staff re-send. */}
                             {s.done && evidence && (
-                              <div className="mt-0.5 text-[11.5px] text-text-muted">
+                              <div className="mt-0.5 text-[12px] text-text-muted">
                                 {fmtDateTime(evidence.at)}
                                 {evidence.actor ? ` · ${evidence.actor}` : ""}
                               </div>
                             )}
                             {!s.done && !s.current && (
-                              <div className="mt-0.5 text-[11.5px] text-text-muted">
+                              <div className="mt-0.5 text-[12px] text-text-muted">
                                 {s.index <= 3 ? "Hasn't happened yet." : "Happens after the earlier steps."}
                               </div>
                             )}
@@ -299,7 +299,7 @@ export function MigrationDetailDrawer({
                                   Send to a different email
                                 </Link>
                                 {m.activationEmailSendCount ? (
-                                  <span className="self-center text-[11.5px] text-text-muted">
+                                  <span className="self-center text-[12px] text-text-muted">
                                     sent {m.activationEmailSendCount}×
                                   </span>
                                 ) : null}
@@ -318,7 +318,7 @@ export function MigrationDetailDrawer({
                 <h3 className="mb-2 text-[13px] font-semibold text-text-primary">Imported data</h3>
                 <div className="overflow-hidden rounded-[10px] border border-app-border">
                   <div
-                    className="grid grid-cols-[110px_1fr] gap-x-3 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted md:grid-cols-[118px_1fr_1fr]"
+                    className="grid grid-cols-[110px_1fr] gap-x-3 px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.05em] text-text-muted md:grid-cols-[118px_1fr_1fr]"
                     style={{ background: "var(--color-table-chrome)" }}
                   >
                     <span>Field</span>
@@ -348,7 +348,7 @@ export function MigrationDetailDrawer({
 
             {/* ── Footer ─────────────────────────────────────────────── */}
             <div className="border-t border-app-border p-4">
-              <p className="mb-2 text-[11.5px] text-text-muted">
+              <p className="mb-2 text-[12px] text-text-muted">
                 Nothing here charges anyone. Billing starts only when the member activates and an owner approves it.
               </p>
               <div className="flex flex-wrap gap-2">

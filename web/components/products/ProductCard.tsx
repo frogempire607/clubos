@@ -97,21 +97,21 @@ export default function ProductCard({ product: p, onSell, onEdit, onToggleActive
         role="img"
         aria-label={d.cover ? `${p.name} photo` : "No photo"}
       >
-        <span className="absolute bottom-2 left-2 text-[10.5px] font-semibold px-2 py-0.5 rounded-full tabular-nums" style={badgeStyle}>{d.badge.label}</span>
+        <span className="absolute bottom-2 left-2 text-[12px] font-semibold px-2 py-0.5 rounded-full tabular-nums" style={badgeStyle}>{d.badge.label}</span>
       </div>
       <div className="p-3 flex-1 flex flex-col gap-1.5">
         <div>
           <div className="text-[14.5px] font-semibold text-text-primary leading-tight" style={{ textWrap: "balance" }}>{p.name}</div>
-          <div className="text-[11.5px] text-text-muted">{TYPE_LABELS[p.productType]}{p.description ? ` · ${p.description}` : ""}</div>
+          <div className="text-[12px] text-text-muted">{TYPE_LABELS[p.productType]}{p.description ? ` · ${p.description}` : ""}</div>
         </div>
         <div className="flex items-baseline justify-between gap-2">
           <div className="text-[14px] font-semibold text-text-primary tabular-nums">{d.priceLine}</div>
-          <div className="text-[11.5px] text-text-muted tabular-nums">{p._count.sales} sold</div>
+          <div className="text-[12px] text-text-muted tabular-nums">{p._count.sales} sold</div>
         </div>
         {d.chips.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {d.chips.map((c) => (
-              <span key={c} className="text-[10.5px] font-medium px-1.5 py-0.5 rounded-full" style={/sold out/.test(c) ? { background: "var(--color-danger-surface)", color: "var(--color-danger-text)" } : /low/.test(c) ? { background: "var(--color-warn-surface)", color: "var(--color-warn-text)" } : { background: "var(--color-chip-surface)", color: "var(--color-chip-text)" }}>{c}</span>
+              <span key={c} className="text-[12px] font-medium px-1.5 py-0.5 rounded-full" style={/sold out/.test(c) ? { background: "var(--color-danger-surface)", color: "var(--color-danger-text)" } : /low/.test(c) ? { background: "var(--color-warn-surface)", color: "var(--color-warn-text)" } : { background: "var(--color-chip-surface)", color: "var(--color-chip-text)" }}>{c}</span>
             ))}
           </div>
         )}

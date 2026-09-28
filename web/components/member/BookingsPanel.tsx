@@ -20,6 +20,7 @@ import {
 import SegmentedControl from "@/components/member/SegmentedControl";
 import { EmptyState, AccentButton } from "@/components/member/ui";
 import { kindIsWallClockUTC, wallClockUTCToInstant } from "@/lib/datetime";
+import { effectiveClassStaff, staffNames } from "@/lib/staffAssignments";
 
 // Classes store the owner's wall clock pinned to UTC; events/privates are true
 // instants. Render each in the right frame so My Bookings matches the schedule
@@ -78,6 +79,7 @@ type RawAttendanceRecord = {
     id: string;
     startsAt: string;
     endsAt: string;
+    staffOverride?: unknown;
     recurringClass: {
       id: string;
       name: string;
@@ -162,8 +164,9 @@ function classAttendanceToBookings(
     .map((r) => {
       const cs = r.classSession!;
       const rc = cs.recurringClass!;
-      const staffIds = Array.isArray(rc.assignedStaffIds) ? (rc.assignedStaffIds as string[]) : [];
-      const coach = staffIds.map((id) => staffById.get(id)).filter(Boolean).join(", ") || null;
+      // A one-day substitute (ClassSession.staffOverride) wins over the series.
+      const staffIds = effectiveClassStaff(rc.assignedStaffIds, cs.staffOverride).staffIds;
+      const coach = staffNames(staffIds, staffById).join(", ") || null;
       // Status semantics differ: AttendanceRecord uses PRESENT/LATE/DROP_IN/TRIAL
       // ahead of time as "booked" markers. Show all as Confirmed in the list.
       return {
@@ -274,12 +277,12 @@ function RegistrationRequests({ memberId }: { memberId: string | null }) {
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-stone-900">
                   {r.eventName}
-                  <span className="ml-2 text-[11px] font-normal text-stone-500">
+                  <span className="ml-2 text-[12px] font-normal text-stone-500">
                     {r.memberName} · #{r.confirmationCode}
                   </span>
                 </p>
                 <p className="text-xs text-stone-600 mt-0.5">{r.headline}</p>
-                <p className="text-[11px] text-stone-500 mt-0.5">{r.chargeTiming}</p>
+                <p className="text-[12px] text-stone-500 mt-0.5">{r.chargeTiming}</p>
               </div>
               {needsReply ? (
                 <Link
@@ -289,7 +292,7 @@ function RegistrationRequests({ memberId }: { memberId: string | null }) {
                   Review the change
                 </Link>
               ) : (
-                <span className="text-[11px] px-2 py-1 rounded-full bg-stone-100 text-stone-600 flex-shrink-0">
+                <span className="text-[12px] px-2 py-1 rounded-full bg-stone-100 text-stone-600 flex-shrink-0">
                   {r.waitingOnLabel}
                 </span>
               )}
@@ -397,8 +400,9 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
       const staffIds = new Set<string>();
       const collect = (arr: RawAttendanceRecord[] | undefined) => {
         for (const r of arr ?? []) {
-          const ids = r.classSession?.recurringClass?.assignedStaffIds;
-          if (Array.isArray(ids)) ids.forEach((id) => typeof id === "string" && staffIds.add(id));
+          if (!r.classSession?.recurringClass) continue;
+          effectiveClassStaff(r.classSession.recurringClass.assignedStaffIds, r.classSession.staffOverride)
+            .staffIds.forEach((id) => staffIds.add(id));
         }
       };
       collect(portal?.user?.memberProfile?.attendanceRecords);
@@ -661,7 +665,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                     <th
                       key={i}
                       scope="col"
-                      className="text-[9.5px] font-bold uppercase tracking-[0.05em] text-stone-400 px-4 py-2.5"
+                      className="text-[12px] font-bold uppercase tracking-[0.05em] text-stone-400 px-4 py-2.5"
                     >
                       {h}
                     </th>
@@ -684,18 +688,18 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                       )}
                       <td className="px-4 py-3">
                         <div className="text-[13px] font-semibold text-stone-900">{b.event.name}</div>
-                        <div className="text-[11.5px] text-stone-500">
+                        <div className="text-[12px] text-stone-500">
                           {new Date(b.event.startsAt).toLocaleTimeString("en-US", timeOpts(b.kind))}
                           {b.coach ? ` · ${b.coach}` : ""}
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap" style={{ background: c.bg, color: c.fg }}>
+                        <span className="text-[12px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap" style={{ background: c.bg, color: c.fg }}>
                           {getEventLabel(b)}
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap" style={{ background: s.bg, color: s.fg }}>
+                        <span className="text-[12px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap" style={{ background: s.bg, color: s.fg }}>
                           {s.label}
                         </span>
                       </td>
@@ -722,7 +726,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                       style={{ background: c.bg, color: c.fg }}
                     >
                       {new Date(b.event.startsAt).toLocaleDateString("en-US", dateOpts(b.kind, { day: "numeric" }))}
-                      <span className="text-[9px] font-extrabold mt-0.5 tracking-wide">
+                      <span className="text-[12px] font-extrabold mt-0.5 tracking-wide">
                         {new Date(b.event.startsAt).toLocaleDateString("en-US", dateOpts(b.kind, { month: "short" })).toUpperCase()}
                       </span>
                     </div>
@@ -730,7 +734,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                       <div className="flex items-center gap-2 flex-wrap mb-0.5">
                         {family && (
                           <span
-                            className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
+                            className="text-[12px] px-1.5 py-0.5 rounded-full font-semibold"
                             style={{ background: "var(--club-accent-soft)", color: "var(--club-accent)" }}
                           >
                             {b.memberFirstName}
@@ -738,13 +742,13 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                         )}
                         <h3 className="text-sm font-semibold text-stone-900">{b.event.name}</h3>
                         <span
-                          className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                          className="text-[12px] px-1.5 py-0.5 rounded font-medium"
                           style={{ background: c.bg, color: c.fg }}
                         >
                           {getEventLabel(b)}
                         </span>
                         <span
-                          className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                          className="text-[12px] px-1.5 py-0.5 rounded-full font-medium"
                           style={{ background: s.bg, color: s.fg }}
                         >
                           {s.label}
@@ -813,7 +817,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                   className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
                 />
                 {manageMode === "cancel" && (
-                  <p className="text-[11px] text-stone-500">
+                  <p className="text-[12px] text-stone-500">
                     Already paid (card or package credit)? Refunds aren&apos;t automatic — canceling
                     sends a refund request and your club will follow up.
                   </p>

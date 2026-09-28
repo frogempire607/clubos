@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
+import PageHeader from "@/components/PageHeader";
 
 const SPORTS = [
   "American Football",
@@ -213,10 +214,10 @@ export default function ClubSettingsPage() {
         </Link>
       </div>
 
-      <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-text-primary mb-1">Club profile</h1>
-        <p className="text-sm text-text-muted">Update your club's public information and branding.</p>
-      </div>
+      <PageHeader
+        title="Club profile"
+        description="Update your club's public information and branding."
+      />
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="bg-white rounded-xl border border-app-border p-6 space-y-4">

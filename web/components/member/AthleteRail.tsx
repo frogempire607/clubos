@@ -191,7 +191,7 @@ export default function AthleteRail({
 
   return (
     <aside className={`hidden md:flex flex-col gap-1.5 md:sticky md:top-20 self-start w-full ${className}`}>
-      <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-stone-400 px-1.5 mb-0.5">{label}</p>
+      <p className="text-[12px] font-bold uppercase tracking-[0.06em] text-stone-400 px-1.5 mb-0.5">{label}</p>
       {canFamily && (
         <button
           type="button"
@@ -204,14 +204,14 @@ export default function AthleteRail({
           style={familyOn ? { background: "var(--club-accent-soft)", borderColor: "var(--club-accent-ring)" } : {}}
         >
           <span
-            className="flex h-[34px] w-[34px] flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
+            className="flex h-[34px] w-[34px] flex-shrink-0 items-center justify-center rounded-full text-[12px] font-bold"
             style={{ background: "var(--club-accent)", color: "var(--club-accent-contrast)" }}
           >
             {profiles.length}
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-[13px] font-semibold text-stone-900 leading-tight">All athletes</span>
-            <span className="block text-[11px] text-stone-500 mt-0.5 truncate">
+            <span className="block text-[12px] text-stone-500 mt-0.5 truncate">
               {profiles.reduce((n, p) => n + p.upcoming, 0)} upcoming
             </span>
           </span>
@@ -237,7 +237,7 @@ export default function AthleteRail({
                 <span className="truncate">{p.name}</span>
                 {p.kind === "self" && <Pill tone="accent" className="!px-1.5 !py-0">You</Pill>}
               </span>
-              <span className="block text-[11px] text-stone-500 mt-0.5 truncate">
+              <span className="block text-[12px] text-stone-500 mt-0.5 truncate">
                 {sub ? sub(p) : defaultSub(p)}
               </span>
             </span>
@@ -245,7 +245,7 @@ export default function AthleteRail({
         );
       })}
       {footer && (
-        <div className="mt-3 p-3 rounded-xl bg-stone-50 border border-stone-200 text-[11px] text-stone-500">
+        <div className="mt-3 p-3 rounded-xl bg-stone-50 border border-stone-200 text-[12px] text-stone-500">
           {footer}
         </div>
       )}

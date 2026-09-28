@@ -286,7 +286,7 @@ export function EditMemberDrawer({
                     />
                     Minor — guardian details required
                     {member.dateOfBirth && (
-                      <span className="text-[11.5px] text-text-muted">
+                      <span className="text-[12px] text-text-muted">
                         (date of birth decides this on save)
                       </span>
                     )}
@@ -329,7 +329,7 @@ export function EditMemberDrawer({
           <div className="mb-5 rounded-[10px] p-3.5" style={{ background: "var(--color-table-chrome)", border: "1px solid var(--color-inset-border)" }}>
             <div className="mb-2.5 flex items-center gap-1.5">
               <Lock className="h-3.5 w-3.5 text-text-muted" />
-              <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted">
+              <span className="text-[12px] font-semibold uppercase tracking-[0.06em] text-text-muted">
                 Not editable by anyone at the club
               </span>
             </div>
@@ -346,7 +346,7 @@ export function EditMemberDrawer({
                 </span>
                 {age != null && <span className="text-[12px] text-text-muted">{age} years old</span>}
               </div>
-              <p className="mt-1.5 text-[11.5px] leading-relaxed text-text-muted">
+              <p className="mt-1.5 text-[12px] leading-relaxed text-text-muted">
                 Birthdays set age brackets, waivers and minor rules.{" "}
                 {member.guardianName ?? "Their guardian"} updates it in the member portal under Profile → Personal
                 details.
@@ -366,7 +366,7 @@ export function EditMemberDrawer({
               >
                 ••••••••
               </div>
-              <p className="mt-1.5 text-[11.5px] text-text-muted">Never visible or settable by staff.</p>
+              <p className="mt-1.5 text-[12px] text-text-muted">Never visible or settable by staff.</p>
               <button onClick={onSendReset} className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border px-3 text-[12.5px] text-text-primary">
                 <KeyRound className="h-3.5 w-3.5" />
                 Send password reset link
@@ -386,7 +386,7 @@ export function EditMemberDrawer({
           className="flex flex-col gap-2 border-t border-app-border p-4 sm:flex-row sm:items-center sm:justify-between"
           style={{ background: "var(--color-table-chrome)", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
         >
-          <span className="text-[11.5px] text-text-muted">
+          <span className="text-[12px] text-text-muted">
             Saved as <strong className="font-medium text-text-primary">{staffName}</strong> · logged to migration activity
           </span>
           <div className="flex gap-2">
@@ -459,7 +459,7 @@ function EmailConsequence({
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-5">
-      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted">{title}</div>
+      <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.06em] text-text-muted">{title}</div>
       <div className="flex flex-col gap-3">{children}</div>
     </div>
   );
@@ -493,11 +493,11 @@ function FieldRow({
       ) : (
         <input type={f.input} value={value} onChange={(e) => onChange(f.key, e.target.value)} className={cls} />
       )}
-      {f.helper && <span className="mt-1 block text-[11px] text-text-muted">{f.helper}</span>}
+      {f.helper && <span className="mt-1 block text-[12px] text-text-muted">{f.helper}</span>}
       {corrected && (
         // The corrected-field affordance. Showing the original is what lets a
         // second staffer tell a typo fix from a data-entry mistake.
-        <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-text-muted">
+        <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-text-muted">
           <History className="h-3 w-3" />
           Imported as &ldquo;{imported!.value}&rdquo;
           {imported!.correctedBy && <> · corrected by {imported!.correctedBy}</>}

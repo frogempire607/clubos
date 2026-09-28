@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { requirePermission } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
+import { addEventStaff, removeEventStaff } from "@/lib/staffAssignmentsServer";
 
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
@@ -34,7 +35,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (denied) return denied;
 
   const event = await prisma.event.findFirst({
-    where: { id: params.id, clubId: session.user.clubId },
+    where: { id: params.id, clubId: session.user.clubId, deletedAt: null },
   });
   if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
@@ -42,21 +43,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const data = schema.parse(await req.json());
 
     const staff = await prisma.user.findFirst({
-      where: { id: data.userId, clubId: session.user.clubId, role: { in: ["OWNER", "STAFF"] } },
+      where: { id: data.userId, clubId: session.user.clubId, role: { in: ["OWNER", "STAFF"] }, deletedAt: null },
     });
     if (!staff) return NextResponse.json({ error: "Staff member not found" }, { status: 404 });
 
-    const assignment = await prisma.eventStaffAssignment.upsert({
-      where: { eventId_userId: { eventId: params.id, userId: data.userId } },
-      update: { role: data.role },
-      create: {
-        clubId:  session.user.clubId,
-        eventId: params.id,
-        userId:  data.userId,
-        role:    data.role,
-      },
-      include: { user: { select: { id: true, firstName: true, lastName: true } } },
-    });
+    const assignment = await addEventStaff(session.user.clubId, params.id, data.userId, data.role);
 
     return NextResponse.json(assignment, { status: 201 });
   } catch (err) {
@@ -81,9 +72,9 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  await prisma.eventStaffAssignment.delete({
-    where: { eventId_userId: { eventId: params.id, userId } },
-  });
+  // Through the shared helper so the coach's unpaid event comp row and any
+  // "responsible coach" designation go with them (lib/staffAssignmentsServer).
+  await removeEventStaff(session.user.clubId, params.id, [userId]);
 
   return new NextResponse(null, { status: 204 });
 }

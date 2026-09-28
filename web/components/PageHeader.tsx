@@ -27,7 +27,7 @@ export default function PageHeader({
     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4 mb-6">
       <div className="min-w-0">
         {eyebrow && (
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-1">
+          <div className="text-[12px] font-semibold uppercase tracking-wider text-text-muted mb-1">
             {eyebrow}
           </div>
         )}

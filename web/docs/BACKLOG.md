@@ -276,7 +276,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   Spec: docs/improvement/design_handoff_products/README.md. Next: 2c inventory, then 2d/2f bookings (new model), then
   /p/[slug] + QR (2h), the 11-type expansion, structured time windows.
 
-- [ ] **B11 · Event editor + Attendees redesign (design handoff)** · CHECKED 2026-09-28: editor (1a/1b) + event rows (1e)
+- [x] **B11 · Event editor + Attendees redesign (design handoff)** · SLICE 3 BUILT 2026-09-28 on `claude/b11-b23-schedule`: Attendees is the one place to act (row actions, collect-payment panel, inline Add attendee with the event's own methods, Charge now only when the scheduled date has arrived); BookingsModal + RegistrationsModal removed; removing a spot with a live bill now refuses instead of leaving the bill (registrationKept gone). Not built: Export / Check-in mode buttons, per-row invoice history. Was CHECKED 2026-09-28: editor (1a/1b) + event rows (1e)
   are live. LEFT = slice 3: the Attendees screen (1c/1d) is still READ-ONLY and its buttons open the old BookingsModal /
   RegistrationsModal. Spec: inline row actions (Record cash·check, Resend receipt, Charge now, Approve·Propose·Decline),
   Collect-payment panel (Email link to all unpaid / Email selected / Record cash for selected), inline + Add attendee
@@ -468,7 +468,18 @@ live, not future; App Store 4.2 is a configuration problem, not a design one (B2
   member with finances:full record/edit/delete a payout to THEMSELVES. Tests: dashboard-nav 117, pay-schedule 58 (in
   package.json as test:pay-schedule), staff-profile 49. Supersedes most of B23's nav scope (done without mockups).
 
-- [ ] **B23 · Claude Design mockups** · AFTER B20 lands (audit §9 "What to hand Claude Design")
+- [x] **B27 · Coach assignments are one system + 12-hour times** · BUILT 2026-09-28 on `claude/b11-b23-schedule`
+  lib/staffAssignments(.ts|Server.ts) is the one read/write path (class series, one-day substitutes, event roster, event
+  pay rows). Fixed: Staff schedule ignored per-day class times and multi-day events; "reset to series" never saved; payroll
+  paid the series coach for substitute-covered sessions; removing an event coach left their unpaid event pay row (now
+  removed); /api/calendar exposed staff/athlete names to any login (now staff-only); PATCH /api/events/[id] let ANY staff
+  edit any event (now events:edit). Calendar can add/remove coaches (event; class: just this day / every week).
+  12-hour times on Staff schedule, Availability, Calendar. Tests: staff-assignments 56.
+
+- [x] **B23 · visual polish** · BUILT 2026-09-28 on `claude/b11-b23-schedule` (no mockups needed): sidebar sub-items 3.8→7.1:1,
+  dark-mode brand text 3.8→5.4:1, focus rings, PageHeader on 31 more pages, 19 phone grids, text <12px → 12px (549 spots),
+  scripts/ui-polish-guard.ts in the build so it can't regress.
+  Was: **B23 · Claude Design mockups** · AFTER B20 lands (audit §9 "What to hand Claude Design")
   Hand over in the `design_handoff_*` format: the §3.3 nav tree, the §4.5 staff profile, §6.6 native navigation,
   Staff Schedule below md (needs 1,070px today — one day or one person at a time), Settings with its own
   layout.tsx, merged Check-in (Attendance + Front desk as one destination, two modes), sidebar child contrast

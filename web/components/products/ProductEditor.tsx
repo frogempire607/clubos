@@ -82,7 +82,7 @@ function Card({ title, summary, open, onToggle, children, locked }: { title: str
           <div className="text-[15px] font-semibold text-text-primary">{title}</div>
           <div className="text-[12px] text-text-muted truncate">{summary}</div>
         </div>
-        <span className="text-[11.5px] font-medium text-brand inline-flex items-center gap-0.5 flex-shrink-0 mt-0.5">
+        <span className="text-[12px] font-medium text-brand inline-flex items-center gap-0.5 flex-shrink-0 mt-0.5">
           {open ? <>Hide <ChevronUp size={13} /></> : <>Edit <ChevronDown size={13} /></>}
         </span>
       </button>
@@ -300,12 +300,12 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
                 {[0, 1, 2, 3].map((i) => (
                   <div key={i} className="relative">
                     <ImageUpload value={s.photos[i] ?? null} onChange={(url) => { const p = [...s.photos]; p[i] = url; patch({ photos: p.filter(Boolean).slice(0, 4) }); }} shape="square" />
-                    {i === 0 && s.photos[0] && <span className="absolute top-1 left-1 text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded bg-black text-white">Cover</span>}
+                    {i === 0 && s.photos[0] && <span className="absolute top-1 left-1 text-[12px] font-semibold uppercase px-1.5 py-0.5 rounded bg-black text-white">Cover</span>}
                     {s.photos[i] && <button type="button" aria-label="Remove photo" onClick={() => patch({ photos: s.photos.filter((_, j) => j !== i) })} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center"><X size={12} /></button>}
                   </div>
                 ))}
               </div>
-              <p className="text-[11.5px] text-text-muted mt-1">JPG, PNG, WebP — max 10 MB each. The first is the cover.</p>
+              <p className="text-[12px] text-text-muted mt-1">JPG, PNG, WebP — max 10 MB each. The first is the cover.</p>
             </div>
           </Card>
 
@@ -325,13 +325,13 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
             <div className="flex items-center justify-between gap-3 rounded-xl border border-app-border px-3 py-2.5">
               <div>
                 <div className="text-sm font-medium text-text-primary">Sell this as tiers</div>
-                <div className="text-[11.5px] text-text-muted">Families choose one at checkout — Basic / Plus / Premium.</div>
+                <div className="text-[12px] text-text-muted">Families choose one at checkout — Basic / Plus / Premium.</div>
               </div>
               <Switch id="p-tiers" on={s.tiersEnabled} onChange={(v) => patch({ tiersEnabled: v, tiers: v && s.tiers.length === 0 ? [{ name: "", includes: "", length: "", price: null }] : s.tiers })} />
             </div>
             {s.tiersEnabled && (
               <div className="space-y-1.5">
-                <div className="grid gap-2 text-[11px] font-semibold uppercase tracking-[.05em] text-text-muted px-1" style={{ gridTemplateColumns: "1.2fr 1.6fr 1fr .8fr 28px" }}>
+                <div className="grid gap-2 text-[12px] font-semibold uppercase tracking-[.05em] text-text-muted px-1" style={{ gridTemplateColumns: "1.2fr 1.6fr 1fr .8fr 28px" }}>
                   <div>Tier</div><div>What's included</div><div>Length</div><div>Price</div><div />
                 </div>
                 {s.tiers.map((t, i) => (
@@ -353,7 +353,7 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
               <div className="rounded-xl border border-app-border px-3 py-2.5 space-y-2">
                 <div>
                   <div className="text-sm font-medium text-text-primary">Bulk pricing</div>
-                  <div className="text-[11.5px] text-text-muted">Buy more, pay less per item — e.g. 2+ at $35 each, 3+ at $30 each. Applies in one checkout, to members, the public link and the front desk. Never raises a price that is already lower (member or size price).</div>
+                  <div className="text-[12px] text-text-muted">Buy more, pay less per item — e.g. 2+ at $35 each, 3+ at $30 each. Applies in one checkout, to members, the public link and the front desk. Never raises a price that is already lower (member or size price).</div>
                 </div>
                 {breaks.map((b, i) => {
                   const q = Number(b.minQty), pr = b.price === "" ? NaN : Number(b.price);
@@ -368,7 +368,7 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
                         <span>each</span>
                         <button type="button" aria-label="Remove bulk price" onClick={() => setBreaks(breaks.filter((_, j) => j !== i))} className="ml-auto w-7 h-7 rounded-lg hover:bg-app-bg text-text-muted flex items-center justify-center"><Trash2 size={14} /></button>
                       </div>
-                      {warn && <p className="text-[11.5px] text-amber-700 mt-0.5">{warn}</p>}
+                      {warn && <p className="text-[12px] text-amber-700 mt-0.5">{warn}</p>}
                     </div>
                   );
                 })}
@@ -384,13 +384,13 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
             <div className="flex items-center justify-between gap-3 rounded-xl border border-app-border px-3 py-2.5">
               <div>
                 <div className="text-sm font-medium text-text-primary">Track inventory</div>
-                <div className="text-[11.5px] text-text-muted">Sold-out variants disappear from the store and the Sell screen.</div>
+                <div className="text-[12px] text-text-muted">Sold-out variants disappear from the store and the Sell screen.</div>
               </div>
               <Switch id="p-track" on={trackInventory} onChange={setTrackInventory} />
             </div>
             {trackInventory && (
               <>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {s.variants.length === 0 && (
                     <div>
                       <label className={label} htmlFor="p-inventory">Stock on hand</label>
@@ -426,7 +426,7 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
                       </div>
                     </div>
                     <div className="rounded-xl border border-app-border overflow-hidden">
-                      <div className="grid gap-2 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[.05em] text-text-muted" style={{ gridTemplateColumns: "1.4fr 1fr .8fr .7fr 1fr", background: "var(--color-table-chrome)" }}>
+                      <div className="grid gap-2 px-2.5 py-1.5 text-[12px] font-semibold uppercase tracking-[.05em] text-text-muted" style={{ gridTemplateColumns: "1.4fr 1fr .8fr .7fr 1fr", background: "var(--color-table-chrome)" }}>
                         <div>Variant</div><div>SKU</div><div>Price</div><div>Stock</div><div>Status</div>
                       </div>
                       {s.variants.map((v, i) => {
@@ -435,7 +435,7 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
                           <div key={v.id} className="grid gap-2 items-center px-2.5 py-1.5 border-t" style={{ gridTemplateColumns: "1.4fr 1fr .8fr .7fr 1fr", borderColor: "var(--color-hairline)" }}>
                             <div className="min-w-0">
                               <div className="text-[13.5px] font-medium text-text-primary truncate">{v.label}</div>
-                              {!producedIds.has(v.id) && <div className="text-[10.5px]" style={{ color: "var(--color-warn-text)" }}>No longer an option — set to 0 to drop</div>}
+                              {!producedIds.has(v.id) && <div className="text-[12px]" style={{ color: "var(--color-warn-text)" }}>No longer an option — set to 0 to drop</div>}
                             </div>
                             <input aria-label={`${v.label} SKU`} value={v.sku} onChange={(e) => patch({ variants: s.variants.map((x, j) => (j === i ? { ...x, sku: e.target.value } : x)) })} placeholder="—" className={dense} />
                             <input aria-label={`${v.label} price`} type="number" step="0.01" min="0" value={v.price ?? ""} onChange={(e) => patch({ variants: s.variants.map((x, j) => (j === i ? { ...x, price: numOrNull(e.target.value) } : x)) })} placeholder={price ? money(basePrice).slice(1) : "base"} className={`${dense} tabular-nums`} />
@@ -466,14 +466,14 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
             </div>
             <div className="space-y-1.5">
               <div className={label}>Time windows</div>
-              {s.timeWindows.length === 0 && <p className="text-[11.5px] text-text-muted">None set — bookable days are open 9:00 AM to 9:00 PM.</p>}
+              {s.timeWindows.length === 0 && <p className="text-[12px] text-text-muted">None set — bookable days are open 9:00 AM to 9:00 PM.</p>}
               {s.timeWindows.map((w, i) => {
                 const setW = (nw: Partial<TimeWindow>) => patch({ timeWindows: s.timeWindows.map((x, j) => (j === i ? { ...x, ...nw } : x)) });
                 return (
                   <div key={i} className="flex flex-wrap items-center gap-1.5">
                     {DAYS.map((d) => {
                       const on = w.days.includes(d);
-                      return <button key={d} type="button" aria-pressed={on} onClick={() => setW({ days: on ? w.days.filter((x) => x !== d) : [...w.days, d] })} className={`px-2 py-1 rounded-md text-[11px] border ${on ? "bg-brand text-white border-brand" : "border-app-border text-text-muted"}`}>{d}</button>;
+                      return <button key={d} type="button" aria-pressed={on} onClick={() => setW({ days: on ? w.days.filter((x) => x !== d) : [...w.days, d] })} className={`px-2 py-1 rounded-md text-[12px] border ${on ? "bg-brand text-white border-brand" : "border-app-border text-text-muted"}`}>{d}</button>;
                     })}
                     <input aria-label="From" type="time" value={w.from} onChange={(e) => setW({ from: e.target.value })} className={`${dense} !w-[110px]`} />
                     <span className="text-text-muted text-xs">to</span>
@@ -484,12 +484,12 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
               })}
               <button type="button" onClick={() => patch({ timeWindows: [...s.timeWindows, { days: [], from: "16:00", to: "20:00" }] })} className="text-[12.5px] font-medium text-brand inline-flex items-center gap-1"><Plus size={13} /> Add time window</button>
               {s.timeWindows.length > 0 && (
-                <p className="text-[11.5px] text-text-muted">
+                <p className="text-[12px] text-text-muted">
                   {s.timeWindows.map((w) => `${w.days.length ? w.days.join(", ") : "Every bookable day"} ${timeLabel(w.from)}–${timeLabel(w.to)}`).join(" · ")}. A window with no days ticked applies to every bookable day.
                 </p>
               )}
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div><label className={label} htmlFor="p-buffer">Buffer (min)</label><input id="p-buffer" type="number" min="0" value={s.bufferMinutes ?? ""} onChange={(e) => patch({ bufferMinutes: numOrNull(e.target.value) })} className={input} /></div>
               <div><label className={label} htmlFor="p-cap">Bookings per slot</label><input id="p-cap" type="number" min="0" value={s.capacityLimit ?? ""} onChange={(e) => patch({ capacityLimit: numOrNull(e.target.value) })} className={input} /></div>
               <div><label className={label} htmlFor="p-guests">Max guests</label><input id="p-guests" type="number" min="0" value={s.maxGuests ?? ""} onChange={(e) => patch({ maxGuests: numOrNull(e.target.value) })} className={input} /></div>
@@ -499,7 +499,7 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
               <div className={label}>Length & price</div>
               {s.durations.map((d, i) => (
                 <div key={i} className="grid gap-2 items-center" style={{ gridTemplateColumns: "1fr 1fr 28px" }}>
-                  <div className="relative"><input aria-label="Minutes" type="number" min="0" value={d.mins || ""} onChange={(e) => patch({ durations: s.durations.map((x, j) => (j === i ? { ...x, mins: Math.round(Number(e.target.value) || 0) } : x)) })} className={dense} /><span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-text-muted">min</span></div>
+                  <div className="relative"><input aria-label="Minutes" type="number" min="0" value={d.mins || ""} onChange={(e) => patch({ durations: s.durations.map((x, j) => (j === i ? { ...x, mins: Math.round(Number(e.target.value) || 0) } : x)) })} className={dense} /><span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px] text-text-muted">min</span></div>
                   <input aria-label="Price" type="number" step="0.01" min="0" value={d.price ?? ""} onChange={(e) => patch({ durations: s.durations.map((x, j) => (j === i ? { ...x, price: numOrNull(e.target.value) } : x)) })} placeholder="$" className={`${dense} tabular-nums`} />
                   <button type="button" aria-label="Remove length" onClick={() => patch({ durations: s.durations.filter((_, j) => j !== i) })} className="w-7 h-7 rounded-lg hover:bg-app-bg text-text-muted flex items-center justify-center"><Trash2 size={14} /></button>
                 </div>
@@ -512,7 +512,7 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
                 {([["FULL", "Pay in full", "Charged when they book."], ["DEPOSIT", "Deposit", "Part now, the rest at the event."], ["REQUEST_ONLY", "Request first", "No money until staff confirm."]] as const).map(([k, t, sub]) => (
                   <button key={k} type="button" aria-pressed={s.depositMode === k} onClick={() => patch({ depositMode: k })} className={`text-left rounded-xl border px-3 py-2.5 ${s.depositMode === k ? "border-brand" : "border-app-border hover:bg-app-bg"}`} style={s.depositMode === k ? { background: "var(--color-info-surface)" } : undefined}>
                     <div className={`text-sm font-semibold ${s.depositMode === k ? "text-brand" : "text-text-primary"}`}>{t}</div>
-                    <div className="text-[11.5px] text-text-muted">{sub}</div>
+                    <div className="text-[12px] text-text-muted">{sub}</div>
                   </button>
                 ))}
               </div>
@@ -588,7 +588,7 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
                     }} className="rounded mt-0.5" />
                     <span>
                       <span className="block text-sm font-medium text-text-primary">{STOREFRONT_LABELS[f].label}</span>
-                      <span className="block text-[11.5px] text-text-muted">{STOREFRONT_LABELS[f].hint}</span>
+                      <span className="block text-[12px] text-text-muted">{STOREFRONT_LABELS[f].hint}</span>
                     </span>
                   </label>
                 );
@@ -607,7 +607,7 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
 
           {/* Recap */}
           <div className="rounded-[14px] px-4 py-3 text-[13px] text-text-primary" style={{ background: "var(--color-info-surface)", border: "1px solid var(--color-info-border)" }}>
-            <span className="text-[11px] font-semibold uppercase tracking-[.05em] text-brand mr-2">With these settings</span>{recap}
+            <span className="text-[12px] font-semibold uppercase tracking-[.05em] text-brand mr-2">With these settings</span>{recap}
           </div>
 
           {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
@@ -623,5 +623,5 @@ export function StockPill({ status }: { status: "OUT" | "LOW" | "OK" }) {
     LOW: { label: "Low — reorder", style: { background: "var(--color-warn-surface)", color: "var(--color-warn-text)" } },
     OK: { label: "In stock", style: { background: "var(--color-success-surface)", color: "var(--color-success-text)" } },
   } as const;
-  return <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={map[status].style}>{map[status].label}</span>;
+  return <span className="text-[12px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={map[status].style}>{map[status].label}</span>;
 }

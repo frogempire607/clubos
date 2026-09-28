@@ -85,7 +85,7 @@ export default function SegmentedControl({
             {opt.label}
             {typeof opt.badge === "number" && opt.badge > 0 && (
               <span
-                className="min-w-[16px] h-[16px] px-1 rounded-full text-[10px] font-bold inline-flex items-center justify-center"
+                className="min-w-[16px] h-[16px] px-1 rounded-full text-[12px] font-bold inline-flex items-center justify-center"
                 style={{ background: "var(--club-accent-soft)", color: "var(--club-accent)" }}
               >
                 {opt.badge > 9 ? "9+" : opt.badge}

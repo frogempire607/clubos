@@ -82,7 +82,7 @@ export function PhoneFactGrid({ facts }: { facts: Fact[] }) {
     <dl className="grid grid-cols-2 gap-2 md:hidden">
       {facts.map((f) => (
         <div key={f.label} className="min-w-0 rounded-xl border border-app-border bg-surface px-3 py-2.5">
-          <dt className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{f.label}</dt>
+          <dt className="text-[12px] font-semibold uppercase tracking-wide text-text-muted">{f.label}</dt>
           <dd
             className="mt-0.5 truncate text-[15px] font-semibold"
             style={{ color: f.tone === "muted" ? "var(--color-text-primary)" : TONE[f.tone].fg }}
@@ -159,7 +159,7 @@ export function MigrationProgressCard({
                 >
                   {s.label}
                 </div>
-                <div className="mt-0.5 text-[11px] leading-tight text-text-muted">
+                <div className="mt-0.5 text-[12px] leading-tight text-text-muted">
                   {ev ? (
                     <>
                       {new Date(ev.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
@@ -217,7 +217,7 @@ export function RecentActivityCard({ items }: { items: ActivityItem[] }) {
                 <span className="min-w-0 flex-1 truncate text-[13px] text-text-primary" title={it.text}>
                   {it.text}
                 </span>
-                <span className="shrink-0 text-[11.5px] tabular-nums text-text-muted" title={new Date(it.at).toLocaleString()}>
+                <span className="shrink-0 text-[12px] tabular-nums text-text-muted" title={new Date(it.at).toLocaleString()}>
                   {relativeDay(it.at)}
                 </span>
               </li>
@@ -251,7 +251,7 @@ export function MoneySummaryCard({
         className="rounded-lg px-3 py-2.5"
         style={owed > 0 ? { background: TONE.danger.bg } : { background: "var(--color-chip-surface)" }}
       >
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Balance owed</div>
+        <div className="text-[12px] font-semibold uppercase tracking-wide text-text-muted">Balance owed</div>
         <div
           className="text-[20px] font-semibold tabular-nums"
           style={{ color: owed > 0 ? TONE.danger.fg : "var(--color-text-primary)" }}
@@ -317,7 +317,7 @@ export function AttendanceSummaryCard({
         {cells.map((c) => (
           <div key={c.label} className="min-w-0 rounded-lg px-2 py-2 text-center" style={{ background: "var(--color-chip-surface)" }}>
             <div className="text-[20px] font-semibold tabular-nums text-text-primary">{c.value}</div>
-            <div className="truncate text-[11px] text-text-muted">{c.label}</div>
+            <div className="truncate text-[12px] text-text-muted">{c.label}</div>
           </div>
         ))}
       </div>
@@ -392,7 +392,7 @@ export function StaffNotesCard({
         ) : undefined
       }
     >
-      <p className="mb-2 text-[11.5px] text-text-muted">Visible to club staff only — members and guardians never see these.</p>
+      <p className="mb-2 text-[12px] text-text-muted">Visible to club staff only — members and guardians never see these.</p>
       {entries.length === 0 ? (
         <p className="text-sm text-text-muted">No notes yet.</p>
       ) : (
@@ -401,7 +401,7 @@ export function StaffNotesCard({
             <li key={i} className="py-2 first:pt-0">
               {/* Staff-authored plain text — rendered as text, never as HTML. */}
               <p className="whitespace-pre-wrap break-words text-[13.5px] leading-relaxed text-text-primary">{n.text}</p>
-              <p className="mt-0.5 text-[11.5px] text-text-muted">
+              <p className="mt-0.5 text-[12px] text-text-muted">
                 {n.by ? `${n.by} · ${n.on}` : "Earlier note · not attributed"}
               </p>
             </li>

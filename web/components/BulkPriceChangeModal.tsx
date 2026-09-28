@@ -141,11 +141,11 @@ const fmtDateUTC = (iso: string | null) =>
 
 function ChannelBadge({ channel }: { channel: "stripe" | "offline" }) {
   return channel === "stripe" ? (
-    <span className="inline-flex items-center rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 text-[11px] font-medium">
+    <span className="inline-flex items-center rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 text-[12px] font-medium">
       Stripe
     </span>
   ) : (
-    <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 text-[11px] font-medium">
+    <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 text-[12px] font-medium">
       Offline
     </span>
   );
@@ -167,7 +167,7 @@ function CreditCell({ credit }: { credit: Credit }) {
     <span className={isCredit ? "text-red-700 font-medium" : "text-emerald-700 font-medium"} title={credit.note}>
       {isCredit ? "Credit owed " : "Additional due "}
       {usd(credit.amount ?? 0)}
-      <span className="block text-[11px] font-normal text-text-muted">
+      <span className="block text-[12px] font-normal text-text-muted">
         {credit.daysRemaining} of {credit.daysInPeriod} days left · to {fmtDateUTC(credit.periodEnd)}
       </span>
     </span>
@@ -208,7 +208,7 @@ function RowLine({
       </td>
       <td className="px-3 py-2">
         <div className="text-sm text-text-primary font-medium">{row.memberName}</div>
-        <div className="text-[11px] text-text-muted">
+        <div className="text-[12px] text-text-muted">
           {row.optionLabel}
           {!row.labelMatchesOption && <span className="text-amber-700"> · label differs</span>}
           {" · "}
@@ -217,7 +217,7 @@ function RowLine({
         {row.warnings.length > 0 && (
           <ul className="mt-1 space-y-0.5">
             {row.warnings.map((w, i) => (
-              <li key={i} className="text-[11px] text-amber-700">
+              <li key={i} className="text-[12px] text-amber-700">
                 {w}
               </li>
             ))}
@@ -233,7 +233,7 @@ function RowLine({
           {usd(row.newPrice)}
         </span>
         {row.delta !== 0 && (
-          <span className="block text-[11px] text-text-muted">
+          <span className="block text-[12px] text-text-muted">
             {row.delta > 0 ? "+" : ""}
             {usd(row.delta)}
           </span>
@@ -250,7 +250,7 @@ function RowLine({
             moves a membership, so there is one set of rules, not two. */}
         <a
           href={`/dashboard/members/${row.memberId}/billing?changePlan=${row.memberSubscriptionId}`}
-          className="text-[11px] text-brand hover:underline whitespace-nowrap"
+          className="text-[12px] text-brand hover:underline whitespace-nowrap"
           title="Opens Change plan for this membership"
         >
           Change plan →
@@ -269,7 +269,7 @@ function RowLine({
               className="h-4 w-4 rounded border-app-border text-brand focus:ring-brand disabled:opacity-40"
               aria-label={`Email ${row.memberName}`}
             />
-            <span className="text-[11px] text-text-muted">
+            <span className="text-[12px] text-text-muted">
               {!notifyEnabled ? "off" : emailOn ? "email" : "no email"}
             </span>
           </label>
@@ -583,14 +583,14 @@ export default function BulkPriceChangeModal({
 
           {!applied ? (
             <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">Preview</span>
+              <span className="text-[12px] font-semibold uppercase tracking-wide text-emerald-800">Preview</span>
               <span className="text-xs text-emerald-900">
                 Nothing has been saved, charged, refunded, or emailed yet.
               </span>
             </div>
           ) : (
             <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-indigo-800">Applied</span>
+              <span className="text-[12px] font-semibold uppercase tracking-wide text-indigo-800">Applied</span>
               <span className="text-xs text-indigo-900">
                 {applied.summary.updated} updated · {applied.summary.emailed} notified
                 {applied.summary.failed > 0 && ` · ${applied.summary.failed} failed`}
@@ -613,7 +613,7 @@ export default function BulkPriceChangeModal({
                   { k: "Failed", v: String(applied.summary.failed) },
                 ].map((c) => (
                   <div key={c.k} className="rounded-lg border border-app-border px-3 py-2">
-                    <div className="text-[11px] text-text-muted">{c.k}</div>
+                    <div className="text-[12px] text-text-muted">{c.k}</div>
                     <div className="text-lg font-semibold text-text-primary">{c.v}</div>
                   </div>
                 ))}
@@ -648,7 +648,7 @@ export default function BulkPriceChangeModal({
               <div className="overflow-x-auto border border-app-border rounded-lg">
                 <table className="w-full text-left">
                   <thead className="bg-app-bg">
-                    <tr className="text-[11px] uppercase tracking-wide text-text-muted">
+                    <tr className="text-[12px] uppercase tracking-wide text-text-muted">
                       <th className="px-3 py-2">Member</th>
                       <th className="px-3 py-2">Result</th>
                       <th className="px-3 py-2">Change</th>
@@ -670,7 +670,7 @@ export default function BulkPriceChangeModal({
                             >
                               {r.outcome.replace(/_/g, " ").toLowerCase()}
                             </span>
-                            {r.message && <div className="text-[11px] text-text-muted mt-0.5">{r.message}</div>}
+                            {r.message && <div className="text-[12px] text-text-muted mt-0.5">{r.message}</div>}
                           </td>
                           <td className="px-3 py-2 text-sm whitespace-nowrap text-text-primary">
                             {r.fromPrice != null && r.toPrice != null && r.outcome === "UPDATED"
@@ -693,7 +693,7 @@ export default function BulkPriceChangeModal({
                   <div className="overflow-x-auto border border-app-border rounded-lg">
                     <table className="w-full text-left">
                       <thead className="bg-app-bg">
-                        <tr className="text-[11px] uppercase tracking-wide text-text-muted">
+                        <tr className="text-[12px] uppercase tracking-wide text-text-muted">
                           <th className="px-3 py-2">Member</th>
                           <th className="px-3 py-2">Result</th>
                           <th className="px-3 py-2">Change</th>
@@ -710,7 +710,7 @@ export default function BulkPriceChangeModal({
                                 <span className={bad ? "text-red-700 font-medium" : skip ? "text-amber-700" : "text-emerald-700 font-medium"}>
                                   {m.outcome.replace(/_/g, " ").toLowerCase()}
                                 </span>
-                                {m.message && <div className="text-[11px] text-text-muted mt-0.5">{m.message}</div>}
+                                {m.message && <div className="text-[12px] text-text-muted mt-0.5">{m.message}</div>}
                               </td>
                               <td className="px-3 py-2 text-sm text-text-primary">
                                 {m.outcome === "MOVED" ? (
@@ -718,7 +718,7 @@ export default function BulkPriceChangeModal({
                                     {m.fromOption} ({m.fromPeriod}) → {m.toPlan} — {m.toOption} ({m.toPeriod}){" "}
                                     {m.toPrice != null && usd(m.toPrice)}
                                     {m.periodChanged && (
-                                      <span className="block text-[11px] text-amber-700">
+                                      <span className="block text-[12px] text-amber-700">
                                         Billing cadence changed — the stored period end was cleared and will be set
                                         when you record their next payment.
                                       </span>
@@ -773,7 +773,7 @@ export default function BulkPriceChangeModal({
                   },
                 ].map((c) => (
                   <div key={c.k} className="rounded-lg border border-app-border px-3 py-2">
-                    <div className="text-[11px] text-text-muted">{c.k}</div>
+                    <div className="text-[12px] text-text-muted">{c.k}</div>
                     <div className="text-lg font-semibold text-text-primary">{c.v}</div>
                   </div>
                 ))}
@@ -808,7 +808,7 @@ export default function BulkPriceChangeModal({
                   <div className="overflow-x-auto border border-app-border rounded-lg">
                     <table className="w-full text-left">
                       <thead className="bg-app-bg">
-                        <tr className="text-[11px] uppercase tracking-wide text-text-muted">
+                        <tr className="text-[12px] uppercase tracking-wide text-text-muted">
                           <th className="px-3 py-2 w-10"></th>
                           <th className="px-3 py-2">Member</th>
                           <th className="px-3 py-2">Channel</th>
@@ -854,7 +854,7 @@ export default function BulkPriceChangeModal({
                   <div className="overflow-x-auto border border-amber-200 rounded-lg">
                     <table className="w-full text-left">
                       <thead className="bg-amber-50">
-                        <tr className="text-[11px] uppercase tracking-wide text-amber-900">
+                        <tr className="text-[12px] uppercase tracking-wide text-amber-900">
                           <th className="px-3 py-2 w-10"></th>
                           <th className="px-3 py-2">Member</th>
                           <th className="px-3 py-2">Channel</th>
@@ -901,13 +901,13 @@ export default function BulkPriceChangeModal({
                     onChange={(e) => setEffectiveDate(e.target.value)}
                     className="px-3 py-2 border border-app-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
                   />
-                  <p className="text-[11px] text-text-muted mt-1">
+                  <p className="text-[12px] text-text-muted mt-1">
                     {isIncrease
                       ? "At least one selected member's price is going up. Families must be told before that happens, and the notification is sent now, so this date has to be in the future."
                       : "Optional. Leave blank and members are told the change applies from their next billing cycle."}
                   </p>
                   {noticeBlocked && effectiveDate && (
-                    <p className="text-[11px] text-red-700 mt-1">
+                    <p className="text-[12px] text-red-700 mt-1">
                       That date is not in the future — an increase that has already taken effect cannot be
                       announced in advance.
                     </p>
@@ -923,7 +923,7 @@ export default function BulkPriceChangeModal({
                   />
                   <span className="text-xs text-text-primary">
                     Email these families about the change
-                    <span className="block text-[11px] text-text-muted">
+                    <span className="block text-[12px] text-text-muted">
                       Sent as a transactional notice, so a marketing opt-out does not suppress it. Cash and
                       card members are both emailed — untick anyone individually in the Notify column.
                       {notify && <> Currently {emailCount} of {chosen.length} selected.</>}
@@ -944,7 +944,7 @@ export default function BulkPriceChangeModal({
                     placeholder="e.g. We've lowered the middle/high school rate for the fall season."
                     className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-brand disabled:opacity-50"
                   />
-                  <p className="text-[11px] text-text-muted mt-1">
+                  <p className="text-[12px] text-text-muted mt-1">
                     Appears in the email above the price lines. Plain text — it is never rendered as HTML.
                     {!notify && " Emails are off for this run, so nothing will be sent."}
                   </p>
@@ -963,7 +963,7 @@ export default function BulkPriceChangeModal({
                     />
                     <span className="text-xs text-text-primary">
                       Also fix the stored option label to &ldquo;{plan.option.label}&rdquo;
-                      <span className="block text-[11px] text-text-muted">
+                      <span className="block text-[12px] text-text-muted">
                         {driftedSelected} selected member{driftedSelected === 1 ? "" : "s"} still show an older name
                         on receipts and emails. This is a label only — it never affects matching or money.
                       </span>
@@ -971,7 +971,7 @@ export default function BulkPriceChangeModal({
                   </label>
                 )}
 
-                <p className="text-[11px] text-text-muted">
+                <p className="text-[12px] text-text-muted">
                   Skipped members keep this price until they cancel and re-sign. Applying does not change the
                   plan&apos;s own price list — save the membership separately to update it for new purchases.
                 </p>
@@ -1043,7 +1043,7 @@ export default function BulkPriceChangeModal({
           </div>
 
           {!applied && (
-            <p className="text-[11px] text-text-muted mt-2 text-center">
+            <p className="text-[12px] text-text-muted mt-2 text-center">
               Stripe members move to the new amount with no proration — no credit note, no extra charge.
               Offline members are recorded only; nothing is charged or refunded.
             </p>

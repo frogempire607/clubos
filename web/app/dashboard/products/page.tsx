@@ -10,6 +10,7 @@ import SellModal from "@/components/products/SellModal";
 
 type Category = "GEAR" | "APPAREL" | "FACILITY" | "SERVICE" | "OTHER";
 import type { ProductType } from "@/lib/productSettings";
+import PageHeader from "@/components/PageHeader";
 type Visibility = "MEMBERS_ONLY" | "PUBLIC_ONLY" | "MEMBERS_AND_PUBLIC" | "INTERNAL_ONLY";
 type ShowLocation = "MEMBER_PORTAL" | "PUBLIC_CHECKOUT" | "INTERNAL_ONLY";
 
@@ -103,23 +104,21 @@ export default function ProductsPage() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl">
-      <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary mb-1">Products</h1>
-          <p className="text-sm text-text-muted tabular-nums">
+      <PageHeader
+        title="Products"
+        description={<>
             {products.length} product{products.length === 1 ? "" : "s"}
             {retail > 0 ? ` · $${retail.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} inventory at retail` : ""}
             {counts.attention > 0 ? ` · ${counts.attention} need${counts.attention === 1 ? "s" : ""} attention` : ""}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        </>}
+        actions={<>
           <Link href="/dashboard/products/inventory" className="px-3 py-2 border border-app-border rounded-lg text-sm text-text-primary hover:bg-app-bg">Receive stock</Link>
           <Link href="/dashboard/products/bookings" className="px-3 py-2 border border-app-border rounded-lg text-sm text-text-primary hover:bg-app-bg">Bookings{pendingTotal > 0 ? ` · ${pendingTotal} waiting` : ""}</Link>
           <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
             + Add product
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
         <div className="flex gap-1 bg-app-bg rounded-lg p-1 w-fit flex-wrap">

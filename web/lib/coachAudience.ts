@@ -20,6 +20,7 @@
 // not send to a member they don't own.
 
 import { prisma } from "@/lib/prisma";
+import { asIdList } from "@/lib/staffAssignments";
 import { hasMessagesSubScope } from "@/lib/permissions";
 
 export interface CoachAudienceContext {
@@ -43,10 +44,16 @@ export async function computeCoachAudienceMemberIds(ctx: CoachAudienceContext): 
   //   (3) private-lesson bookings for lessons this coach ran
   // All three folded into a single Set — a coach who teaches a class
   // AND owns an event both count.
-  const [classes, eventAssignments, privates] = await Promise.all([
+  const [classes, subSessions, eventAssignments, privates] = await Promise.all([
     prisma.recurringClass.findMany({
       where: { clubId: ctx.clubId },
       select: { id: true, assignedStaffIds: true },
+    }),
+    // (1b) sessions this user covered as a one-day substitute
+    //      (ClassSession.staffOverride — lib/staffAssignments.effectiveClassStaff).
+    prisma.classSession.findMany({
+      where: { clubId: ctx.clubId, staffOverride: { array_contains: [ctx.userId] } },
+      select: { id: true },
     }),
     prisma.eventStaffAssignment.findMany({
       where: { userId: ctx.userId, event: { clubId: ctx.clubId } },
@@ -59,20 +66,21 @@ export async function computeCoachAudienceMemberIds(ctx: CoachAudienceContext): 
   ]);
 
   const myClassIds = classes
-    .filter((c) => {
-      const arr = Array.isArray(c.assignedStaffIds) ? c.assignedStaffIds : [];
-      return arr.includes(ctx.userId);
-    })
+    .filter((c) => asIdList(c.assignedStaffIds).includes(ctx.userId))
     .map((c) => c.id);
+  const mySubSessionIds = subSessions.map((s) => s.id);
 
   const eventIds = eventAssignments.map((a) => a.eventId);
 
   const [attendanceRows, bookingRows, regRows] = await Promise.all([
-    myClassIds.length
+    myClassIds.length || mySubSessionIds.length
       ? prisma.attendanceRecord.findMany({
           where: {
             clubId: ctx.clubId,
-            classSession: { classId: { in: myClassIds } },
+            OR: [
+              ...(myClassIds.length ? [{ classSession: { classId: { in: myClassIds } } }] : []),
+              ...(mySubSessionIds.length ? [{ classSessionId: { in: mySubSessionIds } }] : []),
+            ],
           },
           select: { memberId: true },
           distinct: ["memberId"],

@@ -96,7 +96,7 @@ function Sheet({ title, sub, children, onClose }: { title: string; sub?: string;
       <div className="bg-surface rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="px-4 pt-4 pb-2.5 border-b border-[#F1F1F3]">
           <h3 className="text-[15px] font-semibold text-text-primary">{title}</h3>
-          {sub && <p className="text-[11px] text-text-muted mt-0.5">{sub}</p>}
+          {sub && <p className="text-[12px] text-text-muted mt-0.5">{sub}</p>}
         </div>
         {children}
       </div>
@@ -114,7 +114,7 @@ const btn = "min-h-[44px] sm:min-h-0 px-3.5 py-2 rounded-lg border border-app-bo
 const btnP = "min-h-[44px] sm:min-h-0 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-hover disabled:opacity-50";
 const input = "w-full min-h-[44px] sm:min-h-0 px-3 py-2 border border-app-border rounded-lg text-sm bg-surface text-text-primary";
 const Field = ({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) => (
-  <label className="block mt-3"><span className="block text-xs font-medium text-text-primary mb-1">{label}</span>{children}{hint && <span className="block text-[11px] text-text-muted mt-1">{hint}</span>}</label>
+  <label className="block mt-3"><span className="block text-xs font-medium text-text-primary mb-1">{label}</span>{children}{hint && <span className="block text-[12px] text-text-muted mt-1">{hint}</span>}</label>
 );
 const Ack = ({ checked, onChange, children }: { checked: boolean; onChange: (v: boolean) => void; children: React.ReactNode }) => (
   <label className="flex items-start gap-2 text-sm text-text-primary mt-3"><input type="checkbox" className="mt-0.5 w-[18px] h-[18px]" checked={checked} onChange={(e) => onChange(e.target.checked)} /><span>{children}</span></label>
@@ -209,13 +209,13 @@ export default function MembershipPanel({
           </p>
           {v.upcoming && <p className="text-xs text-text-muted mt-0.5">Then: {v.upcoming.label} from {fmt(String(v.upcoming.from))}.</p>}
         </div>
-        <span className={`shrink-0 inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full ${PILL[v.pill.tone]}`}>{v.pill.label}</span>
+        <span className={`shrink-0 inline-flex items-center text-[12px] font-semibold px-2 py-0.5 rounded-full ${PILL[v.pill.tone]}`}>{v.pill.label}</span>
       </div>
 
       {v.facts && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
           {[["Pays with", v.facts.paysWith], ["Started", fmt(v.facts.started ? String(v.facts.started) : null)], ["Renews", v.facts.renews], ["Payer", v.facts.payer ?? "—"]].map(([k, val]) => (
-            <div key={k} className="bg-[#F4F4F6] rounded-lg px-2.5 py-2"><div className="text-[10.5px] uppercase tracking-wide font-semibold text-[#9CA3AF]">{k}</div><div className="text-[13px] font-medium text-text-primary mt-0.5 truncate">{val}</div></div>
+            <div key={k} className="bg-[#F4F4F6] rounded-lg px-2.5 py-2"><div className="text-[12px] uppercase tracking-wide font-semibold text-[#9CA3AF]">{k}</div><div className="text-[13px] font-medium text-text-primary mt-0.5 truncate">{val}</div></div>
           ))}
         </div>
       )}
@@ -434,7 +434,7 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
               {data.options.map((x) => <option key={x.id} value={x.id}>{x.planName} · {x.label} — {money(x.price)} {PERIOD_WORD[x.billingPeriod] ?? x.billingPeriod.toLowerCase()}{x.contractMonths ? `, ${x.contractMonths}-mo` : ""}</option>)}
             </select>
           </Field>
-          {o && <p className="text-[11px] text-text-muted mt-1">{isComp ? <b className="text-text-primary">$0 — this becomes a comp.</b> : `${money(price)} ${PERIOD_WORD[o.billingPeriod]}${o.contractMonths ? ` · ${o.contractMonths}-month commitment` : ""} · then ${o.autoRenew ? `renews ${PERIOD_WORD[o.billingPeriod]}` : "ends"}`}</p>}
+          {o && <p className="text-[12px] text-text-muted mt-1">{isComp ? <b className="text-text-primary">$0 — this becomes a comp.</b> : `${money(price)} ${PERIOD_WORD[o.billingPeriod]}${o.contractMonths ? ` · ${o.contractMonths}-month commitment` : ""} · then ${o.autoRenew ? `renews ${PERIOD_WORD[o.billingPeriod]}` : "ends"}`}</p>}
           {showOverride ? (
             <Field label="Different price" hint="Leave empty for the option price. $0 makes it a comp."><input className={input} type="number" min="0" step="0.01" placeholder={o ? String(o.price) : ""} value={override} onChange={(e) => setOverride(e.target.value)} /></Field>
           ) : (
@@ -443,7 +443,7 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
         </div>
         <div className="border border-app-border rounded-xl p-3 mt-2.5">
           <Field label="Starts"><input className={input} type="date" value={start} onChange={(e) => { setStart(e.target.value); setThrough(""); }} /></Field>
-          {o && <p className="text-[11px] text-text-muted mt-1">{commit ? `Committed through ${fmt(iso(commit))}${end ? " · ends there" : " · renews after"}` : end ? `Ends ${fmt(iso(end))} unless renewed` : "Renews until cancelled"}</p>}
+          {o && <p className="text-[12px] text-text-muted mt-1">{commit ? `Committed through ${fmt(iso(commit))}${end ? " · ends there" : " · renews after"}` : end ? `Ends ${fmt(iso(end))} unless renewed` : "Renews until cancelled"}</p>}
         </div>
         {!isComp && (
           <div className="border border-app-border rounded-xl p-3 mt-2.5">
@@ -457,7 +457,7 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
                 <button key={k} type="button" disabled={dis} onClick={() => { setPay(k); setAck(false); }}
                   className={`w-full text-left min-h-[44px] px-3 py-2 rounded-xl border ${pay === k ? "border-brand bg-brand/5" : "border-app-border"} disabled:bg-[#F4F4F6] disabled:cursor-not-allowed`}>
                   <span className={`block text-sm font-semibold ${pay === k ? "text-brand-hover" : dis ? "text-[#9CA3AF]" : "text-text-primary"}`}>{t}</span>
-                  <span className={`block text-[11.5px] ${pay === k ? "text-brand-hover" : "text-text-muted"}`}>{s}</span>
+                  <span className={`block text-[12px] ${pay === k ? "text-brand-hover" : "text-text-muted"}`}>{s}</span>
                 </button>
               ))}
             </div>
@@ -471,7 +471,7 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
             )}
             {pay === "CASH" && (
               <>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <Field label="Amount received"><input className={input} type="number" min="0" step="0.01" placeholder={String(price)} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
                   <Field label="Method"><select className={input} value={method} onChange={(e) => setMethod(e.target.value as "CASH" | "CHECK")}><option>CASH</option><option>CHECK</option></select></Field>
                 </div>
@@ -534,11 +534,11 @@ function CancelDialog({ data, onClose, onDone }: { data: Payload; onClose: () =>
         <div className="space-y-1.5">
           <button type="button" disabled={!c.atPeriodEndAvailable} onClick={() => { setWhen("period_end"); setAck(false); }} className={`w-full text-left min-h-[44px] px-3 py-2 rounded-xl border ${!now ? "border-brand bg-brand/5" : "border-app-border"} disabled:bg-[#F4F4F6] disabled:cursor-not-allowed`}>
             <span className={`block text-sm font-semibold ${!now ? "text-brand-hover" : "text-text-primary"}`}>At the end of the paid period{c.periodEnd ? ` · ${fmtS(c.periodEnd)}` : ""}</span>
-            <span className={`block text-[11.5px] ${!now ? "text-brand-hover" : "text-text-muted"}`}>{c.atPeriodEndAvailable ? `${first} keeps access until then. The usual choice.` : "Nothing is paid ahead — only \"right now\" applies."}</span>
+            <span className={`block text-[12px] ${!now ? "text-brand-hover" : "text-text-muted"}`}>{c.atPeriodEndAvailable ? `${first} keeps access until then. The usual choice.` : "Nothing is paid ahead — only \"right now\" applies."}</span>
           </button>
           <button type="button" onClick={() => { setWhen("now"); setAck(false); }} className={`w-full text-left min-h-[44px] px-3 py-2 rounded-xl border ${now ? "border-brand bg-brand/5" : "border-app-border"}`}>
             <span className={`block text-sm font-semibold ${now ? "text-brand-hover" : "text-text-primary"}`}>Right now</span>
-            <span className={`block text-[11.5px] ${now ? "text-brand-hover" : "text-text-muted"}`}>Access ends today. Nothing already paid is refunded from here.</span>
+            <span className={`block text-[12px] ${now ? "text-brand-hover" : "text-text-muted"}`}>Access ends today. Nothing already paid is refunded from here.</span>
           </button>
         </div>
         <span className="block text-xs font-medium text-text-primary mt-3 mb-1.5">Reason <span className="text-text-muted font-normal">(optional — shows in Reports)</span></span>

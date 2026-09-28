@@ -18,6 +18,7 @@ import { Search, UserPlus, CheckCircle2, CreditCard, Banknote, Send, ChevronLeft
 import { todayLocalISO } from "@/lib/datetime";
 import { pickCurrentSession } from "@/lib/frontDesk";
 import CheckInModeSwitch from "@/components/CheckInModeSwitch";
+import PageHeader from "@/components/PageHeader";
 
 type SessionRow = { id: string; startsAt: string; endsAt: string; canceled: boolean; recurringClass: { name: string }; _count: { attendance: number } };
 type Person = { id: string; name: string; firstName: string; isMinor: boolean; guardianName: string | null; status: string; plans: string[] };
@@ -91,14 +92,16 @@ function FrontDeskInner() {
 
   return (
     <div className="max-w-xl mx-auto px-4 sm:px-6 py-4 sm:py-6 pb-28">
-      <div className="flex items-center justify-between gap-2 mb-4">
-        <h1 className="text-xl font-semibold text-text-primary">Front desk</h1>
+      <PageHeader
+        title="Front desk"
+        actions={<>
         <CheckInModeSwitch />
-      </div>
+        </>}
+      />
 
       {/* 1 · Which class */}
       <section className="mb-4">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted mb-1.5">Class</p>
+        <p className="text-[12px] font-semibold uppercase tracking-wide text-text-muted mb-1.5">Class</p>
         {sessions === null ? (
           <div className="h-12 rounded-xl bg-app-bg animate-pulse" />
         ) : sessions.length === 0 ? (
@@ -113,7 +116,7 @@ function FrontDeskInner() {
                 className={`shrink-0 min-h-[52px] px-3.5 rounded-xl border text-left ${s.id === sessionId ? "border-charcoal bg-charcoal text-white" : "border-app-border bg-surface text-text-primary"}`}
               >
                 <span className="block text-sm font-semibold leading-tight">{s.recurringClass.name}</span>
-                <span className={`block text-[11px] ${s.id === sessionId ? "text-white/70" : "text-text-muted"}`}>{fmtTime(s.startsAt)} · {s._count.attendance} in</span>
+                <span className={`block text-[12px] ${s.id === sessionId ? "text-white/70" : "text-text-muted"}`}>{fmtTime(s.startsAt)} · {s._count.attendance} in</span>
               </button>
             ))}
           </div>
@@ -131,7 +134,7 @@ function FrontDeskInner() {
 
       {current && !done && !memberId && !walkIn && (
         <section>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted mb-1.5">Who&apos;s here?</p>
+          <p className="text-[12px] font-semibold uppercase tracking-wide text-text-muted mb-1.5">Who&apos;s here?</p>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
             <input
@@ -229,7 +232,7 @@ function WalkInForm({ initialName, onCancel, onCreated }: { initialName: string;
   return (
     <section className="space-y-3">
       <button type="button" onClick={onCancel} className="text-sm text-text-muted inline-flex items-center gap-1 min-h-[44px]"><ChevronLeft className="h-4 w-4" /> Back to search</button>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">New walk-in</p>
+      <p className="text-[12px] font-semibold uppercase tracking-wide text-text-muted">New walk-in</p>
       <div className="grid grid-cols-2 gap-2">
         <input className={input} placeholder="First name" value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="off" />
         <input className={input} placeholder="Last name" value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="off" />

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ListChecks, ArrowLeft } from "lucide-react";
+import PageHeader from "@/components/PageHeader";
 
 type CustomField = {
   id: string;
@@ -53,15 +54,15 @@ export default function CustomFieldsPage() {
         </a>
       </div>
 
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-semibold text-text-primary mb-1">Custom fields</h1>
-          <p className="text-sm text-text-muted">Add any fields you want to collect from members — phone, address, emergency contact, anything.</p>
-        </div>
+      <PageHeader
+        title="Custom fields"
+        description="Add any fields you want to collect from members — phone, address, emergency contact, anything."
+        actions={<>
         <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
           + Add field
         </button>
-      </div>
+        </>}
+      />
 
       {loading ? (
         <div className="p-8 text-center text-text-muted text-sm">Loading…</div>
@@ -83,7 +84,7 @@ export default function CustomFieldsPage() {
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-text-primary">{f.label}</span>
-                  {f.required && <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-red-50 text-red-700">Required</span>}
+                  {f.required && <span className="text-[12px] px-1.5 py-0.5 rounded font-medium bg-red-50 text-red-700">Required</span>}
                 </div>
                 <div className="text-xs text-text-muted">{fieldTypeLabels[f.fieldType]}</div>
               </div>

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { EmailResultsView, type ResultCounts, type ResultRow } from "@/components/emails/EmailResultsView";
+import PageHeader from "@/components/PageHeader";
 
 interface Announcement {
   id: string;
@@ -54,14 +55,16 @@ export default function AnnouncementResultsPage({ params }: { params: { id: stri
         </Link>
       </div>
 
-      <h1 className="text-2xl font-semibold text-text-primary mb-1">{a.title}</h1>
-      <p className="text-sm text-text-muted mb-6">
+      <PageHeader
+        title={a.title}
+        description={<>
         {a.status === "SENT" && a.sentAt && <>Sent {new Date(a.sentAt).toLocaleString()}</>}
         {a.status === "SCHEDULED" && a.scheduledFor && <>Scheduled for {new Date(a.scheduledFor).toLocaleString()}</>}
         {a.status === "CANCELED" && a.canceledAt && <>Canceled {new Date(a.canceledAt).toLocaleString()}</>}
         {a.status === "DRAFT" && <>Draft — not sent yet</>}
         {" · "}Household mode: <strong className="text-text-primary">{a.householdMode}</strong>
-      </p>
+        </>}
+      />
 
       {!c ? (
         <div className="text-sm text-text-muted p-8 text-center bg-surface rounded-xl border border-app-border">

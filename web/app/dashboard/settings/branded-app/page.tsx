@@ -8,6 +8,7 @@ import {
   type BrandedNavKey,
 } from "@/lib/brandedApp";
 import { canUseFeature } from "@/lib/tier";
+import PageHeader from "@/components/PageHeader";
 
 type SectionKey =
   | "thumbnail"
@@ -133,7 +134,7 @@ export default function BrandedAppPage() {
           </Link>
         </div>
         <div className="rounded-2xl border border-app-border bg-app-surface p-10 text-center">
-          <h1 className="text-2xl font-semibold text-text-primary">Mobile app</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold text-text-primary leading-tight tracking-tight">Mobile app</h1>
           <p className="mt-3 text-sm text-text-muted max-w-md mx-auto">
             Ship your own iOS and Android app with your club&apos;s name, icon, and colors.
             The Mobile app editor is available on Pro and Enterprise plans.
@@ -159,15 +160,13 @@ export default function BrandedAppPage() {
         </Link>
       </div>
 
-      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Mobile app</h1>
-          <p className="text-sm text-text-muted mt-1 max-w-2xl">
+      <PageHeader
+        title="Mobile app"
+        description={<>
             Customize the installable member portal experience with a live phone preview.
             These settings are scoped to {clubInfo?.name || "this club"}.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+        </>}
+        actions={<>
           {clubInfo?.tier === "growth" && (
             <span className="text-xs bg-orange-accent/10 text-orange-accent rounded-full px-3 py-1 font-medium">
               Pro feature
@@ -180,8 +179,8 @@ export default function BrandedAppPage() {
           >
             {saving ? "Saving..." : "Save changes"}
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       {error && (
         <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -738,7 +737,7 @@ function ThumbnailPreview({ cfg }: { cfg: BrandedAppConfig }) {
             className="w-14 h-14 rounded-2xl shadow"
             bg={cfg.themeColor}
           />
-          <span className="text-[10px] text-center font-medium text-stone-900 max-w-16 truncate">{cfg.appName}</span>
+          <span className="text-[12px] text-center font-medium text-stone-900 max-w-16 truncate">{cfg.appName}</span>
         </div>
       </div>
     </div>
@@ -804,7 +803,7 @@ function BookPreview({ cfg, clubName }: { cfg: BrandedAppConfig; clubName: strin
           <PreviewImage src={cfg.bookNow.logoUrl || cfg.iconUrl} fallback={clubName.slice(0, 1)} className="w-9 h-9" bg={cfg.themeColor} radius={logoRadius} />
           <div className="min-w-0">
             <p className="text-sm truncate" style={{ fontWeight: weightNumber(cfg.style.fontWeight) }}>{clubName}</p>
-            <p className="text-[10px] opacity-75 truncate">Member app</p>
+            <p className="text-[12px] opacity-75 truncate">Member app</p>
           </div>
         </div>
         <MoreHorizontal size={18} strokeWidth={2} style={{ color: cfg.bookNow.topIconColor }} />
@@ -867,7 +866,7 @@ function ReviewsPreview({ cfg }: { cfg: BrandedAppConfig }) {
         <button className="w-full mt-5 py-2.5 rounded-lg text-sm font-semibold" style={{ background: cfg.reviews.buttonColor, color: cfg.reviews.buttonTextColor }}>
           {hasLinks ? "Leave a review" : "Send feedback"}
         </button>
-        {hasLinks && <p className="text-[11px] text-stone-400 text-center mt-3">Links open your saved public review pages.</p>}
+        {hasLinks && <p className="text-[12px] text-stone-400 text-center mt-3">Links open your saved public review pages.</p>}
       </div>
     </div>
   );
@@ -973,7 +972,7 @@ function PreviewImage({
 function PreviewField({ label }: { label: string }) {
   return (
     <div>
-      <p className="text-[11px] text-stone-500 mb-1">{label}</p>
+      <p className="text-[12px] text-stone-500 mb-1">{label}</p>
       <div className="h-9 rounded-lg border border-stone-200 bg-stone-50" />
     </div>
   );

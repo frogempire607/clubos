@@ -115,7 +115,7 @@ export function FamilySwitcher({
   if (people.length <= 1) return null;
   return (
     <div className="rounded-xl border border-app-border bg-surface px-3 py-[9px]">
-      <div className="mb-1.5 text-[11.5px] font-semibold uppercase tracking-[0.04em] text-text-muted">
+      <div className="mb-1.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-text-muted">
         {familyName} family
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -133,7 +133,7 @@ export function FamilySwitcher({
               >
                 <MemberAvatar initials={p.initials} imageUrl={p.imageUrl} size={20} />
                 <span className="truncate">{p.name}</span>
-                <span className="text-[11px] opacity-70">{current ? "viewing" : p.annotation}</span>
+                <span className="text-[12px] opacity-70">{current ? "viewing" : p.annotation}</span>
               </Link>
             );
           })}
@@ -194,7 +194,7 @@ export function ProfileTabs({
               }`}
             >
               {t.label}
-              {counts?.[t.key] != null && <span className="ml-1 text-[11px] opacity-70">{counts[t.key]}</span>}
+              {counts?.[t.key] != null && <span className="ml-1 text-[12px] opacity-70">{counts[t.key]}</span>}
               {dirty?.includes(t.key) && !problems?.includes(t.key) && (
                 <span aria-label="Unsaved changes" className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-brand align-middle" />
               )}
@@ -240,13 +240,13 @@ export function LockedBirthdayRow({
         <span className="text-[13px] font-medium text-text-primary">{dateOfBirth ? fmt(dateOfBirth) : "Not set"}</span>
         {age != null && <span className="text-[12px] text-text-muted">({age})</span>}
         <span
-          className="rounded-[4px] px-1.5 py-px text-[10px] font-semibold uppercase"
+          className="rounded-[4px] px-1.5 py-px text-[12px] font-semibold uppercase"
           style={{ background: "var(--color-chip-surface)", color: "var(--color-chip-text)" }}
         >
           Locked
         </span>
       </div>
-      <p className="mt-1.5 text-[11.5px] leading-relaxed text-text-muted">
+      <p className="mt-1.5 text-[12px] leading-relaxed text-text-muted">
         Birthdays set age brackets, waivers and minor rules, so staff can&rsquo;t change them.{" "}
         <strong className="font-medium text-text-primary">
           {guardianName ?? "Their guardian"} updates it in the member portal
@@ -260,7 +260,7 @@ export function LockedBirthdayRow({
 /** The 3-icon ownership legend above the contact grid. */
 export function OwnershipLegend() {
   return (
-    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-text-muted">
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-text-muted">
       <span className="inline-flex items-center gap-1">
         <Pencil className="h-3 w-3" /> you can edit
       </span>

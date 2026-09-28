@@ -79,7 +79,7 @@ function ApprovalStepper({ done }: { done: number }) {
                 i + 1
               )}
             </span>
-            <span className={`text-[10px] font-semibold text-center max-w-[64px] ${state === "active" ? "text-stone-900" : "text-stone-500"}`}>
+            <span className={`text-[12px] font-semibold text-center max-w-[64px] ${state === "active" ? "text-stone-900" : "text-stone-500"}`}>
               {label}
             </span>
           </div>
@@ -209,7 +209,7 @@ export default function InvoiceSplit({ memberId, childName }: { memberId: string
       </div>
 
       <SplitBar a={a} b={b} />
-      <div className="flex justify-between mt-2 text-[11px] font-semibold text-stone-600">
+      <div className="flex justify-between mt-2 text-[12px] font-semibold text-stone-600">
         <span className="flex items-center gap-1.5">
           <span className="w-[11px] h-[11px] rounded-[3px]" style={{ background: "var(--club-accent)" }} aria-hidden />
           {aName} (A) · {a}%
@@ -229,13 +229,13 @@ export default function InvoiceSplit({ memberId, childName }: { memberId: string
         <p className="text-[13px] font-semibold" style={{ color: "var(--club-accent)" }}>
           {stepCard.title}
         </p>
-        <p className="text-[11.5px] text-stone-600 mt-0.5 leading-snug">{stepCard.body}</p>
+        <p className="text-[12px] text-stone-600 mt-0.5 leading-snug">{stepCard.body}</p>
       </div>
 
       {!split && (
         <div className="mt-3 space-y-2.5">
           <div>
-            <label htmlFor="split-pct" className="block text-[11px] font-semibold text-stone-600 mb-1">
+            <label htmlFor="split-pct" className="block text-[12px] font-semibold text-stone-600 mb-1">
               Your share: {percent}%
             </label>
             <input
@@ -312,7 +312,7 @@ export default function InvoiceSplit({ memberId, childName }: { memberId: string
       {error && (
         <div className="mt-2.5 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>
       )}
-      <p className="text-[11px] text-stone-400 mt-2.5">
+      <p className="text-[12px] text-stone-400 mt-2.5">
         Either guardian can start a purchase; each pays their own share with their own card —
         Guardian A can never use Guardian B&apos;s saved card.
       </p>

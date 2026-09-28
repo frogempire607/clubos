@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import PageHeader from "@/components/PageHeader";
 
 type ClubInfo = { id: string; name: string; slug: string };
 type PublicEvent = { id: string; name: string; publicSlug: string | null };
@@ -43,13 +44,13 @@ export default function PreviewPage() {
 
   return (
     <div className="p-8 max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-text-primary mb-1">Client View / Preview</h1>
-        <p className="text-sm text-text-muted">
+      <PageHeader
+        title="Client View / Preview"
+        description={<>
           See what athletes, parents, and the public see — without signing out or impersonating
           anyone. Real member data isn&apos;t loaded; this is a layout-and-content preview.
-        </p>
-      </div>
+        </>}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
         {/* Member portal preview */}
@@ -57,7 +58,7 @@ export default function PreviewPage() {
           <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-1">Member portal</p>
           <h2 className="text-base font-semibold text-text-primary mb-1">Preview the member experience</h2>
           <p className="text-sm text-text-muted mb-4">
-            Opens <code className="px-1 py-0.5 bg-app-bg rounded text-[11px]">/member</code> with your
+            Opens <code className="px-1 py-0.5 bg-app-bg rounded text-[12px]">/member</code> with your
             club branding. The portal banner makes it obvious you&apos;re in preview. Click
             &quot;Exit preview&quot; in the banner to return to the dashboard.
           </p>

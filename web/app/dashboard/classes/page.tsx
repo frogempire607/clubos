@@ -389,7 +389,7 @@ function ClassModal({
               <label className="block text-xs font-medium text-text-primary mb-1">
                 Different times for specific days? <span className="text-text-muted font-normal">(optional)</span>
               </label>
-              <p className="text-[11px] text-text-muted mb-2">
+              <p className="text-[12px] text-text-muted mb-2">
                 Toggle a day to set custom times for just that day. Unset days keep the defaults above.
               </p>
               <div className="space-y-1.5">
@@ -533,7 +533,7 @@ function ClassModal({
             <label className="block text-xs font-medium text-text-primary mb-1">
               Accepted Memberships / Purchase Options
             </label>
-            <p className="text-[11px] text-text-muted mb-2">
+            <p className="text-[12px] text-text-muted mb-2">
               Members on any selected plan can register at no extra cost. Others pay the prices above. For a plan with several options you can include only some of them (e.g. the full membership but not the 2-day one).
             </p>
             {memberships.length === 0 ? (
@@ -561,7 +561,7 @@ function ClassModal({
                         />
                         {m.name}
                         {on && planOpts.length > 1 && (
-                          <span className="text-[11px] text-text-muted">
+                          <span className="text-[12px] text-text-muted">
                             · {sel ? `${sel.filter((id) => planOpts.some((o) => o.id === id)).length} of ${planOpts.length} options` : "all options"}
                           </span>
                         )}
@@ -599,7 +599,7 @@ function ClassModal({
               </div>
             )}
             {form.allowedMembershipIds.length > 0 && (
-              <p className="text-[11px] text-text-muted mt-1">
+              <p className="text-[12px] text-text-muted mt-1">
                 {form.allowedMembershipIds.length} membership{form.allowedMembershipIds.length === 1 ? "" : "s"} selected
               </p>
             )}
@@ -608,7 +608,7 @@ function ClassModal({
           {staffList.length > 0 && (
             <div>
               <label className="block text-xs font-medium text-text-primary mb-2">Assigned staff / coaches</label>
-              <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto">
                 {staffList.map((s) => (
                   <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer border border-app-border rounded-lg px-3 py-2">
                     <input
@@ -663,7 +663,7 @@ function ClassModal({
             <label className="block text-xs font-medium text-text-primary mb-2">
               Who can see this class
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {([
                 { v: "PUBLIC", title: "Public", desc: "Anyone signed in can see it (members + future public discovery)." },
                 { v: "MEMBERS_ONLY", title: "Members only", desc: "Visible to your members on their schedule." },
@@ -680,7 +680,7 @@ function ClassModal({
                     }`}
                   >
                     <p className={`text-xs font-semibold ${selected ? "text-brand" : "text-text-primary"}`}>{opt.title}</p>
-                    <p className="text-[11px] text-text-muted mt-0.5">{opt.desc}</p>
+                    <p className="text-[12px] text-text-muted mt-0.5">{opt.desc}</p>
                   </button>
                 );
               })}
@@ -936,13 +936,13 @@ export default function ClassesPage() {
                         {cls.description && (
                           <div className="text-xs text-text-muted truncate max-w-[200px]">{cls.description}</div>
                         )}
-                        <div className="text-[10px] text-text-muted mt-0.5">
+                        <div className="text-[12px] text-text-muted mt-0.5">
                           {cls.assignedStaffIds?.length
                             ? `Staff: ${cls.assignedStaffIds.map((id) => staffList.find((s) => s.id === id)).filter(Boolean).map((s) => `${s!.firstName} ${s!.lastName}`).join(", ")}`
                             : "No staff assigned"}
                         </div>
                         {(cls.pricingOptions || []).filter((o) => o.type === "membership").length > 0 && (
-                          <div className="text-[10px] text-text-muted mt-0.5">
+                          <div className="text-[12px] text-text-muted mt-0.5">
                             Options: {(cls.pricingOptions || []).filter((o): o is Extract<PricingOption, { type: "membership" }> => o.type === "membership").map((o) => {
                               const m = memberships.find((x) => x.id === o.membershipId);
                               if (!m) return null;
@@ -1204,7 +1204,7 @@ function SessionEditModal({
                 Substitute staff for this day
               </label>
               {useOverride && (
-                <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto">
                   {staffList.map((sf) => (
                     <label key={sf.id} className="flex items-center gap-2 text-sm border border-app-border rounded-lg px-2 py-1.5 cursor-pointer">
                       <input

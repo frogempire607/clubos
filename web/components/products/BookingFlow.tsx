@@ -120,7 +120,7 @@ export default function BookingFlow({ booking, availabilityUrl, guest, busy, err
             <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
               {days.map((d) => (
                 <button key={d.date} type="button" disabled={d.closed} onClick={() => setDate(d.date)} className={`shrink-0 w-12 rounded-xl border py-1.5 text-center ${d.closed ? "border-stone-100 text-stone-300" : date === d.date ? "border-stone-900 bg-stone-900 text-white" : "border-stone-200 text-stone-900 bg-white"}`}>
-                  <span className="block text-[10px] uppercase">{d.dow}</span>
+                  <span className="block text-[12px] uppercase">{d.dow}</span>
                   <span className="block text-sm font-semibold">{d.label}</span>
                 </button>
               ))}
@@ -148,7 +148,7 @@ export default function BookingFlow({ booking, availabilityUrl, guest, busy, err
             {guest && (
               <div className="space-y-2">
                 <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className={inputCls} />
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className={inputCls} />
                   <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone (optional)" className={inputCls} />
                 </div>

@@ -5,6 +5,7 @@ import SiblingDiscountCard from "@/components/settings/SiblingDiscountCard";
 import GroupRatesCard from "@/components/settings/GroupRatesCard";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
+import PageHeader from "@/components/PageHeader";
 
 type Status = {
   connected: boolean;
@@ -56,10 +57,10 @@ export default function BillingSettingsPage() {
 
   return (
     <div className="p-8 max-w-3xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-text-primary mb-1">Member payments</h1>
-        <p className="text-sm text-text-muted">Connect Stripe to accept payments from your members.</p>
-      </div>
+      <PageHeader
+        title="Member payments"
+        description="Connect Stripe to accept payments from your members."
+      />
 
       {justConnected && (
         <div className="mb-4 px-4 py-3 rounded-lg bg-lime-accent border border-lime-accent/40 text-sm text-text-primary">

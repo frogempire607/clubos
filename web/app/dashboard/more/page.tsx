@@ -26,6 +26,7 @@ import { applyTheme, readStoredTheme } from "@/components/ThemeToggle";
 import { signOutEverywhere } from "@/lib/signOutEverywhere";
 import { visibleNavFor, type NavChild, type NavItem } from "@/lib/dashboardNav";
 import { SkeletonList } from "@/components/LoadingSkeleton";
+import PageHeader from "@/components/PageHeader";
 
 type Me = { role?: string; permissions?: Record<string, unknown> | null } | null;
 
@@ -56,7 +57,7 @@ function sectionsFrom(nav: NavItem[]): Section[] {
 }
 
 const rowCls =
-  "flex min-h-[48px] w-full items-center gap-3 px-4 text-left text-[15px] text-text-primary hover:bg-app-bg active:bg-app-bg";
+  "flex min-h-[48px] w-full items-center gap-3 px-4 text-left text-[15px] text-text-primary hover:bg-app-bg active:bg-app-bg focus-ring-inset";
 
 function RowLink({ row }: { row: Row }) {
   const Icon = row.icon;
@@ -157,7 +158,9 @@ export default function MorePage() {
 
   return (
     <div className="mx-auto w-full max-w-[640px] px-4 pb-32 pt-4 md:pb-8 md:pt-6">
-      <h1 className="mb-4 px-1 text-[22px] font-semibold tracking-[-0.02em] text-text-primary">More</h1>
+      <PageHeader
+        title="More"
+      />
 
       {!meLoaded && status !== "unauthenticated" ? (
         <div className="rounded-xl border border-app-border bg-surface">
