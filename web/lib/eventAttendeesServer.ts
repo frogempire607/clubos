@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { resolveRegistrationRecipients } from "@/lib/eventRecipients";
 import { resolveEventPolicy } from "@/lib/eventPayments";
 import { resolveCategoryFields } from "@/lib/eventCategories";
+import { sendRegistrationId, type CheckInRecord, type RowExtras, type SendEntry } from "@/lib/eventAttendeeExtras";
 import {
   buildAttendeeLedger,
   summarizeLedger,
@@ -33,6 +34,12 @@ const REG_SELECT = {
   paidAt: true,
   createdAt: true,
   formResponses: true,
+  // Row extras (lib/eventAttendeeExtras) — display facts, never money.
+  paymentMethod: true,
+  paidVia: true,
+  invoiceCount: true,
+  invoicedAt: true,
+  paymentUrl: true,
 } as const;
 
 const BOOKING_SELECT = {
@@ -73,8 +80,15 @@ export type EventAttendeesPayload = {
     sessionCount: number;
     categoryLabel: string | null;
     categoryKey: string | null;
+    requirePaymentBeforeCheckin: boolean;
   };
   ledger: AttendeeLedger;
+  /** Per registration id: payment method + payment-link count/date/url. */
+  extras: Record<string, RowExtras>;
+  /** AttendanceRecords already on this event (check-in mode). */
+  checkIns: CheckInRecord[];
+  /** Per registration id: the EmailSend rows about it, newest first. */
+  sends: Record<string, SendEntry[]>;
 };
 
 export async function loadEventAttendees(clubId: string, eventId: string): Promise<EventAttendeesPayload | null> {
@@ -98,15 +112,43 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
       allowProposedChanges: true,
       responsibleCoachUserId: true,
       holdSpotDuringReview: true,
+      requirePaymentBeforeCheckin: true,
       customEventType: { select: { defaultPolicy: true } },
       _count: { select: { sessions: true } },
     },
   });
   if (!event) return null;
 
-  const [regs, bookings] = await Promise.all([
+  const [regs, bookings, attendance, emailSends] = await Promise.all([
     prisma.eventRegistration.findMany({ where: { eventId: event.id }, select: REG_SELECT }),
     prisma.booking.findMany({ where: { eventId: event.id }, select: BOOKING_SELECT }),
+    // Check-in mode reads what the attendance route (POST /api/attendance
+    // with eventId) already wrote — no second store.
+    prisma.attendanceRecord.findMany({
+      where: { eventId: event.id, clubId },
+      select: { id: true, memberId: true, status: true, checkedInAt: true },
+    }),
+    // Every email sendClubEmail logged against this event. Payment-link
+    // emails (lib/eventInvoicing.billOneRegistrant) go through the bare SMTP
+    // sender and are NOT here — for those only invoiceCount/invoicedAt exist.
+    prisma.emailSend.findMany({
+      where: { clubId, relatedEventId: event.id },
+      orderBy: { queuedAt: "desc" },
+      take: 2000,
+      select: {
+        id: true,
+        subject: true,
+        status: true,
+        recipientEmail: true,
+        dedupeKey: true,
+        queuedAt: true,
+        sentAt: true,
+        deliveredAt: true,
+        bouncedAt: true,
+        skippedReason: true,
+        error: true,
+      },
+    }),
   ]);
 
   // Where each bill would ACTUALLY go — the family model, not the snapshot
@@ -142,6 +184,34 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
     { now: new Date() },
   );
 
+  const extras: Record<string, RowExtras> = {};
+  for (const r of regs) {
+    extras[r.id] = {
+      paymentMethod: r.paymentMethod,
+      paidVia: r.paidVia,
+      invoiceCount: r.invoiceCount,
+      invoicedAt: r.invoicedAt ? r.invoicedAt.toISOString() : null,
+      // A link on a settled or canceled row is dead weight — never offer it.
+      paymentUrl: r.status === "PAID" || r.status === "CANCELED" ? null : r.paymentUrl,
+    };
+  }
+  const regIds = new Set(regs.map((r) => r.id));
+  const sends: Record<string, SendEntry[]> = {};
+  for (const e of emailSends) {
+    const regId = sendRegistrationId(e.dedupeKey, regIds);
+    if (!regId) continue;
+    (sends[regId] ??= []).push({
+      id: e.id,
+      subject: e.subject,
+      status: e.status,
+      recipientEmail: e.recipientEmail,
+      at: (e.sentAt ?? e.queuedAt).toISOString(),
+      deliveredAt: e.deliveredAt ? e.deliveredAt.toISOString() : null,
+      bouncedAt: e.bouncedAt ? e.bouncedAt.toISOString() : null,
+      note: e.skippedReason ?? e.error ?? null,
+    });
+  }
+
   return {
     event: {
       id: event.id,
@@ -153,8 +223,17 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
       sessionCount: event._count.sessions,
       categoryLabel: category?.label ?? null,
       categoryKey: category?.key ?? null,
+      requirePaymentBeforeCheckin: event.requirePaymentBeforeCheckin,
     },
     ledger,
+    extras,
+    checkIns: attendance.map((a) => ({
+      recordId: a.id,
+      memberId: a.memberId,
+      status: a.status,
+      checkedInAt: a.checkedInAt ? a.checkedInAt.toISOString() : null,
+    })),
+    sends,
   };
 }
 

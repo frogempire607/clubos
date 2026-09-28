@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { checkinPaymentBlock } from "@/lib/eventPayments";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { requirePermission } from "@/lib/apiGuard";
@@ -88,6 +89,31 @@ export async function POST(req: Request) {
     where: { id: memberId, clubId: session.user.clubId, deletedAt: null },
   });
   if (!member) return NextResponse.json({ error: "Member not found" }, { status: 404 });
+
+  // 2026-09-28: "Block check-in until paid" is enforced on the server too, with
+  // the same rule the member self check-in uses (lib/eventPayments). Before,
+  // only the screen stopped staff; the API recorded PRESENT regardless.
+  if (eventId && (status === "PRESENT" || status === "LATE")) {
+    const ev = await prisma.event.findFirst({
+      where: { id: eventId, clubId: session.user.clubId },
+      select: { requirePaymentBeforeCheckin: true },
+    });
+    if (ev?.requirePaymentBeforeCheckin) {
+      const regs = await prisma.eventRegistration.findMany({
+        where: { eventId, memberId, status: { not: "CANCELED" } },
+        orderBy: { createdAt: "desc" },
+        select: { status: true, amountDue: true, paymentMethod: true },
+      });
+      const reg = regs.find((r) => r.status === "PAID") ?? regs.find((r) => r.status === "SCHEDULED") ?? regs[0] ?? null;
+      const block = checkinPaymentBlock(ev, reg);
+      if (block) {
+        return NextResponse.json(
+          { error: "PAYMENT_REQUIRED", message: `${block} Record the payment first.`, amountDue: Number(reg?.amountDue ?? 0) },
+          { status: 409 },
+        );
+      }
+    }
+  }
 
   // The record already on this roster for this session, if any. Loaded BEFORE
   // the membership gate because "they already paid at the door" is one of the

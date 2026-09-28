@@ -24,6 +24,11 @@
 //   Remove                 DELETE registrations/[regId] (roster + bill together)
 //                          or DELETE bookings?memberId= for a spot with no bill
 //   + Add attendee         POST bookings (free) or POST charge (spot + bill)
+//   Export                 GET attendees/export (same loader + filter as here)
+//   Check-in mode          POST/DELETE /api/attendance (components/events/
+//                          attendees/CheckInView.tsx)
+//   Copy link / History    read-only: EventRegistration.paymentUrl +
+//                          invoiceCount/invoicedAt, EmailSend rows (loader)
 //
 // Detail the actions need (payment method, recipient repair, the coach
 // policy) comes from GET /api/events/[id]/registrations, loaded FIRST so its
@@ -31,7 +36,7 @@
 // open — still runs, and the ledger loaded after it reflects the result.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { Download, UserCheck, X } from "lucide-react";
 import type { AttendeeFilter, AttendeeRow } from "@/lib/eventAttendees";
 import {
   attendeeTiles,
@@ -56,6 +61,10 @@ import Sheet from "@/components/Sheet";
 import AddAttendeeForm from "@/components/events/attendees/AddAttendeeForm";
 import DecisionSheet, { type DecisionMode } from "@/components/events/attendees/DecisionSheet";
 import InvoiceReviewSheet from "@/components/events/attendees/InvoiceReviewSheet";
+import ExportSheet from "@/components/events/attendees/ExportSheet";
+import CheckInView from "@/components/events/attendees/CheckInView";
+import { LinkSentLine, SendHistoryPanel } from "@/components/events/attendees/SendHistory";
+import { attendeeStatusText } from "@/lib/eventAttendeeExtras";
 import {
   money,
   type AttendeesPayload,
@@ -75,17 +84,18 @@ const btn = "min-h-11 px-4 rounded-[10px] text-[14px] font-semibold disabled:opa
 const field = "w-full min-h-11 px-3 py-2 border border-app-border rounded-[10px] text-[14px] bg-surface text-text-primary";
 
 function pill(r: AttendeeRow): { label: string; cls: string } {
-  if (r.status === "SCHEDULED") {
-    return { label: r.scheduledAt ? `Card charge ${shortDate(r.scheduledAt)}` : r.label, cls: "bg-pending-surface text-pending-text" };
-  }
-  if (r.waitingOn === "PARENT" && !r.removed) return { label: "Waiting on the parent", cls: "bg-chip-surface text-chip-text" };
+  // The words come from the same helper the export uses, so the file and the
+  // pill never disagree.
+  const label = attendeeStatusText(r, shortDate);
+  if (r.status === "SCHEDULED") return { label, cls: "bg-pending-surface text-pending-text" };
+  if (r.waitingOn === "PARENT" && !r.removed) return { label, cls: "bg-chip-surface text-chip-text" };
   const cls =
     r.tone === "paid" ? "bg-success-surface text-success-text"
     : r.tone === "owed" ? "bg-warn-surface text-warn-text"
     : r.tone === "warn" ? "bg-danger-surface text-danger-text"
     : r.tone === "info" ? "bg-info-surface text-brand border border-info-border"
     : "bg-chip-surface text-chip-text";
-  return { label: r.label, cls };
+  return { label, cls };
 }
 
 function StatusPill({ r }: { r: AttendeeRow }) {
@@ -148,6 +158,9 @@ export default function AttendeesModal({
   const [sheetErr, setSheetErr] = useState("");
   const [preview, setPreview] = useState<{ p: InvoicePreview; ids: string[] } | null>(null);
   const [changed, setChanged] = useState(false);
+  const [checkInMode, setCheckInMode] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState<string | null>(null);
   // Sheet inputs
   const [checkRef, setCheckRef] = useState("");
   const [emailInput, setEmailInput] = useState("");
@@ -369,6 +382,40 @@ export default function AttendeesModal({
 
   const excludeMemberIds = useMemo(() => new Set(allRows.filter((r) => !r.removed && r.memberId).map((r) => r.memberId as string)), [allRows]);
   const tiles = ledger ? attendeeTiles(ledger) : [];
+  const extras = data?.extras ?? {};
+  const sends = data?.sends ?? {};
+  const checkIns = useMemo(() => data?.checkIns ?? [], [data]);
+
+  function copyLink(url: string) {
+    const ok = () => setFlash({ ok: true, text: "Payment link copied." });
+    const fail = () => setFlash({ ok: false, text: "Couldn't copy — open History to select the link." });
+    try {
+      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(ok, fail);
+      else fail();
+    } catch {
+      fail();
+    }
+  }
+
+  function linkLine(r: AttendeeRow) {
+    const id = r.registrationId;
+    if (!id) return null;
+    return (
+      <LinkSentLine
+        row={r}
+        extras={extras[id]}
+        sends={sends[id]}
+        open={historyOpen === id}
+        onToggle={() => setHistoryOpen((v) => (v === id ? null : id))}
+        onCopy={copyLink}
+      />
+    );
+  }
+  function historyPanel(r: AttendeeRow) {
+    const id = r.registrationId;
+    if (!id || historyOpen !== id) return null;
+    return <SendHistoryPanel extras={extras[id]} sends={sends[id]} />;
+  }
   const categoryLabel = ev?.categoryLabel ?? null;
 
   // ── Inline actions for one row ──────────────────────────────────────────────
@@ -459,11 +506,34 @@ export default function AttendeesModal({
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
               type="button"
-              onClick={() => setAddOpen((v) => !v)}
-              className={`min-h-11 px-3 sm:px-4 rounded-[10px] text-[13.5px] font-semibold ${addOpen ? "border border-app-border text-text-primary" : "bg-brand text-white hover:bg-brand-hover"}`}
+              onClick={() => setExportOpen(true)}
+              disabled={!ledger}
+              aria-label="Export"
+              className="min-h-11 min-w-11 px-2 sm:px-3 rounded-[10px] text-[13.5px] font-semibold text-text-primary hover:bg-app-bg inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
             >
-              {addOpen ? "Close" : "+ Add attendee"}
+              <Download size={18} strokeWidth={2} />
+              <span className="hidden sm:inline">Export</span>
             </button>
+            <button
+              type="button"
+              onClick={() => { setCheckInMode((v) => !v); setAddOpen(false); }}
+              disabled={!ledger}
+              aria-pressed={checkInMode}
+              aria-label="Check-in mode"
+              className={`min-h-11 min-w-11 px-2 sm:px-3 rounded-[10px] text-[13.5px] font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-50 ${checkInMode ? "bg-success-surface text-success-text border border-success-border" : "text-text-primary hover:bg-app-bg"}`}
+            >
+              <UserCheck size={18} strokeWidth={2} />
+              <span className="hidden sm:inline">{checkInMode ? "Done checking in" : "Check-in mode"}</span>
+            </button>
+            {!checkInMode && (
+              <button
+                type="button"
+                onClick={() => setAddOpen((v) => !v)}
+                className={`min-h-11 px-3 sm:px-4 rounded-[10px] text-[13.5px] font-semibold ${addOpen ? "border border-app-border text-text-primary" : "bg-brand text-white hover:bg-brand-hover"}`}
+              >
+                {addOpen ? "Close" : <><span className="sm:hidden">+ Add</span><span className="hidden sm:inline">+ Add attendee</span></>}
+              </button>
+            )}
             <button type="button" onClick={() => onClose(changed)} aria-label="Close" className="w-11 h-11 rounded-[10px] hover:bg-app-bg flex items-center justify-center text-text-muted">
               <X size={18} strokeWidth={2} />
             </button>
@@ -488,6 +558,23 @@ export default function AttendeesModal({
             <div className="p-8 text-center text-[14px] text-danger-text">{error}</div>
           ) : !data || !ledger ? (
             <div className="p-4"><SkeletonList rows={5} /></div>
+          ) : checkInMode ? (
+            <>
+            {flash && (
+              <div className={`mx-4 sm:mx-5 mt-3 text-[13px] rounded-[10px] px-3 py-2 border flex items-start justify-between gap-2 ${flash.ok ? "bg-success-surface text-success-text border-success-border" : "bg-danger-surface text-danger-text border-danger-border"}`} role="status">
+                <span>{flash.text}</span>
+                <button type="button" onClick={() => setFlash(null)} aria-label="Dismiss" className="-my-2 -mr-2 w-11 h-11 flex items-center justify-center"><X size={14} /></button>
+              </div>
+            )}
+            <CheckInView
+              eventId={eventId}
+              rows={allRows}
+              checkIns={checkIns}
+              requirePaymentBeforeCheckin={!!(ev?.requirePaymentBeforeCheckin ?? regs?.event.requirePaymentBeforeCheckin)}
+              cashRecordable={cashRecordable}
+              onRecordCash={(r) => runAction(r, "record", "CASH")}
+            />
+            </>
           ) : (
             <>
               {/* Phone: sticky money bar + the primary collect button (1d) */}
@@ -620,6 +707,8 @@ export default function AttendeesModal({
                               <StatusPill r={r} />
                               {!r.removed && renderActions(r, true)}
                             </div>
+                            {linkLine(r)}
+                            {historyPanel(r) && <div className="mt-1.5">{historyPanel(r)}</div>}
                           </div>
                           <div className="text-right flex-shrink-0 tabular-nums">
                             <div className="text-[15px] font-bold text-text-primary">{amt.v}</div>
@@ -644,7 +733,8 @@ export default function AttendeesModal({
                         const selectable = !!r.registrationId && isSelectable(r, ctx);
                         const owed = r.owes > 0 ? r.owes : collectAmount(r, ctx);
                         return (
-                          <div key={r.id} className={`grid gap-3 items-start px-3 py-2.5 text-[13.5px] ${r.removed ? "opacity-60" : ""}`} style={{ gridTemplateColumns: GRID }}>
+                          <div key={r.id}>
+                          <div className={`grid gap-3 items-start px-3 py-2.5 text-[13.5px] ${r.removed ? "opacity-60" : ""}`} style={{ gridTemplateColumns: GRID }}>
                             <div className="pt-0.5">
                               {selectable && (
                                 <input type="checkbox" aria-label={`Select ${r.name}`} checked={selected.has(r.registrationId as string)} onChange={() => toggle(r.registrationId as string)} className="h-4 w-4" />
@@ -660,6 +750,7 @@ export default function AttendeesModal({
                             <div className="min-w-0 text-[12.5px]">
                               <div className="text-text-primary truncate">{r.email ?? <span className="text-warn-text">{detail(r)?.recipient?.reason ?? "No address on file"}</span>}</div>
                               <div className="text-text-muted truncate">{[r.emailNote, r.phone].filter(Boolean).join(" · ")}</div>
+                              {linkLine(r)}
                             </div>
                             <div className="text-text-primary">{r.categoryValue ?? <span className="text-text-muted">—</span>}</div>
                             <div className="text-[12.5px] text-text-muted">{r.attending}</div>
@@ -672,6 +763,8 @@ export default function AttendeesModal({
                               {!r.removed && renderActions(r)}
                             </div>
                           </div>
+                          {historyPanel(r) && <div className="px-3 pb-3">{historyPanel(r)}</div>}
+                          </div>
                         );
                       })}
                     </div>
@@ -683,7 +776,7 @@ export default function AttendeesModal({
         </div>
 
         {/* Footer */}
-        {ledger && (
+        {ledger && !checkInMode && (
           <div className="px-4 sm:px-5 py-2.5 border-t border-app-border flex items-center justify-between gap-3 text-[12.5px] text-text-muted flex-wrap">
             <div>
               Showing {rows.length === ledger.visible && filter === "all" && !showRemoved ? "all " : ""}{rows.length}
@@ -705,6 +798,17 @@ export default function AttendeesModal({
 
       {/* ── Sheets (confirms and small forms) ─────────────────────────────── */}
       <div onClick={(e) => e.stopPropagation()}>
+        {exportOpen && ledger && (
+          <ExportSheet
+            eventId={eventId}
+            filter={filter}
+            filterLabel={filterChips(ledger).find((f) => f.key === filter)?.label ?? "All"}
+            shownCount={rows.length}
+            allCount={ledger.visible}
+            showRemoved={showRemoved}
+            onClose={() => setExportOpen(false)}
+          />
+        )}
         {preview && (
           <InvoiceReviewSheet preview={preview.p} busy={busy === "invoice"} onSend={sendInvoice} onClose={() => setPreview(null)} />
         )}

@@ -30,7 +30,7 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
   });
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const [assignments, txns] = await Promise.all([
+  const [assignments, txns, roster] = await Promise.all([
     prisma.eventCompAssignment.findMany({ where: { eventId: event.id, clubId } }),
     prisma.transaction.findMany({
       where: { clubId, eventId: event.id },
@@ -42,18 +42,28 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
         stripeFeeAmount: true,
       },
     }),
+    prisma.eventStaffAssignment.findMany({ where: { eventId: event.id, clubId }, select: { userId: true } }),
   ]);
+  // Second safety (2026-09-28): a STAFF pay row only pays if that person is
+  // still on the event's roster. Removing a coach already deletes their unpaid
+  // row (lib/staffAssignmentsServer.ts); this makes a stale row harmless too.
+  const onRoster = new Set(roster.map((r) => r.userId));
   const revenue = collectedRevenue(txns, { ignoreRefunds: event.compNoRefunds });
 
   let created = 0;
   let skippedExisting = 0;
   let skippedZero = 0;
+  let skippedOffRoster = 0;
   const results: Array<{ payeeName: string; amount: number }> = [];
 
   for (const a of assignments) {
     if (a.compMethod === "NONE") continue;
     if (a.payoutId) {
       skippedExisting++;
+      continue;
+    }
+    if (a.payeeType === "STAFF" && a.userId && !onRoster.has(a.userId)) {
+      skippedOffRoster++;
       continue;
     }
     const input = {
@@ -117,6 +127,7 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
     created,
     skippedExisting,
     skippedZero,
+    skippedOffRoster,
     revenue,
     results,
   });

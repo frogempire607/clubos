@@ -129,11 +129,18 @@ export async function billOneRegistrant(args: BillOneRegistrantArgs): Promise<Bi
     },
   });
 
+  // 2026-09-28: every payment-link email is logged as an EmailSend row so the
+  // Attendees screen can show the real per-send history (delivered / failed),
+  // not just a count. dedupeKey "event-payment-link:<registrationId>:<n>"
+  // follows the "<kind>:<registrationId>" shape lib/eventAttendeeExtras reads.
+  const subject = `Payment due for ${event.name}`;
+  let sendError: string | null = null;
+  let html = "";
   try {
     await sendEmail({
       to: recipientEmail,
-      subject: `Payment due for ${event.name}`,
-      html: `
+      subject,
+      html: html = `
             <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto">
               <h2 style="color:#1c1917">${escapeHtml(args.productName)}</h2>
               <p style="color:#57534e;line-height:1.6">
@@ -153,6 +160,27 @@ export async function billOneRegistrant(args: BillOneRegistrantArgs): Promise<Bi
     // The link is live and stored on the row either way — the roster can
     // re-send it. A dead SMTP must not read as "this registrant was not billed".
     console.error("Bill-registrant email failed:", e);
+    sendError = e instanceof Error ? e.message.slice(0, 500) : String(e).slice(0, 500);
+  }
+  try {
+    const now = new Date();
+    await prisma.emailSend.create({
+      data: {
+        clubId: event.clubId,
+        relatedEventId: event.id,
+        kind: "EVENT_PAYMENT_LINK",
+        recipientEmail,
+        subject,
+        bodyHtml: html || subject,
+        status: sendError ? "FAILED" : "SENT",
+        error: sendError,
+        sentAt: sendError ? null : now,
+        dedupeKey: `event-payment-link:${reg.id}:${now.getTime()}`,
+      },
+    });
+  } catch (e) {
+    // Logging must never undo a live bill.
+    console.error("Bill-registrant send log failed:", e);
   }
 
   return { ok: true, url: checkout.url ?? "", sessionId: checkout.id };

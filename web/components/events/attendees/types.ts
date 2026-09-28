@@ -4,6 +4,7 @@
 //                                         need (payment method, recipient
 //                                         repair, policy, category fields)
 import type { AttendeeLedger } from "@/lib/eventAttendees";
+import type { CheckInRecord, RowExtras, SendEntry } from "@/lib/eventAttendeeExtras";
 import type { CategoryField } from "@/lib/eventCategories";
 
 export type AttendeesPayload = {
@@ -16,8 +17,12 @@ export type AttendeesPayload = {
     publicSlug: string | null;
     sessionCount: number;
     categoryLabel: string | null;
+    requirePaymentBeforeCheckin?: boolean;
   };
   ledger: AttendeeLedger;
+  extras?: Record<string, RowExtras>;
+  checkIns?: CheckInRecord[];
+  sends?: Record<string, SendEntry[]>;
 };
 
 export type RegDetail = {
