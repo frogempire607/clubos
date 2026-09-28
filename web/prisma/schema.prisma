@@ -3485,13 +3485,44 @@ model Payout {
   paidAt       DateTime?
   notes        String?
   createdById  String?
+  // PAYROLL only: the payday (date-only) this payout settles. Set by
+  // /api/payroll/reminders/mark-paid so a pay reminder knows it's been paid.
+  payPeriodEnd DateTime? @db.Date
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   @@index([clubId])
   @@index([status])
   @@index([eventId])
+  @@index([clubId, payeeUserId, payPeriodEnd])
   @@map("payouts")
+}
+
+// When a staff member gets paid — drives the payday reminders (Payroll page,
+// Action Center, and one morning email to the owner). A separate table on
+// purpose: PUT /api/staff/[id]/compensation deletes and recreates
+// StaffCompensation, which would wipe any schedule fields stored there.
+// Date math lives in lib/paySchedule.ts (pure, UTC date-only).
+model StaffPaySchedule {
+  id             String    @id @default(cuid())
+  clubId         String
+  userId         String    @unique
+  // WEEKLY | BIWEEKLY | SEMIMONTHLY | MONTHLY
+  //   WEEKLY / BIWEEKLY → every 7 / 14 days, counted from anchorDate
+  //   SEMIMONTHLY       → the 1st and 15th of every month (anchorDate kept
+  //                       only as the "first payday" the owner picked)
+  //   MONTHLY           → anchorDate's day-of-month; clamped to the last
+  //                       day in shorter months (31st → Feb 28/29)
+  frequency      String
+  anchorDate     DateTime  @db.Date // a real payday used as the reference
+  active         Boolean   @default(true)
+  // The latest payday the owner was emailed about — the cron sends once per payday.
+  lastEmailedFor DateTime? @db.Date
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([clubId])
+  @@map("staff_pay_schedules")
 }
 
 model CompensationBonus {

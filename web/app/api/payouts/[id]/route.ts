@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { selfRule, SELF_DENY_MESSAGE } from "@/lib/staffSelf";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
@@ -25,6 +26,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
   const existing = await prisma.payout.findFirst({ where: { id, clubId } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (existing.payeeUserId && selfRule(session!.user.role, session!.user.id, existing.payeeUserId, "edit_pay") === "deny") {
+    return NextResponse.json({ error: SELF_DENY_MESSAGE.edit_pay }, { status: 403 });
+  }
 
   let data: z.infer<typeof patchSchema>;
   try {
@@ -64,8 +68,11 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
   if (denied) return denied;
   const clubId = session!.user.clubId;
 
-  const existing = await prisma.payout.findFirst({ where: { id, clubId }, select: { id: true } });
+  const existing = await prisma.payout.findFirst({ where: { id, clubId }, select: { id: true, payeeUserId: true } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (existing.payeeUserId && selfRule(session!.user.role, session!.user.id, existing.payeeUserId, "edit_pay") === "deny") {
+    return NextResponse.json({ error: SELF_DENY_MESSAGE.edit_pay }, { status: 403 });
+  }
 
   await prisma.payout.delete({ where: { id } });
   return NextResponse.json({ ok: true });

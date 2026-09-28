@@ -6,6 +6,7 @@ import { to12h, range12h } from "../lib/time12";
 import { describeAccessChanges } from "../lib/staffAccess";
 import { SAFE_USER_SELECT, SECRET_USER_FIELDS, invitePending } from "../lib/safeUser";
 import { canAccessPath, DEFAULT_PERMISSIONS } from "../lib/permissions";
+import { STAFF_TABS, TAB_RULE } from "../components/staff/types";
 
 let pass = 0, fail = 0;
 function eq(name: string, got: unknown, want: unknown) {
@@ -79,6 +80,34 @@ eq("logged in → not pending", invitePending({ resetToken: "t", lastLoginAt: ne
   eq("/api/staff GET selects through SAFE_USER_SELECT", getBody.includes("SAFE_USER_SELECT") && !/include:\s*\{\s*staffProfile/.test(getBody), true);
   const postBody = src.slice(src.indexOf("export async function POST"));
   eq("/api/staff POST strips passwordHash/resetToken before responding", postBody.includes("passwordHash: _ph") && postBody.includes("resetToken: _rt"), true);
+}
+
+console.log("\nprofile tabs — Personal info + Portal profile are one Profile tab (2026-09-28)");
+eq("seven tabs in order", STAFF_TABS.map((t) => t.key), ["overview", "profile", "schedule", "access", "pay", "lessons", "documents"]);
+eq("Profile label", STAFF_TABS.find((t) => t.key === "profile")?.label, "Profile");
+eq(
+  "Profile tab rule",
+  (TAB_RULE as Record<string, string>).profile,
+  "Your details edit in a drawer with one Save; the member-portal card has its own Save.",
+);
+{
+  const shell = readFileSync(join(__dirname, "..", "components/staff/StaffProfile.tsx"), "utf8");
+  eq("old ?tab=personal / ?tab=portal links land on Profile", /personal:\s*"profile"/.test(shell) && /portal:\s*"profile"/.test(shell), true);
+  const tab = readFileSync(join(__dirname, "..", "components/staff/tabs/ProfileTab.tsx"), "utf8");
+  eq("ProfileTab renders both halves", tab.includes("<PersonalTab") && tab.includes("<PortalTab"), true);
+  eq("ProfileTab keeps dirty flags in refs, not state (no update loop)", /useRef\(false\)/.test(tab) && !/useState/.test(tab), true);
+}
+
+console.log("\nAll staff list — contractors only where /api/contractors lets them through");
+{
+  const api = readFileSync(join(__dirname, "..", "app/api/contractors/route.ts"), "utf8");
+  const page = readFileSync(join(__dirname, "..", "app/dashboard/staff/page.tsx"), "utf8");
+  eq("/api/contractors is owner-only", /requireOwner\(session\)/.test(api), true);
+  eq("staff page gates contractor UI on isOwner", /const showContractors = isOwner;/.test(page), true);
+  const redirect = readFileSync(join(__dirname, "..", "app/dashboard/staff/contractors/page.tsx"), "utf8");
+  eq("old contractors page redirects to the filtered list", redirect.includes('redirect("/dashboard/staff?type=contractors")'), true);
+  const sheets = readFileSync(join(__dirname, "..", "components/staff/directory/ContractorSheets.tsx"), "utf8");
+  eq("contractor sheets use no window.confirm/alert/prompt", /\b(confirm|alert|prompt)\(/.test(sheets.replace(/setConfirm\(/g, "")), false);
 }
 
 console.log(`\n${fail ? "✗" : "✓"} ${pass}/${pass + fail} passed — staff profile rules`);

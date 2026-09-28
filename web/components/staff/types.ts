@@ -42,12 +42,13 @@ export type StaffProfileData = {
 
 export const STAFF_TABS = [
   { key: "overview", label: "Overview" },
-  { key: "personal", label: "Personal info" },
+  // "Personal info" + "Portal profile" merged 2026-09-28. Old ?tab=personal /
+  // ?tab=portal links land here (see LEGACY_TAB in StaffProfile).
+  { key: "profile", label: "Profile" },
   { key: "schedule", label: "Schedule & availability" },
   { key: "access", label: "Access" },
   { key: "pay", label: "Pay" },
   { key: "lessons", label: "Lessons" },
-  { key: "portal", label: "Portal profile" },
   { key: "documents", label: "Documents" },
 ] as const;
 export type StaffTabKey = (typeof STAFF_TABS)[number]["key"];
@@ -68,11 +69,10 @@ export type StaffTabProps = {
 /** One-line "how this tab saves" rule shown under the tab bar. */
 export const TAB_RULE: Record<StaffTabKey, string> = {
   overview: "Read-only summary. Open a tab to change something.",
-  personal: "Edit opens a drawer with one Save.",
+  profile: "Your details edit in a drawer with one Save; the member-portal card has its own Save.",
   schedule: "Assignments save when you add or remove them. Time off saves on Add. Weekly hours use one Save bar.",
   access: "One Review and save — you'll see every change in plain words before it's applied.",
   pay: "One Save pay plan.",
   lessons: "Changes save as you toggle. There's no Save button on this tab.",
-  portal: "One Save.",
   documents: "Uploads and sharing save as you go.",
 };

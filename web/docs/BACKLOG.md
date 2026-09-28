@@ -433,6 +433,21 @@ live, not future; App Store 4.2 is a configuration problem, not a design one (B2
   demo credentials (test member at Frog Empire), App Review notes explaining the native features.
   Also fail CLOSED when /api/me errors (staff briefly see full nav today); `100vh` → `min-h-dvh`.
 
+- [x] **B26 · Menu regroup + one phone tab bar + staff pay reminders** · BUILT 2026-09-28 on `claude/nav-and-pay-reminders`
+  (migration `20261004000000_staff_pay_reminders`, additive). Julian's calls: URLs unchanged; Purchase Options unchanged.
+  Sidebar: Dashboard · Members (+Duplicates) · Staff (All staff · Schedule · Availability · Payroll & Payouts) · Check-in ·
+  Schedule (Calendar, Classes, Events) · Purchase Options · Communication · Financials · Reports · Documents · Settings.
+  All staff = staff logins + contractors/guests on one page (contractors page redirects; contractor rows owner-only, same
+  as /api/contractors). Payroll & Payouts = one item, two tabs. Check-in = /dashboard/check-in (phone → Door/front desk,
+  desktop → Roster/attendance) with a Door/Roster switch on both. Phones: hamburger gone, one bottom bar
+  (Home · Members · Check-in · Money · More) that never hides; More = /dashboard/more list page. Staff profile: Personal +
+  Portal merged into "Profile" (7 tabs). PAY REMINDERS: per-staff pay schedule (weekly / every 2 weeks / 1st & 15th /
+  monthly) on profile → Pay; Paydays card on Payroll with Mark paid (records a PAID payroll payout); dashboard action-centre
+  item from 2 days before; one email digest to owners the morning it's due (netlify cron pay-reminders-cron, 12:00 UTC,
+  uses CRON_SECRET). Staff can't set their own schedule or mark themselves paid; also closed: /api/payouts let a staff
+  member with finances:full record/edit/delete a payout to THEMSELVES. Tests: dashboard-nav 117, pay-schedule 58 (in
+  package.json as test:pay-schedule), staff-profile 49. Supersedes most of B23's nav scope (done without mockups).
+
 - [ ] **B23 · Claude Design mockups** · AFTER B20 lands (audit §9 "What to hand Claude Design")
   Hand over in the `design_handoff_*` format: the §3.3 nav tree, the §4.5 staff profile, §6.6 native navigation,
   Staff Schedule below md (needs 1,070px today — one day or one person at a time), Settings with its own

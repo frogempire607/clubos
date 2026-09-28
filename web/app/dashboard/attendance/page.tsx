@@ -6,6 +6,7 @@ import { Suspense } from "react";
 import { ArrowLeft, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import ExportMenu from "@/components/ExportMenu";
 import PageHeader from "@/components/PageHeader";
+import CheckInModeSwitch from "@/components/CheckInModeSwitch";
 import OfflinePaymentsCard from "@/components/OfflinePaymentsCard";
 import { SkeletonList } from "@/components/LoadingSkeleton";
 import { todayLocalISO } from "@/lib/datetime";
@@ -2186,6 +2187,7 @@ function AttendancePageInner() {
     <div className="flex h-full">
       {/* Main content */}
       <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-2xl">
+        <CheckInModeSwitch className="mb-4" />
         <PageHeader
           title="Attendance"
           description="Check in members for today's classes and events"
