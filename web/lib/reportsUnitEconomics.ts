@@ -13,6 +13,7 @@
 // - Zero-athlete-count returns `null` for every per-athlete figure — never NaN.
 
 import { prisma } from "@/lib/prisma";
+import { countActiveMembers } from "@/lib/activeMembers";
 import { EXCLUDE_VOID } from "@/lib/paymentSources";
 import { computePayrollTotalForRange } from "@/lib/payroll";
 import type { ResolvedRange } from "@/lib/reportsRange";
@@ -195,9 +196,10 @@ export async function buildUnitEconomics(clubId: string, r: ResolvedRange): Prom
       select: { amount: true, category: true, kind: true },
     }),
     computePayrollTotalForRange(clubId, r.start ?? null, r.end),
-    prisma.member.count({
-      where: { clubId, deletedAt: null, status: "ACTIVE" },
-    }),
+    // Active athletes = distinct members holding a live subscription
+    // (lib/activeMembers), the same number the dashboard shows — not
+    // Member.status, which lags online signups.
+    countActiveMembers(clubId).then((s) => s.activeMembers),
     // Members joined in range = new-athlete count for CAC.
     r.start
       ? prisma.member.count({

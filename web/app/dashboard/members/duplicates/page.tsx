@@ -251,7 +251,7 @@ export default function DuplicatesPage() {
                             {(m.counts.memberships > 0 || m.counts.payments > 0) && (
                               <>
                                 {" · "}
-                                <Link href={`/dashboard/members/${m.id}/billing`} className="text-brand hover:underline">
+                                <Link href={`/dashboard/members/${m.id}?tab=memberships`} className="text-brand hover:underline">
                                   Review billing
                                 </Link>
                               </>

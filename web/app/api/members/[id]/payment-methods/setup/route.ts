@@ -25,6 +25,10 @@ import { writeBillingAudit } from "@/lib/billingAudit";
 //             explicitly confirms via make-default.
 const schema = z.object({
   intent: z.enum(["ADD", "REPLACE"]).default("ADD"),
+  // Where Stripe sends staff back. "Advanced billing" is retired (2026-09-28):
+  // payment methods live on the profile's Memberships tab, and only a member
+  // still mid-migration collects a card from the Migration setup page.
+  returnTo: z.enum(["profile", "migration"]).default("profile"),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -90,8 +94,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       mode: "setup",
       customer: customerId,
       currency: "usd",
-      success_url: `${baseUrl}/dashboard/members/${member.id}/billing?card_saved=1&intent=${intent}`,
-      cancel_url: `${baseUrl}/dashboard/members/${member.id}/billing?card_canceled=1`,
+      success_url: data.returnTo === "migration"
+        ? `${baseUrl}/dashboard/members/${member.id}/billing?card_saved=1&intent=${intent}`
+        : `${baseUrl}/dashboard/members/${member.id}?tab=memberships&card_saved=1&intent=${intent}`,
+      cancel_url: data.returnTo === "migration"
+        ? `${baseUrl}/dashboard/members/${member.id}/billing?card_canceled=1`
+        : `${baseUrl}/dashboard/members/${member.id}?tab=memberships&card_canceled=1`,
       metadata: {
         adminCardSetupMemberId: member.id,
         adminCardSetupIntent: intent,

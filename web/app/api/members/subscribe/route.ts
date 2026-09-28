@@ -13,7 +13,7 @@ import { requirePermissionLive } from "@/lib/apiGuard";
 import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/lib/stripe";
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
 import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
-import { recomputeMemberStatus } from "@/lib/memberStatus";
+import { activateMemberStatus } from "@/lib/memberStatus";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { recordDiscountUse } from "@/lib/discounts";
 import { membershipDiscountAtPurchase } from "@/lib/membershipSiblingServer";
@@ -216,7 +216,7 @@ export async function POST(req: Request) {
         detail: { route: "POST /api/members/subscribe", billingType: "MANUAL" },
       });
       // Manual assignment is active immediately — flip member status to ACTIVE
-      await recomputeMemberStatus(memberId, session.user.clubId);
+      await activateMemberStatus(memberId, session.user.clubId);
 
       // Optional receipt for offline/manual purchases (guardian for minors).
       let receiptSent = false;

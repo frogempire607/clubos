@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { settleBundlePurchase } from "@/lib/bundlePurchases";
-import { recomputeMemberStatus } from "@/lib/memberStatus";
+import { activateMemberStatus } from "@/lib/memberStatus";
 import { sendPaymentReceiptEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 
@@ -201,7 +201,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       },
     });
   }
-  await recomputeMemberStatus(memberId, clubId);
+  await activateMemberStatus(memberId, clubId);
 
   // This money may represent an EVENT registration or a BUNDLE claim settled
   // at the member card instead of the event roster — flip those too, or the

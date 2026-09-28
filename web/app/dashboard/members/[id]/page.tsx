@@ -6,6 +6,11 @@ import Link from "next/link";
 import FamilyAccessCard, { type FamilyPayload } from "@/components/members/FamilyAccessCard";
 import TransferMembershipModal from "@/components/members/TransferMembershipModal";
 import MembershipPanel from "@/components/members/MembershipPanel";
+import PaymentMethodsCard from "@/components/members/PaymentMethodsCard";
+import PlanChangeSheet from "@/components/members/PlanChangeSheet";
+import OfflinePaymentsCard from "@/components/OfflinePaymentsCard";
+import EnrollAlreadyPaidCard from "@/components/EnrollAlreadyPaidCard";
+import { migrationInProgress, migrationSetupHref } from "@/lib/migrationSetup";
 import {
   AccountSecurityCard,
   FamilySwitcher,
@@ -735,6 +740,23 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           />
   );
 
+  // "Advanced billing" is retired (2026-09-28): billing lives in the
+  // Membership panel below, and /billing is "Migration setup" — offered only
+  // while this member's migration is unfinished (lib/migrationSetup).
+  const migrating = migrationInProgress({
+    imported: tracks.accountSetup.meter.applicable,
+    migrationStatus: m.migrationStatus ?? null,
+    migrationCompletedAt: tracks.accountSetup.meter.step >= tracks.accountSetup.meter.total ? "complete" : null,
+  });
+  // Deep links older code still sends to /billing land here via its redirect.
+  const changePlanSubId = search.get("changePlan");
+  const enrolRequested = search.get("enrol") === "1";
+  const clearParams = (...keys: string[]) => {
+    const next = new URLSearchParams(search.toString());
+    keys.forEach((k) => next.delete(k));
+    router.replace(next.toString() ? `?${next.toString()}` : "?", { scroll: false });
+  };
+
   return (
     <div className="p-4 sm:p-8 pb-36 md:pb-8 max-w-5xl mx-auto">
       <Link href="/dashboard/members" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary min-h-[44px] md:min-h-0">
@@ -782,12 +804,22 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
               >
                 <Pencil className="h-4 w-4" /> Edit
               </button>
-              <Link
-                href={`/dashboard/members/${id}/billing`}
-                className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
-              >
-                Manage billing
-              </Link>
+              {migrating ? (
+                <Link
+                  href={migrationSetupHref(id)}
+                  className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
+                >
+                  Migration setup
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setTab("memberships")}
+                  className="inline-flex min-h-[44px] items-center rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary transition-colors hover:bg-app-bg md:min-h-[38px]"
+                >
+                  Manage billing
+                </button>
+              )}
               <MemberActionsMenu
                 member={{ id: m.id, fullName: `${m.firstName} ${m.lastName}` }}
                 canEdit={canEdit}
@@ -928,6 +960,40 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             onTransfer={canTransfer ? (subId) => setTransferringSubId(subId) : undefined}
             openAssign={assignOpen}
             onOpenAssignHandled={() => setAssignOpen(false)}
+          />
+        )}
+
+        {/* Payment methods + Stripe details, moved here from the retired
+            "Advanced billing" page. Outstanding cash/check renders only when
+            something is owed. */}
+        {on("memberships") && (
+          <div className="lg:col-span-2 space-y-5">
+            <PaymentMethodsCard memberId={id} canManage={canBill} onChanged={load} />
+            <OfflinePaymentsCard memberId={id} onChanged={load} />
+            {enrolRequested && (
+              <EnrollAlreadyPaidCard
+                id="enrol"
+                memberId={id}
+                memberName={`${m.firstName} ${m.lastName}`.trim()}
+                openSignal={1}
+                onChanged={() => { clearParams("enrol"); load(); }}
+              />
+            )}
+            {migrating && (
+              <p className="text-xs text-text-muted">
+                {m.firstName} is still moving over from the old system.{" "}
+                <Link href={migrationSetupHref(id)} className="inline-flex min-h-[44px] items-center font-medium text-brand hover:underline md:min-h-0">Migration setup →</Link>
+              </p>
+            )}
+          </div>
+        )}
+        {on("memberships") && changePlanSubId && canBill && (
+          <PlanChangeSheet
+            memberId={id}
+            subscriptionId={changePlanSubId}
+            initialOptionId={search.get("option")}
+            onClose={() => clearParams("changePlan", "option")}
+            onDone={(text) => { clearParams("changePlan", "option"); setToast({ kind: "ok", text }); load(); }}
           />
         )}
 
@@ -1306,12 +1372,13 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           >
             Check in
           </Link>
-          <Link
-            href={`/dashboard/members/${encodeURIComponent(id)}/billing`}
+          <button
+            type="button"
+            onClick={() => setTab("memberships")}
             className="min-h-[48px] px-4 rounded-xl border border-app-border bg-surface text-sm font-medium text-text-primary inline-flex items-center justify-center"
           >
             Billing
-          </Link>
+          </button>
         </div>
       </div>
     </div>

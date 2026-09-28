@@ -7,10 +7,11 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { optionIdForPurchase, parseOptions, minimumTermEndForOptionId } from "@/lib/membershipOptions";
 import { requirePermission } from "@/lib/apiGuard";
-import { recomputeMemberStatus } from "@/lib/memberStatus";
+import { activateMemberStatus } from "@/lib/memberStatus";
 import { MEMBERSHIP_PURCHASE_KIND } from "@/lib/approvals";
 import { findValidDiscount, recordDiscountUse } from "@/lib/discounts";
 import { membershipDiscountAtPurchase } from "@/lib/membershipSiblingServer";
+import { findPlanConflict, conflictRefusal, LIVE_SUBSCRIPTION_STATUSES } from "@/lib/billingDataRules";
 
 // POST /api/approvals/membership-purchase
 //
@@ -105,6 +106,36 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  // Refuse a second membership on the same plan. 2026-09-23: three pending
+  // cash requests were approved (within 4 s) for kids whose families had
+  // meanwhile paid for the same plan by card — each got a live Stripe
+  // subscription AND a live cash one, plus a cash invoice they did not owe.
+  // Checked per request, so a run of approvals stops on exactly the ones that
+  // collide and the rest go through.
+  const liveOnPlan = await prisma.memberSubscription.findMany({
+    where: {
+      memberId: approval.memberId,
+      membershipId: membership.id,
+      status: { in: [...LIVE_SUBSCRIPTION_STATUSES] },
+    },
+    select: {
+      id: true, memberId: true, membershipId: true, status: true, billingType: true,
+      stripeSubscriptionId: true, startedAt: true, startDate: true, createdAt: true,
+    },
+  });
+  const conflict = findPlanConflict(liveOnPlan, membership.id);
+  if (conflict) {
+    const club = await prisma.club.findUnique({ where: { id: clubId }, select: { timezone: true } });
+    return NextResponse.json(
+      {
+        error: conflictRefusal(who, membership.name, conflict, club?.timezone),
+        code: "ALREADY_HAS_MEMBERSHIP",
+        conflict: { subscriptionId: conflict.subscriptionId, paidBy: conflict.paidBy, since: conflict.since },
+      },
+      { status: 409 },
+    );
+  }
+
   let options: Option[] = [];
   try { options = JSON.parse(String(membership.options)); } catch {}
   const option = options.find((o) => o.label === payload.optionLabel);
@@ -175,7 +206,7 @@ export async function POST(req: Request) {
     where: { id: approval.memberId },
     data: { membershipId: membership.id },
   });
-  await recomputeMemberStatus(approval.memberId, clubId);
+  await activateMemberStatus(approval.memberId, clubId);
 
   // Money owed until collected: an unpaid manual invoice keeps it visible in
   // Financials (Invoiced/unpaid channel) without claiming revenue was taken.

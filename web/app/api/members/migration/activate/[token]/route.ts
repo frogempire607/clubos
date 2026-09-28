@@ -8,6 +8,7 @@ import { optionIdForPurchase, parseOptions } from "@/lib/membershipOptions";
 import { isValidSignatureDataUrl } from "@/lib/signature";
 import { stripe } from "@/lib/stripe";
 import { MIGRATION_STATUS, PAYMENT_SETUP } from "@/lib/migration";
+import { activateMemberStatus } from "@/lib/memberStatus";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
 import { missingRequiredDocumentIds, requiredDocumentSurfaceWhere } from "@/lib/documents";
@@ -919,7 +920,6 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         ? {
             migrationStatus: MIGRATION_STATUS.COMPLETED,
             migrationCompletedAt: new Date(),
-            status: "ACTIVE",
             approvalStatus: "APPROVED",
             // Attach the membership so the owner profile shows it (not blank).
             ...(finalMembershipId ? { membershipId: finalMembershipId } : {}),
@@ -933,6 +933,9 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   if (claimed.count === 0) {
     return NextResponse.json({ error: "This membership is already active." }, { status: 409 });
   }
+  // Fully paid: the membership is granted now. Status goes through the ONE
+  // activation helper (never un-pauses a PAUSED member).
+  if (finalPaid) await activateMemberStatus(member.id, member.clubId, { granted: true });
 
   // Grant the guardian access to this minor (no-op for own-login members).
   await linkGuardianIfManaged();

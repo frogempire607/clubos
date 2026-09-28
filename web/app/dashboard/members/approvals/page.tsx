@@ -76,6 +76,12 @@ type PurchaseApproval = {
   paymentMethod: string | null;
   amount: number | null;
   discountCode?: string | null;
+  /**
+   * The member already holds this plan (or bought this package by card after
+   * asking to pay cash). The membership approve route refuses; the package
+   * route asks for an explicit second package.
+   */
+  conflict?: { label: string; paidBy: "card" | "cash" | "other"; since: string | null } | null;
 };
 
 type SplitApproval = {
@@ -444,7 +450,7 @@ export default function MembersApprovalsPage() {
     load();
   }
 
-  async function actPurchase(a: PurchaseApproval, decision: "APPROVE" | "DECLINE") {
+  async function actPurchase(a: PurchaseApproval, decision: "APPROVE" | "DECLINE", allowDuplicate = false) {
     setBusyId(a.id);
     setError("");
     const endpoint =
@@ -454,7 +460,7 @@ export default function MembersApprovalsPage() {
     const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ approvalId: a.id, decision }),
+      body: JSON.stringify({ approvalId: a.id, decision, ...(allowDuplicate ? { allowDuplicate: true } : {}) }),
     });
     setBusyId(null);
     if (!res.ok) {
@@ -958,22 +964,57 @@ export default function MembersApprovalsPage() {
                       Approving {isPack ? "adds the lesson credits" : "starts the membership"} right away and
                       records an unpaid {method} invoice in Financials. Requested {fmtDate(a.requestedAt)}.
                     </p>
+                    {a.conflict ? (
+                      <p className="text-sm font-medium text-warning mt-2" role="status">
+                        {a.conflict.label}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-2 mt-3">
-                    <button
-                      onClick={() => actPurchase(a, "APPROVE")}
-                      disabled={busyId === a.id}
-                      className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
-                    >
-                      {busyId === a.id ? "Working…" : isPack ? "Approve & add credits" : "Approve & start membership"}
-                    </button>
-                    <button
-                      onClick={() => actPurchase(a, "DECLINE")}
-                      disabled={busyId === a.id}
-                      className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
-                    >
-                      Decline
-                    </button>
+                    {a.conflict ? (
+                      <>
+                        <button
+                          onClick={() => actPurchase(a, "DECLINE")}
+                          disabled={busyId === a.id}
+                          className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                        >
+                          {busyId === a.id ? "Working…" : "Decline request"}
+                        </button>
+                        {isPack ? (
+                          <button
+                            onClick={() => actPurchase(a, "APPROVE", true)}
+                            disabled={busyId === a.id}
+                            className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
+                          >
+                            Approve a second package
+                          </button>
+                        ) : (
+                          <Link
+                            href={`/dashboard/members/${a.memberId}/billing`}
+                            className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg"
+                          >
+                            Open billing center
+                          </Link>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => actPurchase(a, "APPROVE")}
+                          disabled={busyId === a.id}
+                          className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
+                        >
+                          {busyId === a.id ? "Working…" : isPack ? "Approve & add credits" : "Approve & start membership"}
+                        </button>
+                        <button
+                          onClick={() => actPurchase(a, "DECLINE")}
+                          disabled={busyId === a.id}
+                          className="text-sm px-3 py-2 border border-app-border rounded-lg text-text-primary hover:bg-app-bg disabled:opacity-50"
+                        >
+                          Decline
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               );

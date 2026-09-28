@@ -206,7 +206,7 @@ export async function buildActionItems(
         `Re-sign them before it lapses.`,
       count: null,
       amount: Number(sub.price ?? 0) || null,
-      href: `/dashboard/members/${sub.member.id}/billing`,
+      href: `/dashboard/members/${sub.member.id}?tab=memberships`,
       action: { label: "Open billing", kind: "OPEN", permission: "billing:view" },
     });
   }

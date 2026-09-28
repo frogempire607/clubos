@@ -28,7 +28,7 @@
 // hand. Card enrollment stays where it is.
 
 import { prisma } from "@/lib/prisma";
-import { recomputeMemberStatus } from "@/lib/memberStatus";
+import { activateMemberStatus } from "@/lib/memberStatus";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { turnAutopayOn } from "@/lib/autopay";
 import {
@@ -224,7 +224,7 @@ export async function enrollAlreadyPaid(input: EnrollPaidInput): Promise<EnrollP
     where: { id: memberId },
     data: { membershipId, billingUpdatedAt: new Date(), billingUpdatedById: input.actorUserId },
   });
-  await recomputeMemberStatus(memberId, clubId);
+  await activateMemberStatus(memberId, clubId);
 
   await recordSubscriptionEvent({
     clubId, memberSubscriptionId: sub.id, memberId,

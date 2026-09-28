@@ -488,6 +488,9 @@ live, not future; App Store 4.2 is a configuration problem, not a design one (B2
 
 ## C — Done, don't resurrect
 
+- [x] **B28 One billing panel (2026-09-28, branch `claude/one-billing-panel`).** Every day-to-day billing job is on the profile's Membership panel: plain summary (how they pay, next charge, commitment with real dates), They paid another way (records cash + skips the next card charge via a one-time 100% coupon), Switch how they pay, Waive a payment (reason, shows as Comped), Refund (Stripe or cash, partial ok), Auto-renew switch. Parents can switch auto-renew for any membership they pay for (portal). Advanced billing → "Migration setup" (migrating members only; server refuses setup edits once billing is live). All Stripe payment types listed (Cash App Pay, Link, bank) + "Last paid with". Dashboard active members = distinct members with a live subscription (guard E). Approvals refuse a cash purchase for a plan the member already has. Scripts: `cancel-duplicate-cash-memberships.ts`, `fix-member-status-from-subscriptions.ts`.
+  - Follow-ups: "paid another way" for a past-due month (needs invoice paid out-of-band); per-payment method names in the payment list; auto-close a pending cash request when a card checkout for the same plan completes; `autopay` queued route still uses the loose guardian check.
+  - Note: the 7 PROSPECT online signups (Sep 21–27) are all free trials — status turns ACTIVE on the first real charge, by the 2026-07-13 rule. They already count on the dashboard.
 - [x] Class-time duplicate bug + the `(classId, date)` unique constraint (Phase 10)
 - [x] Attendance confirmation when marking a non-member present
 - [x] Supabase password rotation and DIRECT_URL repoint

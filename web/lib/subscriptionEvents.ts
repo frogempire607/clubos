@@ -47,6 +47,28 @@ export const SUBSCRIPTION_EVENT_KIND = {
    * distinction is load-bearing rather than cosmetic.
    */
   PRICE_CHANGE: "PRICE_CHANGE",
+  /**
+   * Auto-renew turned on or off (who, and the stop date it produced). NOT a
+   * lifecycle transition — the membership keeps running either way until the
+   * stop date arrives, and the stop itself is recorded as EXPIRED/CANCELED
+   * then. Kept out of LIFECYCLE_EVENT_KINDS for the same reason as
+   * PRICE_CHANGE.
+   */
+  RENEWAL_CHANGED: "RENEWAL_CHANGED",
+  /**
+   * B16 — money moves on an existing membership, from the Membership panel.
+   * NOT lifecycle transitions (kept out of LIFECYCLE_EVENT_KINDS, like
+   * PRICE_CHANGE): the membership didn't start, stop or change plan. Each
+   * carries who did it (actorUserId) and the transaction / Stripe ids in
+   * `detail`.
+   *   PAYMENT_RECORDED  cash/check received for a period ("paid another way"),
+   *                     with the card charge it replaced, if any
+   *   PAYMENT_WAIVED    a period given free, with the reason
+   *   PAYMENT_REFUNDED  money given back, full or partial, with the reason
+   */
+  PAYMENT_RECORDED: "PAYMENT_RECORDED",
+  PAYMENT_WAIVED: "PAYMENT_WAIVED",
+  PAYMENT_REFUNDED: "PAYMENT_REFUNDED",
 } as const;
 
 export type SubscriptionEventKind =

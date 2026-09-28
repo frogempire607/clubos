@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { EXCLUDE_VOID } from "@/lib/paymentSources";
 import { UNPAID_REGISTRATION_STATUSES } from "@/lib/eventPayments";
+import { countActiveMembers } from "@/lib/activeMembers";
 
 // GET /api/dashboard/summary
 // Club-scoped owner/staff metrics for the customizable dashboard widgets.
@@ -25,7 +26,7 @@ export async function GET() {
 
   const [
     totalMembers,
-    activeMembers,
+    activeSummary,
     newMembers,
     revenueAgg,
     expenseAgg,
@@ -44,7 +45,10 @@ export async function GET() {
     pendingBookingsRaw,
   ] = await Promise.all([
     prisma.member.count({ where: { clubId, deletedAt: null } }),
-    prisma.member.count({ where: { clubId, deletedAt: null, status: "ACTIVE" } }),
+    // Distinct members holding a live subscription — NOT Member.status. The
+    // status said 42 on 2026-09-28 while 49 members held 53 live subscriptions
+    // (seven online signups still read PROSPECT). See lib/activeMembers.
+    countActiveMembers(clubId),
     prisma.member.count({ where: { clubId, deletedAt: null, joinedAt: { gte: monthStart } } }),
     prisma.transaction.aggregate({
       // Voided rows (e.g. reclassified external-reader records) never count.
@@ -128,6 +132,8 @@ export async function GET() {
   const revenue = Number(revenueAgg._sum.amount ?? 0);
   const expenses = Number(expenseAgg._sum.amount ?? 0);
 
+  const activeMembers = activeSummary.activeMembers;
+  const activeMemberships = activeSummary.memberships;
   const pendingPaymentsCount = pendingRegs.length;
   const pendingPaymentsTotal = pendingRegs.reduce(
     (s, r) => s + (r.amountDue ? Number(r.amountDue) : 0),
@@ -154,6 +160,7 @@ export async function GET() {
 
   return NextResponse.json({
     activeMembers,
+    activeMemberships,
     totalMembers,
     newMembers,
     revenueMonth: revenue,
