@@ -19,6 +19,8 @@ import {
 import { MIGRATION_STATUS } from "@/lib/migration";
 import { eventFormFields } from "@/lib/eventForm";
 import { eventScheduledChargeAt } from "@/lib/eventPayments";
+import { describeRegistrationMoney, type RegistrationMoney } from "@/lib/registrationMoney";
+import { resolveCategoryFields } from "@/lib/eventCategories";
 import {
   findPlanConflict,
   conflictQueueLabel,
@@ -562,6 +564,9 @@ type EventRequestApproval = {
   discountLabel: string | null;
   discountAmount: number | null;
   canDiscount: boolean;
+  // Method, charge timing and exactly what Approve / Decline will do — the
+  // same resolver the event's Attendees screen uses (lib/registrationMoney).
+  money: RegistrationMoney;
 };
 
 async function eventRegistrationRequests(args: {
@@ -601,7 +606,23 @@ async function eventRegistrationRequests(args: {
       discountLabel: true,
       discountAmount: true,
       groupValue: true,
-      event: { select: { id: true, name: true, startsAt: true, autoChargeDate: true, registrationForm: true, autoDiscounts: true } },
+      status: true,
+      approvalStatus: true,
+      amountPaid: true,
+      scheduledChargeAt: true,
+      paidAt: true,
+      paidVia: true,
+      invoicedAt: true,
+      invoiceCount: true,
+      lastChargeError: true,
+      sessionIds: true,
+      club: { select: { passProcessingFees: true, timezone: true } },
+      event: {
+        select: {
+          id: true, name: true, startsAt: true, autoChargeDate: true, registrationForm: true, autoDiscounts: true,
+          _count: { select: { sessions: true } },
+        },
+      },
       // B16 — the roster spot(s) asked for.
       entries: {
         where: { status: { not: "DROPPED" } },
@@ -652,6 +673,22 @@ async function eventRegistrationRequests(args: {
       discountLabel: registrationDiscountName(r),
       discountAmount: r.discountAmount == null ? null : Number(r.discountAmount),
       canDiscount: args.isOwner || args.canEditEvents,
+      money: describeRegistrationMoney(
+        {
+          ...r,
+          formResponses: responses,
+          entries: r.entries.map((e) => ({ status: e.status, rosterLabel: e.roster?.label ?? null, positionLabel: e.position?.label ?? null })),
+        },
+        {
+          startsAt: r.event.startsAt,
+          autoChargeDate: r.event.autoChargeDate,
+          sessionCount: r.event._count.sessions,
+          summaryFields: resolveCategoryFields(r.event).map((f) => ({ id: f.key, label: f.label })),
+          groupLabel: grp?.label ?? null,
+        },
+        { passProcessingFees: r.club.passProcessingFees, timezone: r.club.timezone },
+        new Date(),
+      ),
     };
   });
 }

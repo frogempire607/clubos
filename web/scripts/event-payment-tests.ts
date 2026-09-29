@@ -24,7 +24,10 @@ import {
   publicPaymentMethods,
   approvalOptionsFromEventMethods,
   approvedAutoCardChargeAt,
+  approvalMenuFor,
+  resolveEventPolicy,
 } from "../lib/eventPayments";
+import { readFileSync } from "fs";
 import { eventFormFields, validateFormResponses } from "../lib/eventForm";
 
 let pass = 0;
@@ -213,6 +216,29 @@ console.log("\n— approval with no intent set follows the event's menu —");
     "card + cash + check keep their order",
     JSON.stringify(approvalOptionsFromEventMethods(["CHECK", "CASH", "CARD"], false)) === '["CARD","CASH","CHECK"]',
   );
+}
+
+console.log("\n— B29: the approval menu the ROUTE uses (Finger Lakes Duals) —");
+{
+  // The event as stored: approval on, no intent on the event, no event type.
+  const fingerLakes = resolveEventPolicy({ requiresCoachApproval: true, approvalPaymentIntent: null, customEventType: null });
+  check("no intent set resolves to PARENT_CHOOSES", fingerLakes.approvalPaymentIntent === "PARENT_CHOOSES");
+  const withCard = approvalMenuFor(fingerLakes.approvalPaymentIntent, ["AUTO_CARD"], true);
+  check("default ⇒ follows the event's menu", withCard.followEventMenu === true);
+  check("saved card on file ⇒ only 'charge on the date'", JSON.stringify(withCard.options) === '["AUTO_CARD"]', withCard.options);
+  check("never 'charge when approved' unless the owner picked it", !withCard.options.includes("APPROVAL_CHARGE"));
+  check("never 'bill me' when the owner picked saved card", !withCard.options.includes("INVOICE"));
+  check("no card ⇒ nothing to pick (add a card first)", approvalMenuFor("PARENT_CHOOSES", ["AUTO_CARD"], false).options.length === 0);
+  const explicit = resolveEventPolicy({ requiresCoachApproval: true, approvalPaymentIntent: "APPROVAL_CHARGE" });
+  check("owner ticked 'charge when I approve' ⇒ honoured, not the menu", approvalMenuFor(explicit.approvalPaymentIntent, ["AUTO_CARD"], true).followEventMenu === false);
+  const typeInvoice = resolveEventPolicy({ requiresCoachApproval: true, customEventType: { defaultPolicy: { approvalPaymentIntent: "INVOICE" } } });
+  check("event type set to 'bill later' ⇒ honoured", approvalMenuFor(typeInvoice.approvalPaymentIntent, ["AUTO_CARD"], true).followEventMenu === false);
+
+  // Wiring: the 09-24 fix tested `!policy.approvalPaymentIntent`, which is
+  // never true. The helper tests passed while the route ignored them.
+  const route = readFileSync("app/api/member/events/[id]/register/route.ts", "utf8");
+  check("register route uses approvalMenuFor", route.includes("approvalMenuFor(policy.approvalPaymentIntent"));
+  check("register route no longer tests a never-empty intent", !/!\s*policy\.approvalPaymentIntent/.test(route));
 }
 
 console.log("\n— approved saved-card charge date —");

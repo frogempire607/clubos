@@ -119,7 +119,7 @@ export async function GET() {
     // Recent bookings — last 7 days, newest first. Booking has no
     // direct clubId column, so we scope through the event relation.
     prisma.booking.findMany({
-      where: { event: { clubId }, createdAt: { gte: sevenDaysAgo } },
+      where: { event: { clubId, deletedAt: null }, createdAt: { gte: sevenDaysAgo } },
       orderBy: { createdAt: "desc" },
       take: 5,
       include: {

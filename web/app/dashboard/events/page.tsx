@@ -628,7 +628,7 @@ function TypePolicyEditor({ type, onSaved }: { type: ClubEventType; onSaved: () 
                 onChange={(e) => setIntent(e.target.value)}
                 className="w-full px-2.5 py-1.5 border border-app-border rounded-lg text-xs"
               >
-                <option value="PARENT_CHOOSES">Let the registrant choose how to pay</option>
+                <option value="PARENT_CHOOSES">Let them pick from the event's payment options</option>
                 <option value="APPROVAL_CHARGE">Charge their saved card on approval</option>
                 <option value="INVOICE">Bill later — no card at registration</option>
                 <option value="CASH_CHECK">Cash or check at the event</option>

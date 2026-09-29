@@ -17,6 +17,8 @@ import { resolveCategoryFields, resolveExtraEntryLabel, proposalNotePlaceholder 
 import { hasPermission } from "@/lib/permissions";
 import { registrationListPrice } from "@/lib/eventRepricing";
 import { resolveRegistrationRecipients } from "@/lib/eventRecipients";
+import { describeRegistrationMoney } from "@/lib/registrationMoney";
+import { autoDiscountView } from "@/lib/eventAutoDiscounts";
 
 // The lazy charge sweep below talks to Stripe, so this GET can outlive the
 // default serverless limit. It stays deliberately small (see the sweep call) —
@@ -65,6 +67,11 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       cancellationPolicyText: true,
       paymentDueBy: true,
       customEventType: { select: { defaultPolicy: true } },
+      // Per-registration money copy (lib/registrationMoney): the group word,
+      // the session count, and whether the club passes the card fee on.
+      autoDiscounts: true,
+      _count: { select: { sessions: true } },
+      club: { select: { passProcessingFees: true, timezone: true } },
     },
   });
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -92,6 +99,13 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
         // member PATCH rejects a guardian email with no guardian name.
         select: { id: true, firstName: true, lastName: true, isMinor: true, guardianName: true },
       },
+      // B16 — the roster spot(s) asked for, named, so each row can say what
+      // the person registered for.
+      entries: {
+        where: { status: { not: "DROPPED" } },
+        orderBy: { sortOrder: "asc" },
+        select: { status: true, roster: { select: { label: true } }, position: { select: { label: true } } },
+      },
     },
   });
 
@@ -103,8 +117,29 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   // roster preview and the send agree.
   const recipients = await resolveRegistrationRecipients(session.user.clubId, rows);
   const now = new Date();
+  const moneyEvent = {
+    startsAt: event.startsAt,
+    autoChargeDate: event.autoChargeDate,
+    sessionCount: event._count.sessions,
+    summaryFields: resolveCategoryFields(event, resolveEventPolicy(event)).map((f) => ({ id: f.key, label: f.label })),
+    groupLabel: autoDiscountView(event.autoDiscounts).group?.label ?? null,
+  };
+  const moneyClub = { passProcessingFees: !!event.club?.passProcessingFees, timezone: event.club?.timezone ?? null };
   const registrations = rows.map((r) => ({
     ...r,
+    // Method, amount (card fee included), charge timing and what Approve /
+    // Decline would do — per registration, because one event carries several
+    // payment methods at once.
+    money: describeRegistrationMoney(
+      {
+        ...r,
+        formResponses: (r.formResponses ?? null) as Record<string, unknown> | null,
+        entries: r.entries.map((e) => ({ status: e.status, rosterLabel: e.roster?.label ?? null, positionLabel: e.position?.label ?? null })),
+      },
+      moneyEvent,
+      moneyClub,
+      now,
+    ),
     recipient: recipients.get(r.id) ?? null,
     // One resolver for "who is this waiting on" — the same function the render
     // context, the probes and the reminder scheduler use, so the roster can

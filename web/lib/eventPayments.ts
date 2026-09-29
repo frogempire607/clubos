@@ -233,7 +233,7 @@ export const APPROVAL_PAYMENT_INTENT_LABELS: Record<ApprovalPaymentIntent, strin
   APPROVAL_CHARGE: "Charge the saved card when the coach approves",
   INVOICE: "Bill later — no card at registration",
   CASH_CHECK: "Cash or check at the event",
-  PARENT_CHOOSES: "Let the registrant choose",
+  PARENT_CHOOSES: "Let them pick from this event's payment options",
 };
 
 export function isApprovalPaymentIntent(v: unknown): v is ApprovalPaymentIntent {
@@ -621,6 +621,31 @@ export function approvalOptionsFromEventMethods(
   if (out.length > 0) return out;
   if (allowed.includes("AUTO_CARD")) return [];
   return ["INVOICE"];
+}
+
+/**
+ * B29 — what a signed-in family may pick on an approval-gated event.
+ *
+ * "Let the registrant choose" (PARENT_CHOOSES, also the default when neither
+ * the event nor its type sets anything) means: the parent chooses from THIS
+ * EVENT's "How people pay" menu — nothing else. Before B29 the route tested
+ * `!policy.approvalPaymentIntent`, which is never true because the policy
+ * resolver fills in PARENT_CHOOSES, so every such event offered "charge when
+ * approved" / "bill me" regardless of its menu (Finger Lakes Duals: set to
+ * "saved card, charged Nov 14", yet members were charged on approval).
+ *
+ * An explicit owner choice (APPROVAL_CHARGE, INVOICE, CARD, CASH_CHECK on the
+ * event or its type) is still honoured as-is by the caller.
+ */
+export function approvalMenuFor(
+  intent: ApprovalPaymentIntent,
+  allowed: EventPaymentMethod[],
+  savedCardAvailable: boolean,
+): { followEventMenu: boolean; options: string[] } {
+  if (intent === "PARENT_CHOOSES") {
+    return { followEventMenu: true, options: approvalOptionsFromEventMethods(allowed, savedCardAvailable) };
+  }
+  return { followEventMenu: false, options: [] };
 }
 
 /**

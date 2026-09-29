@@ -26,7 +26,7 @@ import {
   eventScheduledChargeAt,
   resolveEventPolicy,
   EVENT_PAYMENT_METHOD_LABELS,
-  approvalOptionsFromEventMethods,
+  approvalMenuFor,
   type EventPaymentMethod,
 } from "@/lib/eventPayments";
 import { eventFormFields, validateFormResponses, type FormAnswers } from "@/lib/eventForm";
@@ -887,24 +887,18 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // route creates it.
     if (policy.requiresCoachApproval) {
       const customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId;
-      // No approval intent set (the event editor's default) ⇒ the event's own
-      // "How people pay" menu decides. Before 2026-09-24 this path offered
-      // "Bill me if approved" regardless, so an event set to "saved card,
-      // charged Nov 14" registered families as INVOICE (Finger Lakes Duals).
-      const followEventMenu = !policy.approvalPaymentIntent;
-      const parentPicks = followEventMenu || policy.approvalPaymentIntent === "PARENT_CHOOSES";
+      // B29 — "Let the registrant choose" (and the default when nothing is
+      // set) means the parent picks from THIS event's "How people pay" menu.
+      // The 09-24 version tested for an empty intent, which the
+      // policy resolver never leaves empty, so the fix never ran. See
+      // approvalMenuFor in lib/eventPayments.
+      const menu = approvalMenuFor(policy.approvalPaymentIntent, allowed, savedCardAvailable);
+      const followEventMenu = menu.followEventMenu;
+      const parentPicks = followEventMenu;
 
-      // What the parent may pick. The saved-card options only appear when
-      // there is genuinely a chargeable card, so a card charge can never be
-      // selected by someone who has none on file.
-      const approvalOptions = followEventMenu
-        ? approvalOptionsFromEventMethods(allowed, savedCardAvailable)
-        : [
-            ...(savedCardAvailable ? ["APPROVAL_CHARGE"] : []),
-            "INVOICE",
-            ...allowed.filter((m) => m === "CASH" || m === "CHECK"),
-            ...(allowed.includes("CARD") ? ["CARD"] : []),
-          ];
+      // Explicit owner intents keep their own branch below; the saved-card
+      // options only appear when there is genuinely a chargeable card.
+      const approvalOptions = followEventMenu ? menu.options : [];
 
       if (followEventMenu && approvalOptions.length === 0) {
         const chargeOn = eventScheduledChargeAt(event).toLocaleDateString("en-US", {

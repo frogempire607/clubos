@@ -431,6 +431,37 @@ live, not future; App Store 4.2 is a configuration problem, not a design one (B2
   Access gets a plain-words confirm ("Jordan will see every member's payment methods") + write attribution.
   Locked block for password. Keep a light Add-staff modal. Fixes 5 unguarded grids, 10px/11px type on staff pages.
 
+- [x] **B29 · Events money is visible before a coach moves it** · filed 2026-09-28 (Finger Lakes Duals) · BUILT 2026-09-29 on `claude/b29-event-money`
+  Done: `approvalMenuFor` (members now only see the event's own payment menu unless the owner explicitly picked
+  "charge when I approve" / "bill later"), route-wiring test; per-row money line + "Charges on approve" chip;
+  ApproveSheet for single + bulk on Attendees AND Approvals (no one-click approve left); Link to member for public
+  signups; soft-deleted events hidden from portal/dashboard/reports/action-center lists; the charge cron skips deleted
+  events. Open: no column records which price option was picked; split-cost events may show a slightly different
+  amount than the approve route collects.
+  Three methods are live on one event: AUTO_CARD (Jaden + Eli Fasulo, SCHEDULED Nov 14), INVOICE (Titus — link sent
+  Sep 25, unpaid; Jackson — paid $87.47 Sep 28), APPROVAL_CHARGE (Riley + Adelynn Bergen — registered 18:08/18:09,
+  charged 18:53 the moment they were approved; Colton Waite PENDING_REVIEW — one click charges $87.47 now).
+  - **Root cause, not just UI (verified in code + data):** the 09-24 fix "approval follows the event's payment menu"
+    (0bf358c) never runs. `member/events/[id]/register` sets `followEventMenu = !policy.approvalPaymentIntent`, but
+    `resolveEventPolicy` falls back to `DEFAULT_EVENT_POLICY.approvalPaymentIntent = "PARENT_CHOOSES"`, so the value is
+    never empty and the legacy menu (charge-on-approval if a card is on file, else invoice) is always offered. Finger Lakes
+    is set to AUTO_CARD only, Nov 14, no intent — members should have been offered only "saved card, charged Nov 14".
+    The parents did consent ("I authorize the charge of $87.47 if my coach approves"), so the charges were authorized,
+    but not what the event was set up to do. Fix: follow the menu when the event (and its type) set no intent — read the
+    raw field, not the defaulted policy — and add a route-level test (the helper tests pass; the wiring was never tested).
+  - **Attendees row:** payment method in words ("Saved card · charged Nov 14", "Charged when approved", "Payment link
+    sent Sep 25 · unpaid", "Paid $87.47 Sep 28"), what they registered for (option / entries / sessions), amount.
+  - **Approve action (row + bulk):** the sheet states what approving does, per registration: "Approving Colton charges
+    his saved card $87.47 now" vs "…schedules $85.00 (+fee) for Nov 14" vs "…emails a payment link". Bulk approve lists
+    the total charged now. Same clarity as the Approvals page.
+  - **Colton:** decide after the fix — approve (charges now, as his parent agreed) or ask the family to re-register so
+    it follows Nov 14.
+  - **Public signups not linked to members:** the Fasulo registrations carry their names, but `memberId` is null —
+    and member rows DO exist (Eli + Jaden Fasulo, imported PROSPECTs with no email), so the public form couldn't match
+    them. Add "Link to member" on the Attendees row (staff-confirmed; suggest exact-name matches, never auto-link).
+  - **`NJ Super32 Early Entry (Copy)`:** checked — already archived (deletedAt set), 0 registrations, CARD only, no
+    charge date. Nobody registered on it; the real event has its 2. If it still appears anywhere in the app, that list
+    is missing a `deletedAt: null` filter — find it.
 - [ ] **B22 · App Store Guideline 4.2 compliance** · its own project · GATES App Store submission (audit §6)
   Configuration (no design): (a) `server.url` points at the live origin — binary ships no web assets, Airplane Mode
   on first launch shows "Can't reach AthletixOS"; bundle the shell, keep data on /api. (b) one plugin

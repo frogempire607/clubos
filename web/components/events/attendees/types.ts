@@ -6,6 +6,7 @@
 import type { AttendeeLedger } from "@/lib/eventAttendees";
 import type { CheckInRecord, RowExtras, SendEntry } from "@/lib/eventAttendeeExtras";
 import type { CategoryField } from "@/lib/eventCategories";
+import type { RegistrationMoney } from "@/lib/registrationMoney";
 
 export type AttendeesPayload = {
   event: {
@@ -29,6 +30,10 @@ export type RegDetail = {
   id: string;
   name: string;
   status: string;
+  memberId?: string | null;
+  approvalStatus?: string | null;
+  /** Method, charge timing, and what Approve/Decline do (lib/registrationMoney). */
+  money?: RegistrationMoney;
   amountDue: number | string | null;
   amountPaid: number | string | null;
   paymentMethod: string | null;

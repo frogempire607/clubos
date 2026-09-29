@@ -6,6 +6,8 @@ import { UserCheck, Ban, CreditCard, ChevronDown, ChevronUp, AlertTriangle, File
 import MembersTabs from "@/components/MembersTabs";
 import OfflinePaymentsCard from "@/components/OfflinePaymentsCard";
 import PageHeader from "@/components/PageHeader";
+import ApproveSheet, { type ApproveItem } from "@/components/events/attendees/ApproveSheet";
+import { REGISTRATION_METHOD_LABEL, type RegistrationMoney } from "@/lib/registrationMoney";
 
 type Requester = { name: string | null; email: string | null } | null;
 
@@ -160,16 +162,12 @@ type EventRegistrationApproval = {
   discountLabel?: string | null;
   discountAmount?: number | null;
   canDiscount?: boolean;
+  /** lib/registrationMoney — what Approve / Decline do to this person's money. */
+  money?: RegistrationMoney;
 };
 
-const EVENT_PAY_LABEL: Record<string, string> = {
-  AUTO_CARD: "saved card",
-  APPROVAL_CHARGE: "saved card, charged on approval",
-  INVOICE: "billed after approval",
-  CARD: "paid by card up front",
-  CASH: "cash at the event",
-  CHECK: "check at the event",
-};
+// One vocabulary with the event's Attendees screen (lib/registrationMoney).
+const EVENT_PAY_LABEL: Record<string, string> = REGISTRATION_METHOD_LABEL;
 
 type Approval =
   | EventRegistrationApproval
@@ -475,6 +473,9 @@ export default function MembersApprovalsPage() {
   // family reads verbatim. Changing what they asked for is a proposal, made
   // from the event's Attendees tab.
   const [declining, setDeclining] = useState<Record<string, string>>({});
+  // Approve always opens ApproveSheet first: an approval can charge a saved
+  // card in the same request, and the coach sees that before it happens.
+  const [approving, setApproving] = useState<ApproveItem | null>(null);
   // B3 slice 1 — the coach's own discount, set before approving.
   const [discounting, setDiscounting] = useState<Record<string, { type: "FIXED" | "PERCENT"; value: string; label: string }>>({});
   async function applyEventDiscount(a: EventRegistrationApproval, clear = false) {
@@ -714,6 +715,18 @@ export default function MembersApprovalsPage() {
         title="Approvals"
         description="Requests that need your sign-off — new membership billing, guardian access, cancellations, and event registrations waiting on a coach."
       />
+
+      {approving && (
+        <ApproveSheet
+          items={[approving]}
+          onClose={() => setApproving(null)}
+          onDone={(m) => {
+            setApproving(null);
+            setNotice({ tone: m.ok ? "success" : "error", text: m.text });
+            load();
+          }}
+        />
+      )}
 
       {error && (
         <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>
@@ -1052,7 +1065,7 @@ export default function MembersApprovalsPage() {
                     <p className="text-xs text-text-muted mt-1">
                       {a.amountDue != null && a.amountDue > 0 ? `${money(a.amountDue)}` : "Nothing owed"}
                       {pay ? ` · ${pay}` : ""}
-                      {a.chargeOn ? `, charged ${fmtDateUTC(a.chargeOn)} if approved` : ""}
+                      {a.money ? ` · ${a.money.timing}` : a.chargeOn ? `, charged ${fmtDateUTC(a.chargeOn)} if approved` : ""}
                       {a.confirmationCode ? ` · #${a.confirmationCode}` : ""}
                       {` · requested ${fmtDate(a.requestedAt)}`}
                       {!a.memberId && a.email ? ` · ${a.email} (not linked to a member)` : ""}
@@ -1108,6 +1121,9 @@ export default function MembersApprovalsPage() {
                       </div>
                     </div>
                   )}
+                  {isDeclining && a.money && (
+                    <p className="text-[12.5px] text-text-muted mt-3">{a.money.declineEffect.sentence}</p>
+                  )}
                   {isDeclining && (
                     <textarea
                       value={declining[a.id]}
@@ -1121,8 +1137,10 @@ export default function MembersApprovalsPage() {
                     {!isDeclining ? (
                       <>
                         <button
-                          onClick={() => actEventRegistration(a, "APPROVE")}
-                          disabled={busyId === a.id || a.hasProposal}
+                          onClick={() => {
+                            if (a.money) setApproving({ eventId: a.eventId, registrationId: a.registrationId, name: a.memberName, money: a.money, eventName: a.eventName });
+                          }}
+                          disabled={busyId === a.id || a.hasProposal || !a.money}
                           className="inline-flex min-h-[44px] items-center text-sm px-4 py-2 md:min-h-0 bg-brand text-white rounded-lg hover:bg-brand-hover disabled:opacity-50"
                         >
                           {busyId === a.id ? "Working…" : "Approve"}

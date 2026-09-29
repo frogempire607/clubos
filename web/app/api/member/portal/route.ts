@@ -60,7 +60,8 @@ async function fetchUser(userId: string, clubTimezone: string | null) {
             include: { membership: true },
           },
           bookings: {
-            where: { status: { in: ["CONFIRMED", "WAITLISTED"] } },
+            // A deleted event is not something to show up to.
+            where: { status: { in: ["CONFIRMED", "WAITLISTED"] }, event: { deletedAt: null } },
             include: { event: { include: { customEventType: true } } },
             orderBy: { event: { startsAt: "asc" } },
             take: 20,
@@ -107,7 +108,7 @@ async function fetchUser(userId: string, clubTimezone: string | null) {
                 },
               },
               bookings: {
-                where: { status: { in: ["CONFIRMED", "WAITLISTED"] } },
+                where: { status: { in: ["CONFIRMED", "WAITLISTED"] }, event: { deletedAt: null } },
                 include: { event: { include: { customEventType: true } } },
                 orderBy: { event: { startsAt: "asc" } },
                 take: 10,
@@ -221,7 +222,7 @@ export async function GET() {
         where: {
           memberId: { in: accessibleIds },
           status: { in: ["CONFIRMED", "WAITLISTED"] },
-          event: { startsAt: { gte: now } },
+          event: { startsAt: { gte: now }, deletedAt: null },
         },
         _count: { _all: true },
       }),

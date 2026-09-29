@@ -506,6 +506,8 @@ export async function runDueEventCharges(scope?: {
       where: {
         status: "SCHEDULED",
         scheduledChargeAt: { lte: new Date() },
+        // B29 — never charge for an event that was deleted.
+        event: { deletedAt: null },
         ...(scope?.clubId ? { clubId: scope.clubId } : {}),
         ...(scope?.eventId ? { eventId: scope.eventId } : {}),
       },

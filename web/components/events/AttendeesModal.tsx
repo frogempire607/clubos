@@ -17,6 +17,11 @@
 //   Charge now             POST registrations/[regId]/charge-now (the event-day
 //                          charge whose date has arrived; never early)
 //   Approve/Propose/Decline POST registrations/[regId]/{approve,propose-change,decline}
+//                          — Approve (one row or "Approve waiting") always goes
+//                          through ApproveSheet, which states per person what
+//                          the approval does to their money before it fires
+//   Link to a member       POST registrations/[regId]/link-member (public
+//                          signups with no member record; staff confirm)
 //   Email payment links    POST bill-registrants (preview → review → send)
 //   Reprice                POST reprice-registrations
 //   Discount               POST registrations/[regId]/discount
@@ -60,6 +65,8 @@ import { SkeletonList } from "@/components/LoadingSkeleton";
 import Sheet from "@/components/Sheet";
 import AddAttendeeForm from "@/components/events/attendees/AddAttendeeForm";
 import DecisionSheet, { type DecisionMode } from "@/components/events/attendees/DecisionSheet";
+import ApproveSheet, { type ApproveItem } from "@/components/events/attendees/ApproveSheet";
+import LinkMemberSheet from "@/components/events/attendees/LinkMemberSheet";
 import InvoiceReviewSheet from "@/components/events/attendees/InvoiceReviewSheet";
 import ExportSheet from "@/components/events/attendees/ExportSheet";
 import CheckInView from "@/components/events/attendees/CheckInView";
@@ -127,6 +134,8 @@ type SheetState =
   | { kind: "remove"; row: AttendeeRow }
   | { kind: "chargeNow"; row: AttendeeRow }
   | { kind: "decide"; row: AttendeeRow; mode: DecisionMode }
+  | { kind: "approve"; rows: AttendeeRow[] }
+  | { kind: "link"; row: AttendeeRow }
   | { kind: "addEmail"; row: AttendeeRow }
   | { kind: "discount"; row: AttendeeRow }
   | { kind: "reprice" }
@@ -262,10 +271,18 @@ export default function AttendeesModal({
     if (a === "record") return openSheet({ kind: "record", row: r, method: method ?? (r.status === "AWAITING_CHECK" || detail(r)?.paymentMethod === "CHECK" ? "CHECK" : "CASH") });
     if (a === "resend") return resendReceipt(r);
     if (a === "chargeNow") return openSheet({ kind: "chargeNow", row: r });
-    if (a === "decide") return openSheet({ kind: "decide", row: r, mode: "approve" });
+    if (a === "decide") return openApprove([r]);
     if (a === "addEmail") return openSheet({ kind: "addEmail", row: r });
     if (a === "discount") return openSheet({ kind: "discount", row: r });
     if (a === "remove") return openSheet({ kind: "remove", row: r });
+  }
+
+  // Every Approve goes through ApproveSheet. A row without the money
+  // description (an older server response) falls back to the decision sheet,
+  // which states the consequence too — never a one-click approve.
+  function openApprove(list: AttendeeRow[]) {
+    if (list.length === 1 && !detail(list[0])?.money) return openSheet({ kind: "decide", row: list[0], mode: "approve" });
+    openSheet({ kind: "approve", rows: list });
   }
 
   async function resendReceipt(r: AttendeeRow) {
@@ -418,6 +435,40 @@ export default function AttendeesModal({
   }
   const categoryLabel = ev?.categoryLabel ?? null;
 
+  // Per registration, in plain words: how they pay, when the money moves, and
+  // what they signed up for — one event can carry several payment methods.
+  function moneyLine(r: AttendeeRow) {
+    const m = detail(r)?.money;
+    if (!m || r.removed) return null;
+    return (
+      <div className="mt-1 text-[12px] text-text-muted leading-snug">
+        {m.chargesOnApprove && (
+          <span className="inline-block mr-1.5 text-[12px] font-semibold px-2 py-px rounded-full bg-prospect-surface text-prospect-text">Charges on approve</span>
+        )}
+        <span className="text-text-primary">{m.methodLabel}</span> · {m.timing}
+      </div>
+    );
+  }
+  function registeredForLine(r: AttendeeRow) {
+    const m = detail(r)?.money;
+    if (!m?.registeredFor || r.removed) return null;
+    return <div className="text-[12px] text-text-muted leading-snug">{m.registeredFor}</div>;
+  }
+  // Public signups that never matched a member record: check-in, attendance
+  // and the member's history can't see them until staff link them.
+  function linkPrompt(r: AttendeeRow) {
+    if (r.removed || !r.registrationId || r.memberId || !regs) return null;
+    return (
+      <div className="text-[12px] text-warn-text leading-snug">
+        Not linked to a member ·{" "}
+        <button type="button" className="text-brand hover:underline min-h-11 sm:min-h-0" onClick={() => openSheet({ kind: "link", row: r })}>Link</button>
+      </div>
+    );
+  }
+  const waitingToApprove = allRows.filter(
+    (r) => !r.removed && r.registrationId && actionsFor(r).includes("decide") && !!detail(r)?.money?.decidable,
+  );
+
   // ── Inline actions for one row ──────────────────────────────────────────────
   function renderActions(r: AttendeeRow, compact?: boolean) {
     const acts = actionsFor(r);
@@ -452,7 +503,7 @@ export default function AttendeesModal({
             </span>
           ) : a === "decide" ? (
             <span key={a}>
-              <button type="button" className={link} onClick={() => openSheet({ kind: "decide", row: r, mode: "approve" })}>Approve</button>
+              <button type="button" className={link} onClick={() => openApprove([r])}>Approve</button>
               {allowPropose && <>{" · "}<button type="button" className={link} onClick={() => openSheet({ kind: "decide", row: r, mode: "propose" })}>Propose</button></>}
               {" · "}
               <button type="button" className={link} onClick={() => openSheet({ kind: "decide", row: r, mode: "decline" })}>Decline</button>
@@ -635,6 +686,24 @@ export default function AttendeesModal({
                 ))}
               </div>
 
+              {/* Waiting on you — approve several at once, through the same sheet */}
+              {canDecide && waitingToApprove.length > 1 && (
+                <div className="mx-4 sm:mx-5 mt-3 rounded-[12px] border border-info-border bg-info-surface px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-semibold text-text-primary">{waitingToApprove.length} waiting on your approval</div>
+                    <p className="text-[12.5px] text-text-muted">
+                      {(() => {
+                        const n = waitingToApprove.filter((r) => detail(r)?.money?.chargesOnApprove).length;
+                        return n > 0 ? `${n} of them ${n === 1 ? "is" : "are"} charged the moment you approve. You'll see each person's charge before anything happens.` : "Nobody is charged the moment you approve. You'll see what happens for each person first.";
+                      })()}
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => openApprove(waitingToApprove)} className={`${btn} bg-brand text-white hover:bg-brand-hover`}>
+                    Review &amp; approve ({waitingToApprove.length})
+                  </button>
+                </div>
+              )}
+
               {/* Stale amounts, surfaced before anything is emailed */}
               {mismatched.length > 0 && (
                 <div className="mx-4 sm:mx-5 mt-3 rounded-[12px] border border-warn-border bg-warn-surface px-4 py-3">
@@ -703,6 +772,9 @@ export default function AttendeesModal({
                               <SourceChip r={r} />
                               <span>{[r.categoryValue, r.attending].filter(Boolean).join(" · ")}</span>
                             </div>
+                            {moneyLine(r)}
+                            {registeredForLine(r)}
+                            {linkPrompt(r)}
                             <div className="mt-1.5 flex items-center gap-2 flex-wrap">
                               <StatusPill r={r} />
                               {!r.removed && renderActions(r, true)}
@@ -746,6 +818,8 @@ export default function AttendeesModal({
                                 <SourceChip r={r} />
                                 {r.bookingStatus === "WAITLISTED" && <span className="text-[12px] text-text-muted">waitlist</span>}
                               </div>
+                              {registeredForLine(r)}
+                              {linkPrompt(r)}
                             </div>
                             <div className="min-w-0 text-[12.5px]">
                               <div className="text-text-primary truncate">{r.email ?? <span className="text-warn-text">{detail(r)?.recipient?.reason ?? "No address on file"}</span>}</div>
@@ -757,9 +831,9 @@ export default function AttendeesModal({
                             <div className="text-right font-semibold tabular-nums text-[14px] text-text-primary">{owed > 0 ? money(owed) : <span className="text-text-muted">—</span>}</div>
                             <div className="min-w-0">
                               <StatusPill r={r} />
-                              {detail(r)?.lastChargeError && r.status === "PAYMENT_FAILED" && (
+                              {moneyLine(r) ?? (detail(r)?.lastChargeError && r.status === "PAYMENT_FAILED" && (
                                 <div className="text-[12px] text-text-muted mt-0.5 truncate">{detail(r)?.lastChargeError}</div>
-                              )}
+                              ))}
                               {!r.removed && renderActions(r)}
                             </div>
                           </div>
@@ -825,13 +899,36 @@ export default function AttendeesModal({
           />
         )}
 
+        {sheet?.kind === "approve" && (
+          <ApproveSheet
+            items={sheet.rows
+              .map((r): ApproveItem | null => {
+                const m = detail(r)?.money;
+                return m && r.registrationId ? { eventId, registrationId: r.registrationId, name: r.name, money: m } : null;
+              })
+              .filter((x): x is ApproveItem => x != null)}
+            onClose={() => setSheet(null)}
+            onDone={(m) => done(m)}
+          />
+        )}
+
+        {sheet?.kind === "link" && sheetRow?.registrationId && (
+          <LinkMemberSheet
+            eventId={eventId}
+            registrationId={sheetRow.registrationId}
+            name={sheetRow.name}
+            onClose={() => setSheet(null)}
+            onDone={(m) => done(m)}
+          />
+        )}
+
         {sheet?.kind === "more" && sheetRow && (
           <Sheet open onClose={() => setSheet(null)} title={sheetRow.name} description={pill(sheetRow).label}>
             <div className="flex flex-col">
               {actionsFor(sheetRow).flatMap((a) =>
                 a === "decide"
                   ? ([["approve", "Approve"], ...(allowPropose ? [["propose", "Propose a change"]] : []), ["decline", "Decline"]] as [DecisionMode, string][]).map(([m, l]) => (
-                      <button key={m} type="button" className="min-h-11 text-left text-[14px] text-text-primary border-b border-hairline" onClick={() => openSheet({ kind: "decide", row: sheetRow, mode: m })}>{l}</button>
+                      <button key={m} type="button" className="min-h-11 text-left text-[14px] text-text-primary border-b border-hairline" onClick={() => (m === "approve" ? openApprove([sheetRow]) : openSheet({ kind: "decide", row: sheetRow, mode: m }))}>{l}</button>
                     ))
                   : a === "record"
                     ? (["CASH", "CHECK"] as const).map((m) => (

@@ -147,6 +147,7 @@ export async function GET(req: Request) {
         status: { in: ["CONFIRMED", "ATTENDED"] },
         event: {
           clubId,
+          deletedAt: null,
           ...(range.start ? { startsAt: { gte: range.start, lt: range.end } } : {}),
         },
       },

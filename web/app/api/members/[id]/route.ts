@@ -91,6 +91,8 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       },
       transactions: { orderBy: { createdAt: "desc" }, take: 25 },
       bookings: {
+        // A deleted event's roster spot isn't an event this member is going to.
+        where: { event: { deletedAt: null } },
         orderBy: { createdAt: "desc" },
         take: 50,
         include: {

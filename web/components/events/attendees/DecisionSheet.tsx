@@ -85,8 +85,12 @@ export default function DecisionSheet({
       return `${l}: ${String(v)}`;
     });
 
-  const consequence =
-    reg.paymentMethod === "APPROVAL_CHARGE" && owed > 0
+  // The per-registration sentence from lib/registrationMoney when the row
+  // carries it (card fee included, charge date resolved); the older inline
+  // wording is the fallback only.
+  const consequence = reg.money
+    ? reg.money.approveEffect.sentence
+    : reg.paymentMethod === "APPROVAL_CHARGE" && owed > 0
       ? `This charges ${reg.name}'s saved card $${owed.toFixed(2)} now.`
       : reg.paymentMethod === "INVOICE" && owed > 0
         ? `This emails ${reg.name} a payment link for $${owed.toFixed(2)}.`
@@ -182,7 +186,9 @@ export default function DecisionSheet({
           <textarea id="decline-reason" value={reason} onChange={(e) => setReason(e.target.value)} rows={3} className={input} />
           <p className="text-[12px] text-text-muted mt-1">
             This goes to the family word for word.
-            {(reg.status === "PAID" || Number(reg.amountPaid ?? 0) > 0) && " They already paid, so declining refunds them in full."}
+            {reg.money
+              ? ` ${reg.money.declineEffect.sentence}`
+              : (reg.status === "PAID" || Number(reg.amountPaid ?? 0) > 0) && " They already paid, so declining refunds them in full."}
           </p>
         </div>
       )}

@@ -80,6 +80,7 @@ export const GATED = [
   ["scripts/event-auto-discount-tests.ts"],
   ["scripts/event-confirmation-state-tests.ts"],
   ["scripts/event-payment-tests.ts"],
+  ["scripts/registration-money-tests.ts"],
   ["scripts/event-repricing-tests.ts"],
   ["scripts/event-comp-tests.ts"],
   // products

@@ -252,7 +252,8 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
     can("events", "view"),
     () =>
       prisma.eventRegistration.count({
-        where: { clubId, approvalStatus: "PENDING", status: { not: "CANCELED" }, ...notAwaitingParent },
+        // Same scope as the Approvals page: a deleted event's queue is not work.
+        where: { clubId, approvalStatus: "PENDING", status: { not: "CANCELED" }, event: { deletedAt: null }, ...notAwaitingParent },
       }),
     {
       kind: "COACH_APPROVAL_REQUESTED",
@@ -273,6 +274,7 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
           approvalStatus: "PENDING",
           status: { not: "CANCELED" },
           approvalRequestedAt: { lt: new Date(now.getTime() - 48 * 3_600_000) },
+          event: { deletedAt: null },
           ...notAwaitingParent,
         },
       }),
@@ -316,6 +318,7 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
           status: { not: "CANCELED" },
           proposedChange: { not: Prisma.DbNull },
           proposedChangeRespondedAt: null,
+          event: { deletedAt: null },
         },
       }),
     {
