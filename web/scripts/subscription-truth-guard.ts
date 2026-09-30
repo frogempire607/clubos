@@ -210,7 +210,14 @@ ratchet(
   // date). Both are the owner's setup being TURNED INTO a subscription — the
   // subscription row then carries its own billingAnchorDate/endDate, which is
   // what everything reads afterwards. Same shape as migration approve.
-  48,
+  // 48 → 50 (charge date, 2026-09-30): the Assign sheet's "Starts" is saved as
+  // `member.membershipStartDate` in the PATCH right before activation, and two
+  // commit paths now read it back as INPUT: billing-admin/actions
+  // `activate_card` (the new row's startDate + commitment start, and the check
+  // that the first charge isn't before it) and /reactivation (a future first
+  // charge can't precede it). The setup turned into a subscription, again —
+  // the row's own startDate is what everything reads afterwards.
+  50,
   0,
   scan(MEMBER_FIELD_READ),
   [

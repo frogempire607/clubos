@@ -38,6 +38,7 @@ import {
 } from "@/lib/subscriptionEvents";
 import { minimumTermEndForOptionId, parseOptions } from "@/lib/membershipOptions";
 import { addUTCMonths } from "@/lib/billingAdmin";
+import type { DiscountFields } from "@/lib/membershipAssignQuote";
 
 export type EnrollPaidInput = {
   memberId: string;
@@ -56,6 +57,12 @@ export type EnrollPaidInput = {
   /** Start card billing when the paid period runs out. */
   startCardBilling: boolean;
   note?: string | null;
+  /**
+   * Assign membership: the price the assign quote settled on (sibling / group
+   * rate / code, or a typed price) and its discount columns, recomputed
+   * server-side by the route. Absent ⇒ the option price, as before.
+   */
+  priced?: { price: number; fields: DiscountFields; label: string | null } | null;
 };
 
 export type EnrollPaidResult =
@@ -140,10 +147,14 @@ export async function enrollAlreadyPaid(input: EnrollPaidInput): Promise<EnrollP
     { contractMonths: plan.contractMonths }, addUTCMonths,
   );
 
+  const agreedPrice = input.priced ? input.priced.price : option.price;
   const subData = {
     optionId,
     optionLabel: option.label,
-    price: option.price,
+    price: agreedPrice,
+    // Written whenever the assign quote priced it — nulls included, so a
+    // re-used row never keeps an old discount it no longer carries.
+    ...(input.priced ? input.priced.fields : {}),
     billingPeriod: option.billingPeriod,
     billingType: "MANUAL",
     status: "active",
@@ -209,7 +220,10 @@ export async function enrollAlreadyPaid(input: EnrollPaidInput): Promise<EnrollP
       manual: true,
       txDate: new Date(),
       recordedByUserId: input.actorUserId,
-      description: `${plan.name} — ${option.label} — paid by ${input.method.toLowerCase()}`,
+      ...(input.priced && (input.priced.fields.discountAmount ?? 0) > 0
+        ? { discountCode: input.priced.fields.discountCode, discountAmount: input.priced.fields.discountAmount }
+        : {}),
+      description: `${plan.name} — ${option.label} — paid by ${input.method.toLowerCase()}${input.priced?.label && (input.priced.fields.discountAmount ?? 0) > 0 ? ` (${input.priced.label})` : ""}`,
       notes:
         `Covers through ${day(input.coversUntil)}.` +
         (input.reference ? ` Ref: ${input.reference}.` : "") +
@@ -230,7 +244,7 @@ export async function enrollAlreadyPaid(input: EnrollPaidInput): Promise<EnrollP
     clubId, memberSubscriptionId: sub.id, memberId,
     kind: existing ? SUBSCRIPTION_EVENT_KIND.REACTIVATED : SUBSCRIPTION_EVENT_KIND.CREATED,
     toPlan: option.label,
-    toAmount: String(option.price),
+    toAmount: String(agreedPrice),
     actorUserId: input.actorUserId,
     source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
     detail: {

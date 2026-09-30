@@ -116,6 +116,15 @@ function buildSnapshot(sub: Stripe.Subscription): SubSnapshot {
       cancelAt: unixToDate(sub.cancel_at)?.toISOString() ?? null,
       cancelAtPeriodEnd: sub.cancel_at_period_end,
       trialEnd: unixToDate(sub.trial_end)?.toISOString() ?? null,
+      // "Change charge date" on a PAYING member uses trial_end, so Stripe says
+      // `trialing` until the new date. The paid-through it recorded in the
+      // subscription's metadata (aoxPaidThrough) is carried here so every reader
+      // of the cached snapshot can tell a moved cycle from a first charge still
+      // to come (lib/chargeDate.chargeDateMoved). Null on every other subscription.
+      chargeDateMovedFrom: (() => {
+        const v = Number(sub.metadata?.aoxPaidThrough);
+        return v > 0 ? new Date(v * 1000).toISOString() : null;
+      })(),
       unitAmount: price?.unit_amount ?? null,
       interval: price?.recurring?.interval ?? null,
       intervalCount: price?.recurring?.interval_count ?? null,

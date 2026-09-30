@@ -7,6 +7,9 @@ import { prisma } from "@/lib/prisma";
 import { requirePermissionLive } from "@/lib/apiGuard";
 import { enrollAlreadyPaid } from "@/lib/enrollPaid";
 import { parseOptions } from "@/lib/membershipOptions";
+import { quoteAssignment, priceMoved } from "@/lib/membershipAssignQuoteServer";
+import { recordDiscountUse } from "@/lib/discounts";
+import type { DiscountFields } from "@/lib/membershipAssignQuote";
 
 // POST /api/members/[id]/enroll-paid
 //
@@ -32,6 +35,17 @@ const schema = z.object({
    * how a ledger stops being trusted.
    */
   allowAmountMismatch: z.boolean().default(false),
+  /**
+   * From the Assign sheet: price the membership through the assign quote
+   * (sibling / group rate / code — one discount; a typed price wins),
+   * recomputed here. expectedFinalPrice = what the sheet showed.
+   */
+  assign: z.object({
+    applyFamily: z.boolean(),
+    priceOverride: z.number().nonnegative().max(100000).optional().nullable(),
+    discountCode: z.string().max(40).optional().nullable(),
+    expectedFinalPrice: z.number().nonnegative().optional().nullable(),
+  }).optional(),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -66,14 +80,35 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const option = parseOptions(plan.options).find((o) => o.id === body.optionId);
   if (!option) return NextResponse.json({ error: "That option is not on the plan." }, { status: 404 });
 
-  if (!body.allowAmountMismatch && Math.abs(body.amountReceived - option.price) > 0.005) {
+  let priced: { price: number; fields: DiscountFields; label: string | null } | null = null;
+  let wonCodeId: string | null = null;
+  if (body.assign) {
+    const qa = await quoteAssignment({
+      clubId, memberId: id, membershipId: body.membershipId, optionId: body.optionId,
+      priceOverride: body.assign.priceOverride ?? null, discountCode: body.assign.discountCode ?? null,
+      applyFamily: body.assign.applyFamily, method: "CASH",
+    });
+    if (!qa.ok) return NextResponse.json({ error: qa.error, code: qa.code }, { status: qa.status });
+    if (qa.quote.codeError) return NextResponse.json({ error: `The selected discount can't be applied: ${qa.quote.codeError}`, code: "DISCOUNT_INVALID" }, { status: 400 });
+    if (priceMoved(body.assign.expectedFinalPrice, qa.quote.finalPrice)) {
+      return NextResponse.json(
+        { error: `The price changed to $${qa.quote.finalPrice.toFixed(2)} since the sheet opened (the family's memberships moved). Nothing was recorded — review it and confirm again.`, code: "PRICE_CHANGED", price: qa.quote.finalPrice },
+        { status: 409 },
+      );
+    }
+    priced = { price: qa.quote.finalPrice, fields: qa.quote.fields, label: qa.quote.label };
+    if (qa.quote.codeWon && qa.code) wonCodeId = qa.code.id;
+  }
+  const expectedPrice = priced ? priced.price : option.price;
+
+  if (!body.allowAmountMismatch && Math.abs(body.amountReceived - expectedPrice) > 0.005) {
     return NextResponse.json(
       {
         error:
-          `"${option.label}" is $${option.price.toFixed(2)} but $${body.amountReceived.toFixed(2)} was entered. ` +
+          `"${option.label}" is $${expectedPrice.toFixed(2)} but $${body.amountReceived.toFixed(2)} was entered. ` +
           `If that is genuinely what they handed over, re-send with allowAmountMismatch.`,
         code: "AMOUNT_MISMATCH",
-        expected: option.price,
+        expected: expectedPrice,
         received: body.amountReceived,
       },
       { status: 400 },
@@ -92,11 +127,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     coversUntil,
     startCardBilling: body.startCardBilling,
     note: body.note ?? null,
+    priced,
   });
 
   if (!result.ok) {
     const status = result.code === "LIVE_CARD_BILLING" ? 409 : result.code === "NOT_FOUND" ? 404 : 400;
     return NextResponse.json({ error: result.error, code: result.code }, { status });
   }
+  if (wonCodeId) await recordDiscountUse(wonCodeId);
   return NextResponse.json(result);
 }

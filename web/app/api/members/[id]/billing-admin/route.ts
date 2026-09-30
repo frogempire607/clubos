@@ -29,6 +29,7 @@ import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 import { parseOptions as parseOptionsShared } from "@/lib/membershipOptions";
 import { listPaymentMethodsForCustomer, lastPaidWithForCustomers } from "@/lib/paymentMethodsAdmin";
 import { paymentMethodLabel, paymentTypeName, isOffSessionChargeable, type LastPaidWith } from "@/lib/billingDataRules";
+import { chargeDateMoved } from "@/lib/chargeDate";
 
 export const dynamic = "force-dynamic";
 
@@ -191,6 +192,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       cancelAt?: string | null;
     } | null;
     return {
+      chargeDateMoved: chargeDateMoved(s.stripeSnapshot),
       id: s.id,
       optionId: s.optionId,
       membershipId: s.membershipId,
@@ -315,6 +317,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
           stripeStatus: activeSub.stripeStatus,
           price: activeSub.price,
           hasStripe: activeSub.hasStripe,
+          chargeDateMoved: activeSub.chargeDateMoved,
           deliberateFree: activeSub.deliberateFree,
         }
       : null,

@@ -13,7 +13,7 @@ import { recurringUnitWithFee } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendMembershipActivatedEmail } from "@/lib/email";
 import { writeBillingAudit } from "@/lib/billingAudit";
-import { parseOffer, compareOfferToCurrent, offerEffectivePrice } from "@/lib/reactivation";
+import { parseOffer, compareOfferToCurrent, offerEffectivePrice, offerDiscountColumns, offerDiscountTxColumns } from "@/lib/reactivation";
 import { chargeTiming, addBillingPeriod, addUTCMonths } from "@/lib/billingAdmin";
 import { offlineActivationPolicy, isOfflineMethod, discountAppliedLabel } from "@/lib/staffPayments";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
@@ -379,7 +379,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           billingPeriod: offer.billingPeriod,
           billingType: "RECURRING",
           autoRenew: offer.autoRenew !== false,
-          ...(offer.discount ? { discountCode: offer.discount.code, discountAmount: offer.discount.amountOff } : {}),
+          ...offerDiscountColumns(offer),
           status: sub.status === "active" || sub.status === "trialing" ? "active" : "pending",
           startDate: offer.startDate ? new Date(offer.startDate) : new Date(),
           billingAnchorDate: firstCharge ?? new Date(),
@@ -420,7 +420,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           autoRenew: false,
           status: activateNow ? "active" : "pending",
           startDate: offer.startDate ? new Date(offer.startDate) : new Date(),
-          ...(offer.discount ? { discountCode: offer.discount.code, discountAmount: offer.discount.amountOff } : {}),
+          ...offerDiscountColumns(offer),
           currentPeriodEnd: addBillingPeriod(
             offer.startDate ? new Date(offer.startDate) : new Date(),
             offer.billingPeriod,
@@ -452,7 +452,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
             paymentSource: offlineMethod,
             reconciliationStatus: "OFFLINE",
             manual: true,
-            ...(offer.discount ? { discountCode: offer.discount.code, discountAmount: offer.discount.amountOff } : {}),
+            ...offerDiscountTxColumns(offer),
             description: `Membership payment due: ${offer.planName}${offer.optionLabel ? ` · ${offer.optionLabel}` : ""} — awaiting ${offlineMethod.toLowerCase()}${discountAppliedLabel(offer.discount) ? ` (${discountAppliedLabel(offer.discount)})` : ""}`,
             notes: `Created at client acceptance of reactivation offer v${r.offerVersion}. Staff records receipt via the billing center — only then does this become paid revenue and send a receipt.`,
           },
@@ -498,7 +498,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     // inline `status: "ACTIVE"` it replaces did.
     if (memberBecomesActive) await activateMemberStatus(member.id, club.id, { granted: true });
     // Count the discount redemption exactly once, at acceptance.
-    if (offer.discount) {
+    if (offer.discount && offer.discount.code && offer.discount.source !== "SIBLING" && offer.discount.source !== "GROUP") {
       const d = await prisma.discount.findFirst({
         where: { clubId: club.id, code: offer.discount.code },
         select: { id: true },

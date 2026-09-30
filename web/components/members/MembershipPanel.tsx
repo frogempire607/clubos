@@ -18,7 +18,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
 import type { PanelView, PanelAction } from "@/lib/membershipPanel";
-import { MoneySummary, MoneyActions, PaymentsList, PaidSheet, WaiveSheet, SwitchSheet, RefundSheet, AutoRenewSheet, CommitSheet, type MoneyPayload, type MoneySheet } from "./MembershipMoney";
+import AssignDiscount, { useAssignQuote } from "./AssignDiscount";
+import { offerChargePlan } from "@/lib/membershipAssignQuote";
+import { assignChargeChoices, defaultAssignChargeChoice, assignChargePlan, cashNextDueLine, type AssignChargeChoice } from "@/lib/chargeDate";
+import { MoneySummary, MoneyActions, PaymentsList, PaidSheet, WaiveSheet, SwitchSheet, RefundSheet, AutoRenewSheet, CommitSheet, ChargeDateSheet, type MoneyPayload, type MoneySheet } from "./MembershipMoney";
 
 // ── Payload (mirrors the route) ──────────────────────────────────────────────
 
@@ -348,6 +351,7 @@ export default function MembershipPanel({
         if (moneySheet === "switch") return <SwitchSheet {...sp} />;
         if (moneySheet === "autorenew") return <AutoRenewSheet {...sp} />;
         if (moneySheet === "commit") return <CommitSheet {...sp} />;
+        if (moneySheet === "chargeDate") return <ChargeDateSheet {...sp} />;
         return <RefundSheet {...sp} payment={moneySheet.refund} />;
       })()}
       {dialog === "cancel_setup" && (
@@ -395,25 +399,48 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
   const [showOverride, setShowOverride] = useState(override !== "");
   const [start, setStart] = useState(todayISO());
   const [pay, setPay] = useState<"CARD" | "CASH" | "OFFER">(initialMode ?? (data.hasCard ? "CARD" : data.requestedPaymentMethod === "CASH" || data.requestedPaymentMethod === "CHECK" ? "CASH" : "OFFER"));
-  const [firstCharge, setFirstCharge] = useState<"today" | "date">("today");
-  const [firstDate, setFirstDate] = useState(iso(addMonthsUTC(new Date(), 1)));
+  // "When is the card charged?" — null = the default for the start date
+  // (the start date when it's in the future, else today; lib/chargeDate).
+  const [chargePick, setChargePick] = useState<AssignChargeChoice | null>(null);
+  const [firstDate, setFirstDate] = useState("");
   const [ack, setAck] = useState(false);
   const [method, setMethod] = useState<"CASH" | "CHECK">(data.requestedPaymentMethod === "CHECK" ? "CHECK" : "CASH");
   const [amount, setAmount] = useState("");
   const [through, setThrough] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  // B3 — the family's automatic discount (sibling / group rate) is pre-applied
+  // when it qualifies; staff can turn it off, or pick a staff code instead.
+  const [applyFamily, setApplyFamily] = useState(true);
+  const [code, setCode] = useState<string | null>(null);
+  // Offer mode: the first charge date a card-mode offer needs (default: the start date).
+  const [offerDate, setOfferDate] = useState("");
 
   const o = data.options.find((x) => x.id === optId) ?? null;
-  const price = override !== "" ? Number(override) || 0 : o?.price ?? 0;
-  const isComp = price === 0;
+  const listPrice = override !== "" ? Number(override) || 0 : o?.price ?? 0;
+  const isComp = listPrice === 0;
+  const { quote, loading: quoting, error: quoteErr } = useAssignQuote(memberId, o && !isComp ? { membershipId: o.planId, optionId: o.id, override, code, applyFamily, method: pay } : null);
+  // What is actually charged per period — the server's quote. Until it lands
+  // the sheet shows the plain price and the button stays disabled.
+  const price = quote ? quote.finalPrice : listPrice;
+  const per = quote?.periodSuffix ?? "";
+  const discounted = !!quote?.applied;
   const startD = new Date(start + "T00:00:00Z");
   const commit = o?.contractMonths ? addMonthsUTC(startD, o.contractMonths) : null;
   const end = o && !o.autoRenew ? (commit ?? addPeriodUTC(startD, o.billingPeriod)) : null;
   const throughD = through ? new Date(through + "T00:00:00Z") : o ? addPeriodUTC(startD, o.billingPeriod) : startD;
   const amt = amount !== "" ? Number(amount) || 0 : price;
-  const total = data.club.passProcessingFees ? price + feeOf(price) : price;
-  const chargesToday = pay === "CARD" && firstCharge === "today";
+  const total = quote && pay === "CARD" ? quote.firstCharge : data.club.passProcessingFees ? price + feeOf(price) : price;
+  const nowD = new Date();
+  const chargeChoices = assignChargeChoices(start, nowD);
+  const chargeChoice: AssignChargeChoice = chargePick && chargeChoices.includes(chargePick) ? chargePick : defaultAssignChargeChoice(start, nowD);
+  const minCharge = start > todayISO() ? start : todayISO();
+  const cardPlan = assignChargePlan({ choice: chargeChoice, startISO: start, pickedISO: firstDate || minCharge, amount: total, period: o?.billingPeriod ?? "MONTHLY", endsAt: end, now: nowD });
+  const chargesToday = pay === "CARD" && cardPlan.ok && cardPlan.immediate;
+  // The offer is card-mode when online payments are connected (the family adds
+  // a card on the link); /reactivation then requires a first charge date.
+  const offerPlan = offerChargePlan({ cardMode: data.club.stripeReady, date: offerDate || start, cardCharge: quote?.cardCharge ?? price, billingPeriod: o?.billingPeriod ?? "MONTHLY", startDate: start });
+  const cashDue = o ? cashNextDueLine({ paidThrough: throughD, amount: price, hasCardOnFile: data.hasCard }) : null;
   const cardBlocked = !data.hasCard ? "No card on file — send the offer, or add a card under Payment methods below." : !data.club.stripeReady ? "Online payments aren't connected for this club." : null;
 
   let conseq: { text: string; tone: "info" | "warn" }; let cta: string;
@@ -421,12 +448,15 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
   else if (isComp) { conseq = { text: "nothing — a $0 membership is recorded and marked as a comp on purpose.", tone: "info" }; cta = "Make it free"; }
   else if (pay === "CARD") {
     if (cardBlocked) { conseq = { text: "nothing yet — " + cardBlocked.toLowerCase(), tone: "info" }; cta = "Assign"; }
-    else if (chargesToday) { conseq = { text: `creates a subscription on ${data.cardLabel ?? "the saved card"} — <b>${money2(total)} charged today</b>, then ${PERIOD_WORD[o.billingPeriod]}.${end ? ` Ends ${fmtS(end)}.` : " Renews until cancelled."}`, tone: "warn" }; cta = `Charge ${money2(total)} & assign`; }
-    else { conseq = { text: `creates a subscription on ${data.cardLabel ?? "the saved card"} — nothing today; first charge ${money2(total)} on ${fmtS(new Date(firstDate + "T00:00:00Z"))}, then ${PERIOD_WORD[o.billingPeriod]}.${end ? ` Ends ${fmtS(end)}.` : ""}`, tone: "info" }; cta = "Assign"; }
-  } else if (pay === "CASH") { conseq = { text: `nothing — recorded as a ${method.toLowerCase()} membership, ${money(amt)} received, paid through ${fmtS(throughD)}.`, tone: "info" }; cta = `Record ${money(amt)} & assign`; }
-  else { conseq = { text: "nothing until the family confirms and pays from the link.", tone: "info" }; cta = "Send offer"; }
+    else if (!cardPlan.ok) { conseq = { text: `nothing yet — ${cardPlan.error.charAt(0).toLowerCase()}${cardPlan.error.slice(1)}`, tone: "warn" }; cta = "Assign"; }
+    else if (chargesToday) { conseq = { text: `creates a subscription on ${data.cardLabel ?? "the saved card"} — <b>${money2(total)} charged today</b>, ${cardPlan.line.split(" · ").slice(1).join(" · ")}.${end ? ` Ends ${fmtS(end)}.` : " Renews until cancelled."}`, tone: "warn" }; cta = `Charge ${money2(total)} & assign`; }
+    else { conseq = { text: `creates a subscription on ${data.cardLabel ?? "the saved card"} — nothing today; first charge ${money2(total)} on ${fmtS(cardPlan.firstCharge)}, ${cardPlan.line.split(" · ").slice(1).join(" · ")}.${end ? ` Ends ${fmtS(end)}.` : ""}`, tone: "info" }; cta = `Assign · ${cardPlan.short}`; }
+  } else if (pay === "CASH") { conseq = { text: `nothing — recorded as a ${method.toLowerCase()} membership, ${money(amt)} received, paid through ${fmtS(throughD)}. Next payment due ${fmtS(throughD)}.`, tone: "info" }; cta = `Record ${money(amt)} & assign · next due ${fmtS(throughD)}`; }
+  else { conseq = { text: `nothing until the family confirms from the link — the offer is ${money2(price)}${per}. ${offerPlan.line}`, tone: offerPlan.ok ? "info" : "warn" }; cta = offerPlan.firstChargeDate && !offerPlan.immediate ? `Send offer · ${money2(quote?.cardCharge ?? price)} on ${fmtS(new Date(offerPlan.firstChargeDate + "T00:00:00Z"))}` : `Send offer · ${money(price)}${per}`; }
+  if (o && !isComp && discounted && quote!.applied) conseq = { ...conseq, text: `${conseq.text} ${quote!.applied.title} applied: ${money(quote!.basePrice)} → ${money2(price)}${per}.` };
 
-  const disabled = busy || !o || (pay === "CARD" && !isComp && (!!cardBlocked || (chargesToday && !ack)));
+  const quoteBlocked = !!o && !isComp && (quoting || !quote || !!quote.codeError);
+  const disabled = busy || !o || quoteBlocked || (pay === "OFFER" && !isComp && !offerPlan.ok) || (pay === "CARD" && !isComp && (!!cardBlocked || !cardPlan.ok || (chargesToday && !ack)));
 
   async function submit() {
     if (!o) return;
@@ -436,8 +466,11 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
       const draft = await patch(`/api/members/${memberId}/billing-admin`, {
         membershipId: o.planId, selectedOptionLabel: o.label,
         priceOverride: override !== "" ? Number(override) : null,
+        // A typed price wins over every discount, so no code is stored with it.
+        discountCode: override !== "" ? null : code,
         membershipStartDate: start,
-        billingAnchorDate: pay === "CARD" && firstCharge === "date" ? firstDate : null,
+        // Card: the day chosen under "When is the card charged?" (null = today, charged now).
+        billingAnchorDate: pay === "CARD" ? (cardPlan.ok ? cardPlan.anchorISO : null) : pay === "OFFER" && !isComp ? offerPlan.firstChargeDate : null,
         migrationFinalBillingDate: null,
         commitmentEndDate: end ? iso(end) : commit ? iso(commit) : null,
         paymentMethodPreference: pay === "CARD" ? "CARD" : pay === "CASH" ? method : "LATER",
@@ -449,16 +482,17 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
         const r = await post(`/api/members/${memberId}/enroll-paid`, {
           confirm: true, membershipId: o.planId, optionId: o.id, amountReceived: isComp ? 0 : amt, method, coversUntil: iso(isComp ? (end ?? addMonthsUTC(startD, 12)) : throughD),
           note: note || null, allowAmountMismatch: true,
+          assign: { applyFamily, priceOverride: override !== "" ? Number(override) : null, discountCode: override !== "" ? null : code, expectedFinalPrice: isComp ? 0 : quote?.finalPrice ?? null },
         });
         if (!r.ok) throw new Error(r.d.error ?? "Couldn't record the membership.");
         if (isComp) await post(`/api/members/${memberId}/billing-admin/actions`, { action: "comp_membership", confirm: true, subscriptionId: r.d.subscriptionId ?? r.d.subscription?.id });
         onDone(isComp ? `${first} is on "${o.label}" — free, comped on purpose.` : r.d.message ?? `${first} is on "${o.label}" — ${money(amt)} ${method.toLowerCase()} recorded, paid through ${fmtS(throughD)}.`);
       } else if (pay === "CARD") {
-        const r = await post(`/api/members/${memberId}/billing-admin/actions`, { action: "activate_card", confirm: true, confirmImmediateCharge: chargesToday && ack });
+        const r = await post(`/api/members/${memberId}/billing-admin/actions`, { action: "activate_card", confirm: true, confirmImmediateCharge: chargesToday && ack, assign: { applyFamily, expectedFinalPrice: quote?.finalPrice ?? null } });
         if (!r.ok) throw new Error(r.d.error ?? "Couldn't start the subscription.");
         onDone(r.d.message ?? `${first} is on "${o.label}".`);
       } else {
-        const r = await post(`/api/members/${memberId}/reactivation`, { firstChargeDate: null, personalNote: note || null, acknowledgeImmediateCharge: true });
+        const r = await post(`/api/members/${memberId}/reactivation`, { firstChargeDate: offerPlan.firstChargeDate, personalNote: note || null, acknowledgeImmediateCharge: true, assign: { applyFamily, expectedFinalPrice: quote?.finalPrice ?? null } });
         if (!r.ok) throw new Error(r.d.error ?? "Couldn't create the offer.");
         const s = await post(`/api/members/${memberId}/reactivation/send`, {});
         if (!s.ok) throw new Error(s.d.error ?? "Offer created but not sent — open Send offer and try again.");
@@ -478,9 +512,15 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
               {data.options.map((x) => <option key={x.id} value={x.id}>{x.planName} · {x.label} — {money(x.price)} {PERIOD_WORD[x.billingPeriod] ?? x.billingPeriod.toLowerCase()}{x.contractMonths ? `, ${x.contractMonths}-mo` : ""}</option>)}
             </select>
           </Field>
-          {o && <p className="text-[12px] text-text-muted mt-1">{isComp ? <b className="text-text-primary">$0 — this becomes a comp.</b> : `${money(price)} ${PERIOD_WORD[o.billingPeriod]}${o.contractMonths ? ` · ${o.contractMonths}-month commitment` : ""} · then ${o.autoRenew ? `renews ${PERIOD_WORD[o.billingPeriod]}` : "ends"}`}</p>}
+          {o && <p className="text-[12px] text-text-muted mt-1">{isComp ? <b className="text-text-primary">$0 — this becomes a comp.</b> : `${discounted ? `${money(quote!.basePrice)} → ${money2(price)}` : money(price)} ${PERIOD_WORD[o.billingPeriod]}${o.contractMonths ? ` · ${o.contractMonths}-month commitment` : ""} · then ${o.autoRenew ? `renews ${PERIOD_WORD[o.billingPeriod]}` : "ends"}`}</p>}
+          {o && !isComp && (
+            <AssignDiscount
+              quote={quote} loading={quoting} error={quoteErr} membershipId={o.planId}
+              code={code} onCode={setCode} applyFamily={applyFamily} onApplyFamily={setApplyFamily} overrideTyped={override !== ""}
+            />
+          )}
           {showOverride ? (
-            <Field label="Different price" hint="Leave empty for the option price. $0 makes it a comp."><input className={input} type="number" min="0" step="0.01" placeholder={o ? String(o.price) : ""} value={override} onChange={(e) => setOverride(e.target.value)} /></Field>
+            <Field label="Different price" hint="Leave empty for the option price. A typed price wins over every discount. $0 makes it a comp."><input className={input} type="number" min="0" step="0.01" placeholder={o ? String(o.price) : ""} value={override} onChange={(e) => setOverride(e.target.value)} /></Field>
           ) : (
             <button className={`${btn} !min-h-[36px] text-xs mt-2`} onClick={() => setShowOverride(true)}>Different price?</button>
           )}
@@ -505,12 +545,29 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
                 </button>
               ))}
             </div>
-            {pay === "CARD" && !cardBlocked && (
-              <div className="mt-2.5">
-                <div className="inline-flex bg-[#F1F1F3] rounded-lg p-0.5 gap-0.5">
-                  {(["today", "date"] as const).map((k) => <button key={k} type="button" onClick={() => { setFirstCharge(k); setAck(false); }} className={`min-h-[32px] px-2.5 rounded-md text-xs font-medium ${firstCharge === k ? "bg-surface text-text-primary shadow-sm" : "text-[#4B5563]"}`}>{k === "today" ? "First charge today" : "On a date"}</button>)}
+            {pay === "CARD" && !cardBlocked && o && (
+              <div className="mt-3">
+                <span id="charge-when" className="block text-[13px] font-semibold text-text-primary mb-1.5">When is the card charged?</span>
+                <div role="radiogroup" aria-labelledby="charge-when" className={`grid grid-cols-1 gap-1.5 ${chargeChoices.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+                  {chargeChoices.map((k) => (
+                    <button key={k} type="button" role="radio" aria-checked={chargeChoice === k}
+                      onClick={() => { setChargePick(k); setAck(false); if (k === "date" && !firstDate) setFirstDate(minCharge); }}
+                      className={`min-h-[44px] px-3 py-2 rounded-xl border text-left sm:text-center text-sm ${chargeChoice === k ? "border-brand bg-brand/5 text-brand-hover font-semibold" : "border-app-border text-text-primary"}`}>
+                      {k === "today" ? "Today" : k === "start" ? `On the start date · ${fmtS(start)}` : "Pick a date"}
+                    </button>
+                  ))}
                 </div>
-                {firstCharge === "date" && <input className={`${input} mt-2`} type="date" value={firstDate} min={todayISO()} onChange={(e) => setFirstDate(e.target.value)} />}
+                {chargeChoice === "date" && (
+                  <input className={`${input} mt-2 !min-h-[44px]`} type="date" aria-label="First charge date" value={firstDate || minCharge} min={minCharge} onChange={(e) => { setFirstDate(e.target.value); setAck(false); }} />
+                )}
+                {cardPlan.ok ? (
+                  <>
+                    <p className="text-[13px] text-text-primary mt-2">{cardPlan.line}</p>
+                    {cardPlan.freeLine && <p className="text-[12px] text-text-muted mt-0.5">{cardPlan.freeLine}</p>}
+                  </>
+                ) : (
+                  <p role="alert" className="text-[13px] text-[var(--color-warn-text)] mt-2">{cardPlan.error}</p>
+                )}
               </div>
             )}
             {pay === "CASH" && (
@@ -520,12 +577,19 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
                   <Field label="Method"><select className={input} value={method} onChange={(e) => setMethod(e.target.value as "CASH" | "CHECK")}><option>CASH</option><option>CHECK</option></select></Field>
                 </div>
                 <Field label="Paid through" hint={o ? `One ${PERIOD_WORD[o.billingPeriod].replace("every ", "")} from the start. Edit if they paid for more.` : undefined}><input className={input} type="date" value={iso(throughD)} onChange={(e) => setThrough(e.target.value)} /></Field>
+                {cashDue && <p className="text-[13px] text-text-primary mt-1.5">{cashDue}</p>}
                 <Field label="Note"><input className={input} placeholder="Optional — e.g. check #1042" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
               </>
             )}
             {pay === "OFFER" && (
               <>
                 <Field label="To"><input className={input} value={data.member.isMinor ? data.member.guardianEmail ?? data.member.email ?? "" : data.member.email ?? data.member.guardianEmail ?? ""} readOnly /></Field>
+                {offerPlan.needsDate && (
+                  <Field label="First charge" hint="Defaults to the start date. Nothing is charged before they accept.">
+                    <input className={input} type="date" value={offerDate || start} onChange={(e) => setOfferDate(e.target.value)} />
+                  </Field>
+                )}
+                <p className={`text-[12px] mt-1.5 ${offerPlan.ok ? "text-text-muted" : "text-[var(--color-warn-text)]"}`}>{offerPlan.line}</p>
                 <Field label="Note to the family"><input className={input} placeholder="Optional" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
               </>
             )}
@@ -533,8 +597,11 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
         )}
         {o && (
           <div className="bg-app-bg rounded-xl px-3 py-2.5 text-sm mt-2.5">
-            <p><b>{first}</b> goes on <b>{o.planName} · {o.label}</b>{override !== "" ? ` at ${money(price)}` : ""} from {fmt(start)}.</p>
-            <p className="text-text-muted mt-0.5">{isComp ? "Free — comped on purpose." : pay === "CASH" ? `${money(amt)} ${method.toLowerCase()} received · paid through ${fmt(iso(throughD))}` : pay === "OFFER" ? "Nothing charged until they confirm." : chargesToday ? `${money2(total)} on the card today` : `First charge ${fmt(firstDate)}`}</p>
+            <p><b>{first}</b> goes on <b>{o.planName} · {o.label}</b>{override !== "" || discounted ? ` at ${money2(price)}${per}` : ""} from {fmt(start)}.</p>
+            {quote && !isComp && <p className="text-text-muted mt-0.5">{quote.sentence}</p>}
+            <p className="text-text-muted mt-0.5">{isComp ? "Free — comped on purpose." : pay === "CASH" ? `${money(amt)} ${method.toLowerCase()} received · paid through ${fmt(iso(throughD))}` : pay === "OFFER" ? offerPlan.line : cardBlocked ? cardBlocked : cardPlan.ok ? cardPlan.line : cardPlan.error}</p>
+            {!isComp && pay === "CARD" && !cardBlocked && cardPlan.ok && cardPlan.freeLine && <p className="text-text-muted mt-0.5">{cardPlan.freeLine}</p>}
+            {!isComp && pay === "CASH" && <p className="text-text-muted mt-0.5">Next payment due {fmt(iso(throughD))} — you collect it.</p>}
           </div>
         )}
         <ConseqLine text={conseq.text} tone={conseq.tone} />
@@ -660,7 +727,7 @@ function DatesDialog({ data, onClose, onDone }: { data: Payload; onClose: () => 
     <Sheet title="Change dates" sub={`${first} · ${data.view.headline}`} onClose={onClose}>
       <div className="px-4 py-3">
         {err && <p className="text-xs text-white bg-red-600 rounded-lg px-2.5 py-2 mb-2">{err}</p>}
-        <Field label="Started" hint={e.startDate ? undefined : "Stripe owns the billing cycle — the start is a fact, not a setting."}><input className={input} type="date" value={start} disabled={!e.startDate} onChange={(ev) => setStart(ev.target.value)} /></Field>
+        <Field label="Started" hint={e.startDate ? undefined : "Stripe owns the billing cycle — the start is a fact, not a setting. To move the next charge, use Change charge date under Payments."}><input className={input} type="date" value={start} disabled={!e.startDate} onChange={(ev) => setStart(ev.target.value)} /></Field>
         <Field label="Paid through" hint={e.paidThroughDate ? "Moves with each recorded payment. Edit only to correct." : `Read from Stripe${cur.currentPeriodEnd ? `: the current period ends ${fmtS(cur.currentPeriodEnd)}` : ""}.`}><input className={input} type="date" value={e.paidThroughDate ? through : toInput(cur.currentPeriodEnd)} disabled={!e.paidThroughDate} onChange={(ev) => setThrough(ev.target.value)} /></Field>
         <Field label="Ends" hint={end ? `Access${cur.hasStripe ? " and billing" : ""} stop on ${fmt(end)}.` : "No end date — renews until cancelled."}>
           <div className="flex gap-2"><input className={input} type="date" value={end} onChange={(ev) => setEnd(ev.target.value)} /><button type="button" className={btn} disabled={!end} onClick={() => setEnd("")}>Clear</button></div>

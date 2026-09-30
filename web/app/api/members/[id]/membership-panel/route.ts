@@ -203,7 +203,7 @@ type PlanRow = { id: string; name: string; options: unknown; contractMonths: num
 
 const MEMBERSHIP_TX_TYPES = ["MEMBERSHIP", "SUBSCRIPTION"];
 const SOURCE_WORD: Record<string, string> = { STRIPE: "Stripe", CASH: "Cash", CHECK: "Check", COMP: "Waived / comp", EXTERNAL_READER: "Card reader", MANUAL_ADJUSTMENT: "Manual" };
-const MONEY_KINDS = ["PAYMENT_RECORDED", "PAYMENT_WAIVED", "PAYMENT_REFUNDED", "RENEWAL_CHANGED", "PLAN_CHANGED"];
+const MONEY_KINDS = ["PAYMENT_RECORDED", "PAYMENT_WAIVED", "PAYMENT_REFUNDED", "RENEWAL_CHANGED", "PLAN_CHANGED", "CHARGE_DATE_MOVED"];
 
 function renewsText(m: MoneyRow, renews: boolean): string {
   if (renews) return `On — renews ${periodWord(m.billingPeriod)} until someone cancels`;

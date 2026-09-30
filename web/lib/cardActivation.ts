@@ -16,6 +16,7 @@ import { ensureMembershipProduct } from "@/lib/stripeCatalog";
 import { recurringUnitWithFee } from "@/lib/fees";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { addBillingPeriod } from "@/lib/billingAdmin";
+import type { DiscountFields } from "@/lib/membershipAssignQuote";
 
 export type CardActivationInput = {
   member: {
@@ -40,6 +41,9 @@ export type CardActivationInput = {
   /** Explicit end (commitment / requested cancellation). Null ⇒ derived from autoRenew. */
   cancelSource: Date | null;
   discount?: { code: string; amountOff: number } | null;
+  /** Assign membership: the full discount columns (sibling / group / code), as
+   *  every purchase path writes them. Wins over `discount` when given. */
+  discountFields?: DiscountFields | null;
   notes: string;
   metadata: Record<string, string>;
   idempotencyPrefix: string;
@@ -184,7 +188,9 @@ export async function createSavedCardSubscription(input: CardActivationInput): P
         ...(cancelAtUnix ? { endDate: new Date(cancelAtUnix * 1000) } : {}),
         stripeSubscriptionId: sub.id,
         stripePriceId: sub.items?.data?.[0]?.price?.id ?? null,
-        ...(input.discount ? { discountCode: input.discount.code, discountAmount: input.discount.amountOff } : {}),
+        ...(input.discountFields
+          ? input.discountFields
+          : input.discount ? { discountCode: input.discount.code, discountAmount: input.discount.amountOff } : {}),
         notes: input.notes,
       },
     });

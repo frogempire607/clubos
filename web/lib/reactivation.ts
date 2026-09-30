@@ -10,6 +10,7 @@ import {
   discountAppliedLabel,
 } from "@/lib/staffPayments";
 import { applyProcessingFee } from "@/lib/fees";
+import { membershipDiscountAtPurchase } from "@/lib/membershipSiblingServer";
 
 // Membership reactivation offers — server helpers shared by the owner-side
 // composer (create/preview/send) and the public token page (view/confirm).
@@ -45,7 +46,15 @@ export type ReactivationOffer = {
     value: number;
     amountOff: number;
     finalPrice: number;
+    /** Where it came from. Absent on offers made before 09-30 ⇒ CODE. SIBLING /
+     *  GROUP carry no code (`code` is ""); `label` is the stored discount label. */
+    source?: "CODE" | "SIBLING" | "GROUP";
+    label?: string | null;
   } | null;
+  /** Assign sheet: the offer is priced with the family's automatic discount
+   *  (sibling / group rate). Kept so a rebuild for comparison prices it the
+   *  same way — and a family change since sending marks the offer out of date. */
+  autoDiscount?: boolean;
 };
 
 export type OfferMember = {
@@ -74,6 +83,7 @@ export async function buildOffer(
   member: OfferMember,
   club: { stripeAccountId: string | null; stripeChargesEnabled: boolean },
   firstChargeDate: Date | null,
+  opts: { autoDiscount?: boolean } = {},
 ): Promise<{ offer: ReactivationOffer; pricing: ResolvedPricing; discountError: string | null }> {
   const plan = member.migrationMembershipId
     ? await prisma.membership.findFirst({
@@ -132,11 +142,13 @@ export async function buildOffer(
   // it's surfaced as discountError and offer creation is blocked upstream.
   let discount: ReactivationOffer["discount"] = null;
   let discountError: string | null = null;
+  let resolvedCode: Awaited<ReturnType<typeof resolveStaffDiscount>> | null = null;
   if (member.migrationDiscountCode && pricing.configured && pricing.price > 0) {
     const resolved = await resolveStaffDiscount(member.clubId, member.migrationDiscountCode, {
       type: "MEMBERSHIP",
       membershipId: plan?.id ?? null,
     });
+    resolvedCode = resolved;
     if (!resolved.ok) {
       discountError = resolved.error;
     } else if (resolved.discount) {
@@ -156,8 +168,35 @@ export async function buildOffer(
           value: resolved.discount.value,
           amountOff: q.quote.discountAmount,
           finalPrice: q.quote.finalPrice,
+          source: "CODE",
         };
       }
+    }
+  }
+
+  // Assign sheet — the family's automatic discount competes with the code the
+  // same way every purchase path does (one discount, the bigger saving wins).
+  // Never under a typed price: that wins over everything.
+  if (
+    opts.autoDiscount && !discountError && plan && pricing.configured && pricing.price > 0 &&
+    member.migrationPriceOverride == null && pricing.period !== "ONE_TIME"
+  ) {
+    const priced = await membershipDiscountAtPurchase({
+      clubId: member.clubId, memberId: member.id, membershipId: plan.id, listPrice: pricing.price,
+      billingPeriod: pricing.period, code: resolvedCode?.ok ? resolvedCode.discount : null,
+    });
+    const f = priced.fields;
+    if ((f.discountSource === "SIBLING" || f.discountSource === "GROUP") && (f.discountAmount ?? 0) > 0 && f.discountType) {
+      discount = {
+        code: "",
+        name: f.discountSource === "SIBLING" ? "Sibling" : f.discountLabel || "Group rate",
+        type: f.discountType === "FIXED" ? "FIXED" : "PERCENT",
+        value: Number(f.discountValue ?? 0),
+        amountOff: f.discountAmount ?? 0,
+        finalPrice: priced.finalPrice,
+        source: f.discountSource,
+        label: f.discountLabel,
+      };
     }
   }
 
@@ -180,8 +219,30 @@ export async function buildOffer(
       autoRenew: plan?.autoRenewDefault ?? true,
       paymentMethod,
       discount,
+      ...(opts.autoDiscount ? { autoDiscount: true } : {}),
     },
   };
+}
+
+/** The discount columns an accepted offer writes on its MemberSubscription —
+ *  the same ones every purchase path writes, so the sibling drift check agrees. */
+export function offerDiscountColumns(offer: Pick<ReactivationOffer, "discount">): Record<string, unknown> {
+  const d = offer.discount;
+  if (!d) return {};
+  if (d.source === "SIBLING" || d.source === "GROUP") {
+    return {
+      discountCode: null, discountAmount: d.amountOff, discountSource: d.source, discountLabel: d.label ?? null,
+      discountType: d.type, discountValue: d.value,
+    };
+  }
+  return { discountCode: d.code, discountAmount: d.amountOff };
+}
+
+/** Transaction rows carry only code + amount. */
+export function offerDiscountTxColumns(offer: Pick<ReactivationOffer, "discount">): { discountCode?: string | null; discountAmount?: number } {
+  const d = offer.discount;
+  if (!d) return {};
+  return { discountCode: d.source === "SIBLING" || d.source === "GROUP" ? null : d.code, discountAmount: d.amountOff };
 }
 
 /** The amount the client actually pays: discounted price when a discount applies. */
@@ -265,8 +326,11 @@ export function parseOffer(raw: unknown): ReactivationOffer | null {
         value: typeof d.value === "number" ? d.value : 0,
         amountOff: typeof d.amountOff === "number" ? d.amountOff : 0,
         finalPrice: d.finalPrice,
+        ...(d.source === "SIBLING" || d.source === "GROUP" || d.source === "CODE" ? { source: d.source as "CODE" | "SIBLING" | "GROUP" } : {}),
+        ...(typeof d.label === "string" ? { label: d.label } : {}),
       };
     })(),
+    ...(o.autoDiscount === true ? { autoDiscount: true } : {}),
   };
 }
 
@@ -316,7 +380,7 @@ export async function compareOfferToCurrent(
   stored: ReactivationOffer,
 ): Promise<{ matches: boolean; changed: string[]; current: ReactivationOffer }> {
   const currentFirstCharge = member.migrationFinalBillingDate ?? member.billingAnchorDate ?? null;
-  const { offer: current } = await buildOffer(member, club, currentFirstCharge);
+  const { offer: current } = await buildOffer(member, club, currentFirstCharge, { autoDiscount: stored.autoDiscount === true });
   const changed = diffOffer(stored, current);
   return { matches: changed.length === 0, changed, current };
 }

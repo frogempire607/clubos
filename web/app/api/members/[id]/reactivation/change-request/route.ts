@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { writeBillingAudit } from "@/lib/billingAudit";
-import { buildOffer, createReactivation, type OfferMember } from "@/lib/reactivation";
+import { buildOffer, createReactivation, parseOffer, type OfferMember } from "@/lib/reactivation";
 import { chargeTiming } from "@/lib/billingAdmin";
 
 export const dynamic = "force-dynamic";
@@ -49,7 +49,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   const r = await prisma.membershipReactivation.findFirst({
     where: { id: reactivationId, clubId, memberId },
-    select: { id: true, status: true, offerVersion: true, changeRequest: true, changeRequestStatus: true },
+    select: { id: true, status: true, offerVersion: true, changeRequest: true, changeRequestStatus: true, offer: true },
   });
   if (!r) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (r.changeRequestStatus !== "OPEN") {
@@ -85,7 +85,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!member) return NextResponse.json({ error: "Member not found" }, { status: 404 });
 
   const firstCharge = member.migrationFinalBillingDate ?? member.billingAnchorDate ?? null;
-  const { offer, discountError } = await buildOffer(member as unknown as OfferMember, member.club, firstCharge);
+  // Keep the original offer's pricing mode (Assign's automatic family discount).
+  const priorOffer = parseOffer(r.offer);
+  const { offer, discountError } = await buildOffer(member as unknown as OfferMember, member.club, firstCharge, { autoDiscount: priorOffer?.autoDiscount === true });
   if (discountError) {
     return NextResponse.json(
       { error: `The selected discount can't be applied: ${discountError} Fix or clear the discount in the billing center first.`, code: "DISCOUNT_INVALID" },

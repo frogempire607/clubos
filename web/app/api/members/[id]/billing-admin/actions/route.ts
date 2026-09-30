@@ -27,6 +27,9 @@ import { syncOneSubscription } from "@/lib/stripeSync";
 import { commitPlanChange, commitAnyPlanChange } from "@/lib/stripePlanChangeServer";
 import { pauseMembership, resumeMembership } from "@/lib/membershipPause";
 import { resolveDatesEdit } from "@/lib/membershipPanel";
+import { quoteAssignment, priceMoved } from "@/lib/membershipAssignQuoteServer";
+import type { DiscountFields } from "@/lib/membershipAssignQuote";
+import { checkAssignAnchor } from "@/lib/chargeDate";
 
 // Discrete, confirmation-gated billing actions (billing:full). Each action is
 // explicit, audited, and preserves history — nothing here deletes rows. The
@@ -68,6 +71,13 @@ const schema = z.object({
   // activate_card: a first charge dated today/past runs NOW. Never silently —
   // the caller acknowledges it explicitly (the UI shows the amount and date).
   confirmImmediateCharge: z.boolean().optional().default(false),
+  // activate_card from the Assign sheet: price through the assign quote
+  // (sibling / group / code, one discount, override wins), recomputed here.
+  // expectedFinalPrice = what the sheet showed; a different result is refused.
+  assign: z.object({
+    applyFamily: z.boolean(),
+    expectedFinalPrice: z.number().nonnegative().optional().nullable(),
+  }).optional(),
   // change_stripe_plan (subscriptionId above): the option to move to, and an
   // optional auto-renew override (null = the option's own default).
   optionId: z.string().optional(),
@@ -175,11 +185,31 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     let price = option.price;
     if (member.migrationPriceOverride != null) price = Number(member.migrationPriceOverride);
     const period = option.billingPeriod;
+    let discount: { id: string; code: string; amountOff: number } | null = null;
+    let discountFields: DiscountFields | null = null;
+    if (data.assign) {
+      // Assign sheet: the same quote it showed, re-derived from the saved setup.
+      const qa = await quoteAssignment({
+        clubId: club.id, memberId: member.id, membershipId: plan.id, optionId: option.id!,
+        priceOverride: member.migrationPriceOverride != null ? Number(member.migrationPriceOverride) : null,
+        discountCode: member.migrationDiscountCode, applyFamily: data.assign.applyFamily, method: "CARD",
+      });
+      if (!qa.ok) return NextResponse.json({ error: qa.error, code: qa.code }, { status: qa.status });
+      if (qa.quote.codeError) return NextResponse.json({ error: `The selected discount can't be applied: ${qa.quote.codeError}`, code: "DISCOUNT_INVALID" }, { status: 400 });
+      price = qa.quote.finalPrice;
+      if (priceMoved(data.assign.expectedFinalPrice, price)) {
+        return NextResponse.json(
+          { error: `The price changed to $${price.toFixed(2)} since the sheet opened (the family's memberships moved). Nothing was charged — review it and confirm again.`, code: "PRICE_CHANGED", price },
+          { status: 409 },
+        );
+      }
+      discountFields = qa.quote.fields;
+      if (qa.quote.codeWon && qa.code) discount = { id: qa.code.id, code: qa.code.code, amountOff: qa.quote.fields.discountAmount ?? 0 };
+    }
     if (price <= 0) {
       return NextResponse.json({ error: "This setup is $0 — there is nothing to charge. Use “Already paid?” to record a free membership.", code: "FREE" }, { status: 409 });
     }
-    let discount: { id: string; code: string; amountOff: number } | null = null;
-    if (member.migrationDiscountCode) {
+    if (!data.assign && member.migrationDiscountCode) {
       const resolved = await resolveStaffDiscount(club.id, member.migrationDiscountCode, { type: "MEMBERSHIP", membershipId: plan.id });
       if (!resolved.ok) return NextResponse.json({ error: `The selected discount can't be applied: ${resolved.error}`, code: "DISCOUNT_INVALID" }, { status: 400 });
       if (resolved.discount) {
@@ -220,7 +250,21 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
     // First charge: the owner-approved final date, else the imported anchor;
     // today/past ⇒ charges now, and the caller must have said so.
-    const anchorRaw = member.migrationFinalBillingDate ?? member.billingAnchorDate ?? null;
+    let anchorRaw = member.migrationFinalBillingDate ?? member.billingAnchorDate ?? null;
+    // From the Assign sheet ("When is the card charged?"): the first charge is
+    // never in the past and never before the membership starts. Refused here,
+    // at commit, whatever the sheet sent (lib/chargeDate.checkAssignAnchor).
+    // Migration approvals keep their imported anchors untouched.
+    const assignStart = data.assign ? member.membershipStartDate ?? null : null;
+    if (data.assign) {
+      const chk = checkAssignAnchor({ anchor: anchorRaw, start: assignStart, now: new Date() });
+      if (!chk.ok) return NextResponse.json({ error: chk.error, code: "CHARGE_DATE_INVALID" }, { status: 400 });
+      // A future day picked in the sheet is stored at 00:00Z — 8 pm the evening
+      // BEFORE on the US east coast. Charge at noon UTC on that day instead.
+      if (anchorRaw && anchorRaw.getTime() > Date.now() + 60_000 && anchorRaw.getUTCHours() === 0 && anchorRaw.getUTCMinutes() === 0) {
+        anchorRaw = new Date(anchorRaw.getTime() + 12 * 3600_000);
+      }
+    }
     const billsImmediately = !anchorRaw || anchorRaw.getTime() <= Date.now() + 60_000;
     if (billsImmediately && !data.confirmImmediateCharge) {
       return NextResponse.json(
@@ -229,7 +273,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       );
     }
     const terms = resolveTerms(option, { contractMonths: plan.contractMonths, autoRenewDefault: plan.autoRenewDefault });
-    const termEnd = minimumTermEndForOptionId(new Date(), options, option.id, { contractMonths: plan.contractMonths }, addUTCMonths);
+    // Assign: the membership (and its commitment) run from "Starts", not from
+    // the moment someone pressed the button.
+    const rowStart = assignStart ?? new Date();
+    const termEnd = minimumTermEndForOptionId(rowStart, options, option.id, { contractMonths: plan.contractMonths }, addUTCMonths);
 
     const activation = await createSavedCardSubscription({
       member: {
@@ -237,7 +284,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         stripeSetupCustomerId: member.stripeSetupCustomerId,
         stripeSetupPaymentMethodId: member.stripeSetupPaymentMethodId,
       },
-      startDate: new Date(),
+      startDate: rowStart,
       club: { id: club.id, stripeAccountId: club.stripeAccountId, passProcessingFees: club.passProcessingFees },
       membershipId: plan.id,
       planName: plan.name,
@@ -250,7 +297,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       anchor: billsImmediately ? null : anchorRaw,
       cancelSource: member.commitmentEndDate ?? null,
       discount,
-      notes: `Activated from the billing centre by staff on ${new Date().toISOString().slice(0, 10)} — saved card.`,
+      discountFields,
+      notes: `Activated from the billing centre by staff on ${new Date().toISOString().slice(0, 10)} — saved card.${discountFields?.discountLabel && discountFields.discountSource !== "CODE" ? ` ${discountFields.discountLabel} applied.` : ""}`,
       metadata: { memberId: member.id, clubId: club.id, activatedBy: "billing-admin" },
       idempotencyPrefix: "aox-activate-card",
     });

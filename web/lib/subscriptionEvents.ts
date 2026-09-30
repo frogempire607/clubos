@@ -69,6 +69,12 @@ export const SUBSCRIPTION_EVENT_KIND = {
   PAYMENT_RECORDED: "PAYMENT_RECORDED",
   PAYMENT_WAIVED: "PAYMENT_WAIVED",
   PAYMENT_REFUNDED: "PAYMENT_REFUNDED",
+  /**
+   * The next charge (Stripe) or next due date (cash/check) moved, from the
+   * Membership panel's "Change charge date" — from/to, the free days, who.
+   * NOT lifecycle; kept out of LIFECYCLE_EVENT_KINDS like the money kinds.
+   */
+  CHARGE_DATE_MOVED: "CHARGE_DATE_MOVED",
 } as const;
 
 export type SubscriptionEventKind =

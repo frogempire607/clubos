@@ -38,7 +38,7 @@ export type MoneyPayload = {
   history: { id: string; at: string; text: string }[];
 };
 
-export type MoneySheet = null | "paid" | "waive" | "switch" | "autorenew" | "commit" | { refund: MoneyPayment };
+export type MoneySheet = null | "paid" | "waive" | "switch" | "autorenew" | "commit" | "chargeDate" | { refund: MoneyPayment };
 
 const fmt = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—");
 const fmtS = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }) : "—");
@@ -123,11 +123,13 @@ export function MoneyActions({ m, onOpen, disabled }: { m: MoneyPayload; onOpen:
     ? [
         { key: "paid", label: "They paid another way this time", sub: `Record cash or check${next ? ` and skip the ${next} charge` : ""} so they aren't charged twice.` },
         { key: "waive", label: "Waive a payment", sub: `Give ${next ? `the ${next} payment` : "one payment"} free — e.g. for volunteer help.` },
+        { key: "chargeDate", label: "Change charge date", sub: next ? `Next charge ${next} — move it to another day. Renews on the new day after that.` : "Move the next charge to another day." },
         { key: "switch", label: "Switch how they pay", sub: "Stop automatic charges and collect cash or check from now on." },
       ]
     : [
         { key: "paid", label: "Record a payment", sub: "Cash or check they handed over for the next period." },
         { key: "waive", label: "Waive a payment", sub: "Give one period free — e.g. for volunteer help." },
+        { key: "chargeDate", label: "Change due date", sub: next ? `Next payment due ${next} — give them more time.` : "Set when the next payment is due." },
         { key: "switch", label: "Switch to automatic payments", sub: "Charge their saved card or Cash App from when the cash runs out." },
       ];
   return (
@@ -386,6 +388,38 @@ export function AutoRenewSheet({ memberId, first, headline, m, onClose, onDone }
     <AppSheet open onClose={onClose} title={on ? "Turn auto-renew on" : "Turn auto-renew off"} description={`${first} · ${headline}`}
       footer={<><button type="button" className={btn} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className={on ? btnP : btnD} disabled={busy || p.loading || !!p.error} onClick={() => commit(url, { subscriptionId: m.subscriptionId, autoRenew: on }, setBusy, setErr, onDone)}>{busy ? "Working…" : on ? "Turn on" : "Turn off"}</button></>}>
       <PreviewBox p={p} label={m.hasStripe ? "Stripe" : "Billing"} />
+      <ErrLine err={err} />
+    </AppSheet>
+  );
+}
+
+/**
+ * "Change charge date" — Stripe: move the next charge (the cycle renews on the
+ * new day); cash/check: move the next due date. Every sentence comes from the
+ * route's preview (lib/chargeDate.chargeDateMovePlan).
+ */
+export function ChargeDateSheet({ memberId, first, headline, m, onClose, onDone }: SheetProps) {
+  const current = m.next.at ? m.next.at.slice(0, 10) : "";
+  const [date, setDate] = useState(current);
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const url = `/api/members/${memberId}/membership/charge-date`;
+  const picked = /^\d{4}-\d{2}-\d{2}$/.test(date);
+  const changed = picked && date !== current;
+  const p = usePreview(url, { subscriptionId: m.subscriptionId, newDate: date }, changed);
+  const from = (p.facts.from as string | null | undefined) ?? null;
+  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  const title = m.hasStripe ? "Change charge date" : "Change payment due date";
+  return (
+    <AppSheet open onClose={onClose} title={title} description={`${first} · ${headline}`}
+      footer={<><button type="button" className={btn} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className={btnP} disabled={busy || !changed || p.loading || !!p.error || !p.sentence} onClick={() => commit(url, { subscriptionId: m.subscriptionId, newDate: date, expectedFrom: from }, setBusy, setErr, onDone)}>{busy ? "Working…" : changed ? `Move to ${fmtS(date + "T00:00:00Z")}` : "Move"}</button></>}>
+      <div className="mt-1 rounded-xl bg-app-bg px-3 py-2.5 text-sm text-text-primary">Now: {m.next.text}</div>
+      <label className="block"><Label>{m.hasStripe ? "Charge on" : "Next payment due"}</Label><input className={input} type="date" min={tomorrow} value={date} onChange={(e) => setDate(e.target.value)} /></label>
+      {!changed ? (
+        <p className="mt-3 text-[13px] text-text-muted">Pick a different day to see exactly what happens.</p>
+      ) : (
+        <PreviewBox p={p} label={m.hasStripe ? "Stripe" : "Billing"} />
+      )}
+      {m.hasStripe && <p className="mt-2 text-[12.5px] text-text-muted">Can&apos;t be earlier than what they&apos;ve already paid for — use Refund or Waive a payment for that.</p>}
       <ErrLine err={err} />
     </AppSheet>
   );

@@ -12,6 +12,7 @@ import {
   planFamily,
   siblingForPurchase,
   siblingOn,
+  coversPlan,
   type MembershipSiblingConfig,
   type SiblingLine,
   type SiblingSub,
@@ -26,6 +27,7 @@ import {
   type GroupRate,
 } from "@/lib/membershipGroupRates";
 import { amountOff } from "@/lib/eventAutoDiscounts";
+import { chooseMembershipDiscount, type AutoDiscount, type ChosenDiscount } from "@/lib/membershipAssignQuote";
 
 const LIVE = ["active", "past_due", "trialing"];
 
@@ -171,6 +173,8 @@ export async function siblingForNewMembership(args: {
   const f = args.families ?? (await loadFamilies(args.clubId));
   if (!anyAutoOn(f)) return none;
   let sib: AutoPurchase = none;
+  const candidates: AutoDiscount[] = [];
+  let note: string | null = null;
   if (siblingOn(f.cfg)) {
     const guardians = await primaryGuardians(args.clubId, [args.member.id]);
     const key = payerKey(null, args.member, guardians);
@@ -184,13 +188,25 @@ export async function siblingForNewMembership(args: {
         billingPeriod: args.billingPeriod,
         startDate: new Date(),
       });
-      if (r.rule && r.off > 0) sib = { ...r, source: "SIBLING" };
+      const fullPriceName =
+        r.fullPrice && r.fullPrice.memberId !== args.member.id ? r.fullPrice.memberName.split(" ")[0] || r.fullPrice.memberName : null;
+      if (r.rule && r.off > 0) {
+        sib = { rule: r.rule, label: r.label, position: r.position, off: r.off, source: "SIBLING", fullPriceName };
+        candidates.push({ source: "SIBLING", rule: r.rule, label: r.label ?? "Sibling membership discount", off: r.off, fullPriceName });
+      } else if (r.position === 1 && r.counted >= 2) {
+        // This athlete becomes the one who pays full price; the discount moves
+        // to a sibling's running membership, which the panel then recommends.
+        note = `${args.member.firstName ?? "This athlete"} is the ${f.cfg.discountWhich === "CHEAPER" ? "pricier" : "cheaper"} membership in the family, so pays full price — the sibling discount goes to the other athlete, whose profile will show it as recommended.`;
+      } else if (family.length > 0 && !coversPlan(f.cfg, args.membershipId)) {
+        note = "The sibling discount doesn't cover this plan.";
+      }
     }
   }
   const gv = args.groupValues ?? f.groupValuesOf.get(args.member.id) ?? readGroupValues((await prisma.member.findUnique({ where: { id: args.member.id }, select: { groupValues: true } }))?.groupValues);
   const grp = bestGroupRate({ rates: f.rates, counts: f.counts, memberId: args.member.id, groupValues: gv, membershipId: args.membershipId, listPrice: args.listPrice, includeSelf: true });
-  if (grp && grp.off > sib.off) return { rule: grp.rule, label: grp.label, position: null, off: grp.off, source: "GROUP" };
-  return sib;
+  if (grp) candidates.push({ source: "GROUP", rule: grp.rule, label: grp.label, off: grp.off, fullPriceName: null });
+  if (grp && grp.off > sib.off) return { rule: grp.rule, label: grp.label, position: null, off: grp.off, source: "GROUP", fullPriceName: null, candidates, note };
+  return { ...sib, candidates, note };
 }
 
 export type AutoPurchase = {
@@ -199,24 +215,16 @@ export type AutoPurchase = {
   position: number | null;
   off: number;
   source: "SIBLING" | "GROUP" | null;
+  /** SIBLING: first name of the athlete who pays full price. */
+  fullPriceName?: string | null;
+  /** Every automatic discount this purchase earns (sibling and/or group), for the Assign sheet. */
+  candidates?: AutoDiscount[];
+  /** Something the owner should know about the family math (Assign sheet). */
+  note?: string | null;
 };
 
-export type PurchaseDiscount = {
-  finalPrice: number;
-  /** The typed code — only when it won (so only then is a use recorded). */
-  code: ValidDiscount | null;
-  /** Columns for the MemberSubscription row. */
-  fields: {
-    discountCode: string | null;
-    discountAmount: number | null;
-    discountSource: string | null;
-    discountLabel: string | null;
-    discountType: string | null;
-    discountValue: number | null;
-  };
-  /** "Sibling membership discount (2nd athlete)" or "code SUMMER10", for descriptions. */
-  label: string | null;
-};
+/** Columns for the MemberSubscription row + the charged price (lib/membershipAssignQuote). */
+export type PurchaseDiscount = ChosenDiscount;
 
 /**
  * The one discount a membership purchase gets: a typed code or the sibling
@@ -234,7 +242,6 @@ export async function membershipDiscountAtPurchase(args: {
 }): Promise<PurchaseDiscount> {
   const list = Math.round(args.listPrice * 100) / 100;
   const codeNet = args.code ? discountedPrice(list, args.code) : list;
-  const codeOff = Math.round((list - codeNet) * 100) / 100;
   const member = await prisma.member.findUnique({
     where: { id: args.memberId },
     select: { id: true, userId: true, responsiblePayerUserId: true, firstName: true, lastName: true },
@@ -246,37 +253,8 @@ export async function membershipDiscountAtPurchase(args: {
           billingPeriod: args.billingPeriod, excludeSubscriptionId: args.excludeSubscriptionId,
         })
       : { rule: null, label: null, position: null, off: 0 };
-  if (sib.rule && sib.off > 0 && sib.off >= codeOff) {
-    return {
-      finalPrice: Math.round((list - sib.off) * 100) / 100,
-      code: null,
-      fields: {
-        discountCode: null, discountAmount: sib.off, discountSource: sib.source ?? "SIBLING", discountLabel: sib.label,
-        discountType: sib.rule.type, discountValue: sib.rule.value,
-      },
-      label: sib.label,
-    };
-  }
-  if (args.code && codeOff > 0) {
-    return {
-      finalPrice: codeNet,
-      code: args.code,
-      fields: {
-        discountCode: args.code.code, discountAmount: codeOff, discountSource: "CODE", discountLabel: args.code.code,
-        discountType: args.code.type, discountValue: Number(args.code.value),
-      },
-      label: `code ${args.code.code}`,
-    };
-  }
-  return {
-    finalPrice: list,
-    code: args.code, // a 0-off code still "applied" the way it always did
-    fields: {
-      discountCode: args.code?.code ?? null, discountAmount: null, discountSource: args.code ? "CODE" : null,
-      discountLabel: args.code?.code ?? null, discountType: null, discountValue: null,
-    },
-    label: args.code ? `code ${args.code.code}` : null,
-  };
+  // One discount per membership, the bigger saving wins (tie → automatic).
+  return chooseMembershipDiscount({ list, code: args.code, codeNet, auto: sib });
 }
 
 /**

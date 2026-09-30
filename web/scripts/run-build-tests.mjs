@@ -54,6 +54,8 @@ export const GATED = [
   ["scripts/membership-money-tests.ts"],
   ["scripts/membership-sibling-tests.ts"],
   ["scripts/membership-group-rate-tests.ts"],
+  ["scripts/assign-discount-tests.ts"],
+  ["scripts/charge-date-tests.ts"],
   ["scripts/membership-audit-tests.ts"],
   ["scripts/billing-admin-tests.ts"],
   ["scripts/billing-anchor-tests.ts"],

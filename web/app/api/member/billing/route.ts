@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveCardSnapshot, type CardSnapshot } from "@/lib/memberCard";
 import { feeBreakdown } from "@/lib/fees";
+import { displayStripeStatus } from "@/lib/chargeDate";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // GET /api/member/billing
@@ -262,7 +263,8 @@ export async function GET() {
         statusLabel: active ? STATUS_LABEL[active.status] ?? active.status : null,
         // Raw Stripe status, present once reconciled — lets the UI show the true
         // Stripe state (e.g. "trialing") alongside our normalized status.
-        stripeStatus: active?.stripeStatus ?? null,
+        // A moved charge date is `trialing` in Stripe; the family paid — say active.
+        stripeStatus: displayStripeStatus(active?.stripeStatus, active?.stripeSnapshot),
         price,
         // Present only when a processing fee applies: what's actually charged.
         feeBreakdown: fees ? { base: fees.base, fee: fees.fee, total: fees.total } : null,

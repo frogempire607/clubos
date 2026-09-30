@@ -13,6 +13,7 @@
 
 import { addUTCMonths, addUTCDays } from "@/lib/billingAdmin";
 import { resolveCoverage } from "@/lib/paidThrough";
+import { moveEventSentence } from "@/lib/chargeDate";
 
 // ── Words ────────────────────────────────────────────────────────────────────
 
@@ -445,6 +446,8 @@ export function moneyEventSentence(e: MoneyEvent): string | null {
       const ends = d(x.stopsOn);
       return x.autoRenew ? `Auto-renew turned on${by}` : `Auto-renew turned off — ends ${ends ? fmtDate(ends) : "at the period end"}${by}`;
     }
+    case "CHARGE_DATE_MOVED":
+      return moveEventSentence(x, e.actorName);
     case "PLAN_CHANGED": {
       if (x.autopay === "off") { const at = d(x.endsAt); return `Switched to cash from ${at ? fmtDate(at) : "the period end"}${by}`; }
       if (x.autopay === "on") { const at = d(x.firstChargeAt); return `Switched to automatic payments — first charge ${at ? fmtDate(at) : "at the next cycle"}${by}`; }

@@ -315,6 +315,8 @@ export type BillingStateInput = {
     stripeStatus?: string | null;
     price: number;
     hasStripe: boolean;
+    /** Stripe says `trialing` only because staff moved a paying member's charge date (snapshot.chargeDateMovedFrom). */
+    chargeDateMoved?: boolean;
     /**
      * Whether the club has SAID this $0 membership is a comp. Absent means
      * unmarked, never "assume yes" — inferring a comp from the price is the
@@ -334,7 +336,9 @@ export function deriveBillingState(input: BillingStateInput): BillingState {
   const sub = input.sub;
   // 1. A live Stripe subscription is the strongest fact there is.
   if (sub?.hasStripe && (sub.status === "active" || sub.status === "past_due" || sub.status === "pending")) {
-    if (sub.stripeStatus === "trialing") return "SCHEDULED";
+    // A moved charge date on a paying member is also `trialing` in Stripe
+    // (lib/chargeDate) — that's billing normally, not "nothing charged yet".
+    if (sub.stripeStatus === "trialing") return sub.chargeDateMoved ? "ACTIVE_STRIPE" : "SCHEDULED";
     if (!sub.stripeStatus || ["active", "past_due", "unpaid"].includes(sub.stripeStatus)) return "ACTIVE_STRIPE";
     if (sub.stripeStatus === "canceled") {
       /* fall through to the non-Stripe facts below */

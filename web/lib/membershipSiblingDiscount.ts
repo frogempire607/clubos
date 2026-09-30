@@ -193,14 +193,27 @@ export function siblingForPurchase(
   cfg: MembershipSiblingConfig,
   family: SiblingSub[],
   purchase: Omit<SiblingSub, "id" | "price" | "status"> & { id?: string },
-): { rule: AmountRule | null; label: string | null; position: number | null; off: number } {
+): {
+  rule: AmountRule | null; label: string | null; position: number | null; off: number;
+  /** Who pays full price in this family once the purchase is counted (position 1),
+   *  or null when the family has no one counted. Can be the purchase itself. */
+  fullPrice: { memberId: string; memberName: string } | null;
+  /** Distinct athletes the rule counts in this family, the purchase included. */
+  counted: number;
+} {
   const id = purchase.id ?? "__new__";
   const lines = planFamily(cfg, [
     ...family.filter((f) => f.memberId !== purchase.memberId || f.id !== id),
     { ...purchase, id, price: purchase.listPrice, status: "active" },
   ]);
   const me = lines.find((l) => l.subId === id)!;
-  return { rule: me.rule, label: me.label, position: me.position, off: amountOff(purchase.listPrice, me.rule) };
+  const first = lines.find((l) => l.position === 1) ?? null;
+  const counted = lines.reduce((n, l) => (l.position != null ? Math.max(n, l.position) : n), 0);
+  return {
+    rule: me.rule, label: me.label, position: me.position, off: amountOff(purchase.listPrice, me.rule),
+    fullPrice: first ? { memberId: first.memberId, memberName: first.memberName } : null,
+    counted,
+  };
 }
 
 /** The settings page's one-line summary. */

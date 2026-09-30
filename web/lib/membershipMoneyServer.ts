@@ -16,6 +16,9 @@ import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { turnAutopayOff, turnAutopayOn, setAutoRenew, planNonRenewal, applyNonRenewal, offlineStopDate } from "@/lib/autopay";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { recordSubscriptionEvent, SUBSCRIPTION_EVENT_KIND, SUBSCRIPTION_EVENT_SOURCE } from "@/lib/subscriptionEvents";
+import { chargeDateMovePlan, type MoveRow } from "@/lib/chargeDate";
+import { resolveDatesEdit } from "@/lib/membershipPanel";
+import { syncOneSubscription } from "@/lib/stripeSync";
 import {
   type MoneyRow, type PmFacts,
   paidAnotherWayPlan, waivePlan, refundable, checkRefund, switchToCashPlan, switchToCardPlan, autoRenewPlan,
@@ -557,4 +560,193 @@ export async function setAutoRenewFromPanel(input: {
     detail: { route: "membership/auto-renew", autoRenew: input.on, stopsOn: iso(endsAt), mode: plan.mode, stripe: !!row.stripeSubscriptionId },
   });
   return { ok: true, message: input.on ? `Auto-renew is on — ${row.member.firstName}'s membership keeps renewing.` : `Auto-renew is off — ends ${endsAt ? fmtDate(endsAt) : "at the end of the paid period"}.` };
+}
+
+// ── 6. Change charge date ────────────────────────────────────────────────────
+//
+// "Move the next charge to a new date" on a live membership. The rules and the
+// words are lib/chargeDate.chargeDateMovePlan; this re-reads Stripe, re-derives
+// the plan, refuses if the sheet is stale, and acts.
+//
+// THE STRIPE MECHANISM — `trial_end` = the new date, proration_behavior "none":
+//
+//  · API 2023-10-16 has no way to set a FUTURE billing_cycle_anchor on an
+//    existing subscription (update accepts only "now" / "unchanged"). Stripe's
+//    documented way to move a live subscription's billing day to a later date
+//    is a trial that ends on that date: the trial end becomes the new cycle
+//    anchor and every renewal after it lands on that day.
+//  · proration_behavior "none": no credit for the unused part of the paid
+//    period and no charge for the gap. The member keeps what they paid for and
+//    the days after it up to the new date are simply not charged — the sheet
+//    says "Nov 27 → Dec 5: 8 days at no charge".
+//  · Moving EARLIER than what's paid is refused in chargeDateMovePlan, never
+//    "fixed" with a proration credit (that credit sits on the Stripe customer
+//    balance, not the card — the family would see a second charge).
+//  · cancel_at, the price item, discounts and the default payment method are
+//    not touched. A pending one-time discount (the B16 skip coupon) is refused
+//    up front: starting the no-charge stretch makes Stripe issue a $0 invoice,
+//    which would consume the coupon. That $0 invoice is ignored by the
+//    invoice.paid webhook ("$0 invoices (trial starts) don't belong in the
+//    money ledger"), so no revenue is invented.
+//  · Alternatives rejected: pause_collection (lib/stripeSync reads it as the
+//    owner pausing and flips the athlete to PAUSED — see addSkipDiscount's
+//    note); cancel + recreate with a future billing_cycle_anchor (a new
+//    subscription id, history, discounts and cancel_at to re-create, and a
+//    window where the member has no subscription).
+//
+// THE `trialing` QUESTION. Stripe reports the subscription as `trialing` until
+// the new date. What that does here, checked reader by reader:
+//  · Member status is NOT demoted. recomputeMemberStatus (lib/memberStatus)
+//    counts a priced card row only by a SUCCEEDED transaction on its Stripe
+//    subscription id — never by stripeStatus (lib/memberTracks.countsAsMembership
+//    says so explicitly). A paying member has one; nothing changes.
+//  · The local row stays status "active": lib/stripeSync.localStatusFor maps
+//    trialing → active on every sync.
+//  · Reports don't count trialists from stripeStatus (reportsMembership has no
+//    trial detection; trialToPaidRate is null).
+//  · The ONE reader that keyed on it was lib/billingAdmin.deriveBillingState:
+//    trialing → "SCHEDULED — nothing has been charged yet". We write
+//    metadata.aoxPaidThrough on the subscription; lib/stripeSync copies it into
+//    the snapshot (chargeDateMovedFrom), and deriveBillingState now reads
+//    trialing + that marker as ACTIVE_STRIPE. The family's own page
+//    (/api/member/billing) shows "active" for the same reason
+//    (lib/chargeDate.displayStripeStatus).
+//  · The marker is written only when the subscription had been PAYING
+//    (active). A first charge still to come stays unmarked, so it keeps
+//    reading as Scheduled — which is the truth.
+
+async function stripeMoveFacts(subId: string, acct: string) {
+  const sub = await stripe.subscriptions.retrieve(
+    subId,
+    { expand: ["discounts", "default_payment_method", "customer.invoice_settings.default_payment_method", "items.data.price"] },
+    { stripeAccount: acct },
+  );
+  const cust = typeof sub.customer === "object" && sub.customer && !("deleted" in sub.customer && sub.customer.deleted) ? (sub.customer as Stripe.Customer) : null;
+  const pm = pmFacts(sub.default_payment_method as Stripe.PaymentMethod | null) ?? pmFacts(cust?.invoice_settings?.default_payment_method as Stripe.PaymentMethod | null);
+  const cpe = sub.current_period_end ? new Date(sub.current_period_end * 1000) : null;
+  let onceAt: Date | null = null;
+  for (const d of (sub.discounts ?? []) as (string | Stripe.Discount)[]) {
+    if (typeof d === "string") continue;
+    if (d.coupon?.duration === "once") {
+      const f = Number(d.coupon.metadata?.aoxSkipFor);
+      onceAt = f > 0 ? new Date(f * 1000) : cpe ?? new Date();
+    }
+  }
+  const item = sub.items?.data?.[0];
+  const unit = item?.price?.unit_amount;
+  const marker = Number(sub.metadata?.aoxPaidThrough);
+  return {
+    sub,
+    status: sub.status,
+    nextChargeAt: sub.status === "trialing" && sub.trial_end ? new Date(sub.trial_end * 1000) : cpe,
+    cancelAt: sub.cancel_at ? new Date(sub.cancel_at * 1000) : sub.cancel_at_period_end ? cpe : null,
+    paused: !!sub.pause_collection,
+    pmLabel: paymentMethodLabel(pm),
+    onceAt,
+    unitDollars: typeof unit === "number" ? (unit * (item?.quantity ?? 1)) / 100 : null,
+    movedPaidThrough: marker > 0 ? new Date(marker * 1000) : null,
+  };
+}
+
+export async function moveChargeDate(input: {
+  clubId: string; memberId: string; subscriptionId: string; actorUserId: string | null;
+  newDate: string; preview: boolean; expectedFrom: string | null;
+}): Promise<ActionResult> {
+  const row = await loadRow(input.clubId, input.memberId, input.subscriptionId);
+  if (!row) return { ok: false, status: 404, code: "NOT_FOUND", error: "No live membership found." };
+  const club = await clubStripe(input.clubId);
+  const now = new Date();
+  let facts: Awaited<ReturnType<typeof stripeMoveFacts>> | null = null;
+  if (row.stripeSubscriptionId) {
+    if (!club?.stripeAccountId) return { ok: false, status: 409, code: "NO_STRIPE", error: "Stripe isn't connected for this club." };
+    try {
+      facts = await stripeMoveFacts(row.stripeSubscriptionId, club.stripeAccountId);
+    } catch (e) {
+      console.error("[membershipMoney] charge date: Stripe read failed", row.id, e);
+      return { ok: false, status: 502, code: "STRIPE_UNREACHABLE", error: "Stripe couldn't be reached to check the next charge. Nothing was changed — try again in a minute." };
+    }
+  }
+  const moveRow: MoveRow = {
+    hasStripe: !!row.stripeSubscriptionId,
+    status: row.status,
+    stripeStatus: facts?.status ?? row.stripeStatus,
+    chargeAmount: facts?.unitDollars ?? (row.stripeSubscriptionId && club ? recurringUnitWithFee(Math.round(Number(row.price) * 100), club.passProcessingFees) / 100 : Number(row.price)),
+    billingPeriod: row.billingPeriod,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    autoRenew: row.autoRenew,
+    cancelAt: facts?.cancelAt ?? null,
+    paused: !!row.pausedAt || !!facts?.paused,
+    nextChargeAt: facts?.nextChargeAt ?? null,
+    paidThroughDate: row.paidThroughDate,
+    movedPaidThrough: facts?.movedPaidThrough ?? null,
+    onceDiscountAt: facts?.onceAt ?? null,
+  };
+  const plan = chargeDateMovePlan(moveRow, { newDateISO: input.newDate, pmLabel: facts?.pmLabel ?? null, now });
+  if (!plan.ok) return { ok: false, status: plan.code === "BAD_DATE" ? 400 : 409, code: plan.code, error: plan.error };
+  if (input.preview) {
+    return { ok: true, preview: true, sentence: plan.sentence, consequence: plan.consequence, facts: { from: iso(plan.from), to: iso(plan.to), freeDays: plan.freeDays, mode: plan.mode } };
+  }
+  if (!sameDay(plan.from, input.expectedFrom)) {
+    return { ok: false, status: 409, code: "STALE", error: `The next charge is now ${fmtDate(plan.from)} — review the sheet again.` };
+  }
+
+  const detail = { route: "membership/charge-date", mode: plan.mode, from: iso(plan.from), to: iso(plan.to), freeDays: plan.freeDays, stripeSubscriptionId: row.stripeSubscriptionId };
+  if (plan.mode === "OFFLINE") {
+    // set_dates semantics (lib/membershipPanel.resolveDatesEdit): on a cash
+    // row the next due date IS the paid-through date.
+    const resolved = resolveDatesEdit(
+      { startDate: row.startDate, paidThroughDate: row.paidThroughDate, endDate: row.endDate, minimumTermEndsAt: row.minimumTermEndsAt, hasStripe: false },
+      { paidThroughDate: plan.to },
+    );
+    if (!resolved.ok) return { ok: false, status: 409, code: "DATES", error: resolved.error };
+    await prisma.memberSubscription.update({ where: { id: row.id }, data: { paidThroughDate: plan.to } });
+  } else {
+    // Noon UTC on the chosen day: 00:00Z is the evening BEFORE across the US,
+    // so a "Dec 5" charge would otherwise land on the 4th for the family.
+    const toUnix = Math.floor(plan.to.getTime() / 1000) + 12 * 3600;
+    // Deterministic params: the idempotency key below is only valid for an
+    // identical request (a retried double-submit must not error or fork).
+    const metadata: Record<string, string> = { aoxChargeDateMovedTo: String(toUnix) };
+    if (plan.paidThroughMarker) metadata.aoxPaidThrough = String(Math.floor(plan.paidThroughMarker.getTime() / 1000));
+    let updated: Stripe.Subscription;
+    try {
+      updated = await stripe.subscriptions.update(
+        row.stripeSubscriptionId!,
+        { trial_end: toUnix, proration_behavior: "none", metadata },
+        { stripeAccount: club!.stripeAccountId!, idempotencyKey: `aox-charge-date-${row.id}-${Math.floor(plan.from.getTime() / 1000)}-${toUnix}` },
+      );
+    } catch (e) {
+      return { ok: false, status: 502, code: "STRIPE_FAILED", error: `Stripe didn't accept the new date — nothing was changed: ${String(e)}` };
+    }
+    // Our row, the way lib/stripeSync writes it: the next charge is the new
+    // period end, status straight from Stripe. Then the real sync (best-effort)
+    // refreshes the snapshot, including chargeDateMovedFrom.
+    await prisma.memberSubscription.update({
+      where: { id: row.id },
+      data: { currentPeriodEnd: updated.current_period_end ? new Date(updated.current_period_end * 1000) : plan.to, stripeStatus: updated.status },
+    });
+    try { await syncOneSubscription(input.clubId, row.stripeSubscriptionId!); } catch (e) { console.error("[membershipMoney] charge date: sync after move failed", row.id, e); }
+  }
+  const moved = `${fmtShort(plan.from)} → ${fmtShort(plan.to)}`;
+  await recordSubscriptionEvent({
+    clubId: input.clubId, memberSubscriptionId: row.id, memberId: input.memberId, kind: SUBSCRIPTION_EVENT_KIND.CHARGE_DATE_MOVED,
+    fromPlan: row.optionLabel, toPlan: row.optionLabel, actorUserId: input.actorUserId, source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION, detail,
+  });
+  await writeBillingAudit({
+    clubId: input.clubId, memberId: input.memberId, actorUserId: input.actorUserId, action: "CHARGE_DATE_MOVED",
+    before: { nextCharge: iso(plan.from), paidThroughDate: iso(row.paidThroughDate) },
+    after: { nextCharge: iso(plan.to), mode: plan.mode, freeDays: plan.freeDays, paidThroughMarker: iso(plan.paidThroughMarker) },
+    note: plan.mode === "OFFLINE"
+      ? `Payment due date moved ${moved} (cash/check) — ${plan.freeDays} day(s) at no charge.`
+      : plan.mode === "STRIPE_FIRST_CHARGE"
+        ? `First card charge moved ${moved} (Stripe trial_end; nothing had been charged).`
+        : `Card charge date moved ${moved} — ${plan.freeDays > 0 ? `${plan.freeDays} day(s) at no charge` : "still within the paid period"} (Stripe trial_end, proration none; renews on the new day).`,
+  });
+  return {
+    ok: true,
+    message: plan.mode === "OFFLINE"
+      ? `${row.member.firstName}'s next payment is due ${fmtDate(plan.to)}.`
+      : `${row.member.firstName}'s next charge is now ${fmtDate(plan.to)}.`,
+  };
 }

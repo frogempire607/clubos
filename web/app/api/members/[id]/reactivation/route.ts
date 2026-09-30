@@ -7,8 +7,10 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
 import { writeBillingAudit } from "@/lib/billingAudit";
-import { buildOffer, createReactivation, reactivationUrl } from "@/lib/reactivation";
+import { buildOffer, createReactivation, reactivationUrl, offerEffectivePrice } from "@/lib/reactivation";
+import { priceMoved } from "@/lib/membershipAssignQuoteServer";
 import { chargeTiming } from "@/lib/billingAdmin";
+import { checkAssignAnchor } from "@/lib/chargeDate";
 
 // Reactivation offers for one member.
 //   GET  (billing:view) — current + past offers with consent records.
@@ -67,6 +69,13 @@ const postSchema = z.object({
   // A today/past first-charge date means confirming will charge immediately —
   // the owner must acknowledge that explicitly to even create such an offer.
   acknowledgeImmediateCharge: z.boolean().optional().default(false),
+  // From the Assign sheet: price the offer with the family's automatic
+  // discount (sibling / group rate) unless staff turned it off. The price is
+  // rebuilt here; expectedFinalPrice = what the sheet showed.
+  assign: z.object({
+    applyFamily: z.boolean(),
+    expectedFinalPrice: z.number().nonnegative().optional().nullable(),
+  }).optional(),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -118,8 +127,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   } else {
     firstCharge = member.migrationFinalBillingDate ?? member.billingAnchorDate ?? null;
   }
+  // From the Assign sheet: a future first charge can't precede "Starts". A
+  // past/today date still means "charged when they accept" (acknowledged below).
+  if (data.assign && firstCharge && firstCharge.getTime() > Date.now()) {
+    const chk = checkAssignAnchor({ anchor: firstCharge, start: member.membershipStartDate ?? null, now: new Date() });
+    if (!chk.ok) return NextResponse.json({ error: chk.error.replace(" Nothing was charged.", " Nothing was sent."), code: "CHARGE_DATE_INVALID" }, { status: 400 });
+  }
 
-  const { offer, pricing, discountError } = await buildOffer(member, member.club, firstCharge);
+  const { offer, pricing, discountError } = await buildOffer(member, member.club, firstCharge, { autoDiscount: data.assign?.applyFamily === true });
 
   // A stored discount that is now removed/expired/ineligible BLOCKS the offer
   // (never silently dropped — the client would see a different price than the
@@ -128,6 +143,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json(
       { error: `The selected discount can't be applied: ${discountError} Fix or clear the discount in the billing center.`, code: "DISCOUNT_INVALID" },
       { status: 400 },
+    );
+  }
+
+  if (data.assign && priceMoved(data.assign.expectedFinalPrice, offerEffectivePrice(offer))) {
+    return NextResponse.json(
+      { error: `The price changed to $${offerEffectivePrice(offer).toFixed(2)} since the sheet opened (the family's memberships moved). Nothing was sent — review it and confirm again.`, code: "PRICE_CHANGED", price: offerEffectivePrice(offer) },
+      { status: 409 },
     );
   }
 
