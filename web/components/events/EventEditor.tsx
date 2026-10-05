@@ -22,6 +22,8 @@
 import AutoDiscountsEditor, { autoDiscountsLine } from "@/components/events/AutoDiscountsEditor";
 import { parseAutoDiscounts, type AutoDiscounts } from "@/lib/eventAutoDiscounts";
 import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { MAX_EVENT_LINKS, MAX_LINK_LABEL, MAX_LINK_URL, eventLinksForRead, hostLabel, linkProblem, normalizeLinkUrl } from "@/lib/eventLinks";
 import ImageUpload from "@/components/ImageUpload";
 import EventImageFocalPicker from "@/components/events/EventImageFocalPicker";
 import PublicLinkBox from "@/components/events/PublicLinkBox";
@@ -128,6 +130,8 @@ export type EditorEvent = {
   entriesOnPublicLink?: boolean;
   autoDiscounts?: unknown;
   cancellationPolicyText?: string | null;
+  externalLinks?: unknown;
+  registrationLink?: string | null;
   paymentDueBy?: string | null;
   escalationEnabled?: boolean | null;
   escalationAnchor?: string | null;
@@ -278,6 +282,8 @@ export default function EventEditor({
   const [tournamentMode, setTournamentMode] = useState<string>(ev?.tournamentMode || "");
   const [name, setName] = useState(ev?.name || "");
   const [description, setDescription] = useState(ev?.description || "");
+  // Labeled outside links. An address saved in the old single-link column shows up here as "Registration".
+  const [links, setLinks] = useState<{ label: string; url: string }[]>(() => eventLinksForRead(ev));
   const [imageUrl, setImageUrl] = useState<string>(ev?.imageUrl || "");
   const [imagePositionX, setImagePositionX] = useState<number>(typeof ev?.imagePositionX === "number" ? ev.imagePositionX : 50);
   const [imagePositionY, setImagePositionY] = useState<number>(typeof ev?.imagePositionY === "number" ? ev.imagePositionY : 50);
@@ -472,6 +478,7 @@ export default function EventEditor({
     approvalOn ? "coach approves" : null,
     categories.length + formFields.length > 0 ? `${categories.length + formFields.length} question${categories.length + formFields.length === 1 ? "" : "s"}` : null,
   ].filter(Boolean).join(" · ");
+  const linkCount = links.filter((l) => l.url.trim()).length;
   const capacityLine = [
     capacity ? `${capacity} spots` : "no cap",
     paymentDueBy ? `payment due ${new Date(`${paymentDueBy}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}` : null,
@@ -506,6 +513,15 @@ export default function EventEditor({
     if (mode === "ATTEND") setModel("SPLIT");
     if (mode === "HOST") setModel("FIXED");
   }
+  function moveLink(i: number, by: -1 | 1) {
+    setLinks((ls) => {
+      const j = i + by;
+      if (j < 0 || j >= ls.length) return ls;
+      const next = [...ls];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
   function addSession() {
     const lastEnd = sessions.length > 0 ? sessions[sessions.length - 1].endsAt : startsAt;
     const start = new Date(lastEnd); start.setMinutes(start.getMinutes() + 30);
@@ -538,6 +554,9 @@ export default function EventEditor({
     setError("");
     if (datesBad) { setError(`Ends before it starts. Pick an end after ${new Date(startsAt).toLocaleString()}.`); setOpen((o) => ({ ...o, schedule: true })); return; }
     if (badSessions) { setError(`${badSessions} session${badSessions === 1 ? "" : "s"} end${badSessions === 1 ? "s" : ""} before it starts.`); setOpen((o) => ({ ...o, schedule: true })); return; }
+    const orphanLabel = links.find((l) => l.label.trim() && !l.url.trim());
+    const linkIssue = orphanLabel ? `Add a web address for "${orphanLabel.label.trim()}", or remove that link.` : linkProblem(links);
+    if (linkIssue) { setError(linkIssue); setOpen((o) => ({ ...o, basics: true })); return; }
     if (!exclusions.paymentMethodsLocked && exclusions.paymentMethods.length === 0) { setError("Pick at least one way to pay, or make the event free."); setOpen((o) => ({ ...o, pay: true })); return; }
     // Checked before the event is saved, so a bad roster never leaves a saved
     // event behind with no roster (and a second Save creating a duplicate).
@@ -562,6 +581,7 @@ export default function EventEditor({
     const body = {
       type, customEventTypeId, name,
       description: description || undefined,
+      externalLinks: links.filter((l) => l.url.trim()).map((l) => ({ label: l.label.trim(), url: l.url.trim() })),
       startsAt: new Date(startsAt).toISOString(),
       endsAt: new Date(endsAt).toISOString(),
       capacity: capacity ? parseInt(capacity) : null,
@@ -681,7 +701,7 @@ export default function EventEditor({
           {signupAccess === "PUBLIC_LINK" ? " a new public link is made from the new name when you save." : " then save."}
         </div>
       )}
-      <Card title="Basics" summary={`${typeLabel} · ${name || "untitled"}${imageUrl ? " · cover photo set" : ""}`} open={!!open.basics} onToggle={() => toggle("basics")}>
+      <Card title="Basics" summary={`${typeLabel} · ${name || "untitled"}${imageUrl ? " · cover photo set" : ""}${linkCount ? ` · ${linkCount} link${linkCount === 1 ? "" : "s"}` : ""}`} open={!!open.basics} onToggle={() => toggle("basics")}>
         <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} required className={input} placeholder="Summer Intensive" /></Field>
         <div>
           <span className="block text-xs font-medium text-text-primary mb-1">Type</span>
@@ -707,6 +727,49 @@ export default function EventEditor({
         <ImageUpload label="Cover photo" value={imageUrl} onChange={setImageUrl} shape="square" placeholder="Choose photo" />
         {imageUrl && <EventImageFocalPicker imageUrl={imageUrl} x={imagePositionX} y={imagePositionY} onChange={(nx, ny) => { setImagePositionX(nx); setImagePositionY(ny); }} />}
         <Field label="Description"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className={input} /></Field>
+        <div>
+          <span className="block text-xs font-medium text-text-primary mb-1">Links</span>
+          <p className="text-xs text-text-muted mb-2">Shown to families on the event — e.g. the host&apos;s registration page, brackets, hotel block, directions.</p>
+          {links.map((l, i) => {
+            const typed = l.url.trim();
+            const bad = typed !== "" && !normalizeLinkUrl(typed);
+            const dupe = !bad && typed !== "" && links.findIndex((x) => normalizeLinkUrl(x.url) === normalizeLinkUrl(typed)) !== i;
+            return (
+              <div key={i} className="rounded-lg border border-app-border p-2.5 mb-2">
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <input
+                      value={l.label} maxLength={MAX_LINK_LABEL} aria-label={`Link ${i + 1} label`}
+                      onChange={(e) => setLinks((ls) => ls.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))}
+                      placeholder="Label — e.g. Host registration" className={input}
+                    />
+                    <input
+                      value={l.url} maxLength={MAX_LINK_URL} aria-label={`Link ${i + 1} web address`} inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+                      onChange={(e) => setLinks((ls) => ls.map((x, idx) => (idx === i ? { ...x, url: e.target.value } : x)))}
+                      onBlur={() => setLinks((ls) => ls.map((x, idx) => (idx === i && x.url.trim() && normalizeLinkUrl(x.url) ? { ...x, url: normalizeLinkUrl(x.url) as string } : x)))}
+                      placeholder="https://example.com/register" className={input}
+                    />
+                  </div>
+                  <div className="flex flex-col shrink-0">
+                    <button type="button" disabled={i === 0} onClick={() => moveLink(i, -1)} aria-label={`Move link ${i + 1} up`} className="w-11 h-11 md:w-9 md:h-9 flex items-center justify-center rounded-lg text-text-muted hover:bg-app-bg disabled:opacity-30"><ChevronUp size={18} aria-hidden="true" /></button>
+                    <button type="button" disabled={i === links.length - 1} onClick={() => moveLink(i, 1)} aria-label={`Move link ${i + 1} down`} className="w-11 h-11 md:w-9 md:h-9 flex items-center justify-center rounded-lg text-text-muted hover:bg-app-bg disabled:opacity-30"><ChevronDown size={18} aria-hidden="true" /></button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-2 mt-1">
+                  <span className={`text-xs ${bad || dupe ? "text-red-600" : "text-text-muted"}`}>
+                    {bad ? "That isn't a web address — it should look like https://example.com/page." : dupe ? "This address is already on the list." : typed && !l.label.trim() ? `Will show as "${hostLabel(normalizeLinkUrl(typed) ?? "") || "Link"}".` : ""}
+                  </span>
+                  <button type="button" onClick={() => setLinks((ls) => ls.filter((_, idx) => idx !== i))} className="text-xs text-red-600 px-2 min-h-[44px] md:min-h-[32px] shrink-0">Remove</button>
+                </div>
+              </div>
+            );
+          })}
+          {links.length < MAX_EVENT_LINKS ? (
+            <button type="button" onClick={() => setLinks((ls) => [...ls, { label: "", url: "" }])} className="px-3 py-2 rounded-lg border border-app-border text-sm font-medium text-brand min-h-[44px] md:min-h-0">+ Add link</button>
+          ) : (
+            <p className="text-xs text-text-muted">That&apos;s the most an event can have ({MAX_EVENT_LINKS}).</p>
+          )}
+        </div>
       </Card>
 
       <Card

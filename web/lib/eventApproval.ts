@@ -45,6 +45,7 @@ import { confirmationCodeFor } from "@/lib/confirmationCode";
 import { ACTIVE_REGISTRATION_STATUSES, resolveEventPolicy, approvedAutoCardChargeAt } from "@/lib/eventPayments";
 import { proposableKeys, resolveCategoryFields, resolveExtraEntryLabel } from "@/lib/eventCategories";
 import { getAppBaseUrl } from "@/lib/baseUrl";
+import { bookingActionOnApprove, releasesBookingOnDecline, sharedMemberWarning } from "@/lib/registrationLink";
 import { claimSpotsOnApprove, loadRosterDef } from "@/lib/eventRosterServer";
 import { stripe } from "@/lib/stripe";
 
@@ -59,7 +60,8 @@ export type MutationErrorCode =
   | "APPROVAL_NOT_REQUIRED"
   | "CONSENT_REQUIRED"
   | "CONSENT_AMOUNT_MISMATCH"
-  | "NO_PAYMENT_METHOD";
+  | "NO_PAYMENT_METHOD"
+  | "APPROVAL_NOT_SAVED";
 
 export type MutationFailure = {
   ok: false;
@@ -79,6 +81,11 @@ export type ApproveSuccess = {
   chargeError?: string;
   invoiceUrl?: string;
   invoiceError?: string;
+  /**
+   * Approved, but something a coach should fix: this registration shares a
+   * member record with a differently-named registration on the same event.
+   */
+  warning?: string;
 };
 
 export type DeclineSuccess = {
@@ -299,8 +306,23 @@ export async function approveRegistration(args: {
 
     // The confirmed spot appears on member-facing surfaces only now (§5.4.5:
     // no Booking exists while a registration is under review).
+    //
+    // READ FIRST, then write. This used to be `try { booking.create } catch {}`
+    // on the unique (eventId, memberId). Inside a Postgres transaction a failed
+    // statement aborts the transaction: swallowing the error let the callback
+    // return normally, COMMIT became a rollback, and the approval above was
+    // lost while this function reported success (Finger Lakes Duals, 2026-10 —
+    // approved ten times, never saved). The per-event lock below makes the
+    // read-then-create safe against a concurrent approval for the same member.
+    let warning: string | null = null;
     if (reg.memberId) {
-      try {
+      await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`evbooking:${reg.eventId}:${reg.memberId}`}, 0))`;
+      const existing = await db.booking.findUnique({
+        where: { eventId_memberId: { eventId: reg.eventId, memberId: reg.memberId } },
+        select: { id: true, status: true },
+      });
+      const action = bookingActionOnApprove(existing);
+      if (action === "create") {
         await db.booking.create({
           data: {
             eventId: reg.eventId,
@@ -309,17 +331,48 @@ export async function approveRegistration(args: {
             bookedByUserId: args.bookedByUserId ?? args.actorUserId,
           },
         });
-      } catch {
-        // Unique (eventId, memberId): a concurrent path already booked them.
-        // That is the outcome we wanted, so it is not an error for the coach.
+      } else if (action === "reconfirm" && existing) {
+        await db.booking.update({ where: { id: existing.id }, data: { status: "CONFIRMED" } });
       }
+
+      // Same member record, different athlete's name: approve (the coach's
+      // call), share the Booking, and say so instead of treating them as one.
+      const [others, member] = await Promise.all([
+        db.eventRegistration.findMany({
+          where: { eventId: reg.eventId, memberId: reg.memberId, id: { not: reg.id }, status: { not: "CANCELED" } },
+          select: { name: true },
+        }),
+        db.member.findUnique({ where: { id: reg.memberId }, select: { firstName: true, lastName: true } }),
+      ]);
+      warning = sharedMemberWarning({
+        registrationName: reg.name,
+        memberName: member ? `${member.firstName} ${member.lastName}`.trim() : null,
+        others,
+      });
     }
 
-    return { reg, updated, owed, policy, nextStatus };
+    return { reg, updated, owed, policy, nextStatus, warning };
   });
 
   if ("ok" in decided) return decided;
-  const { reg, nextStatus, owed } = decided;
+  const { reg, nextStatus, owed, warning } = decided;
+
+  // Verify, don't trust: the transaction returning is not proof it committed.
+  // Re-read the row on a fresh connection before anything irreversible — the
+  // audit row, the charge, the invoice, the email — says "approved".
+  const saved = await prisma.eventRegistration.findUnique({
+    where: { id: reg.id },
+    select: { status: true, approvalStatus: true },
+  });
+  if (!saved || saved.approvalStatus !== "APPROVED") {
+    console.error("[eventApproval] approval did not persist", reg.id, saved);
+    return fail(
+      "APPROVAL_NOT_SAVED",
+      500,
+      "Approval didn't save — nothing was charged. Try again.",
+      saved ?? reg,
+    );
+  }
 
   await writeBillingAudit({
     clubId: args.clubId,
@@ -336,6 +389,7 @@ export async function approveRegistration(args: {
     registrationId: reg.id,
     status: nextStatus,
     approvalStatus: "APPROVED",
+    ...(warning ? { warning } : {}),
   };
 
   // ── Money, after the lock is released ────────────────────────────────────
@@ -494,10 +548,18 @@ export async function declineRegistration(args: {
     }
 
     // The spot goes back.
+    // deleteMany, not delete().catch(): a statement that can fail must never be
+    // swallowed inside a transaction (see approveRegistration). And the
+    // Booking stays if another registration on the same member record still
+    // holds a confirmed spot on this event.
     if (reg.memberId) {
-      await db.booking
-        .delete({ where: { eventId_memberId: { eventId: reg.eventId, memberId: reg.memberId } } })
-        .catch(() => undefined);
+      const others = await db.eventRegistration.findMany({
+        where: { eventId: reg.eventId, memberId: reg.memberId, id: { not: reg.id } },
+        select: { status: true, approvalStatus: true },
+      });
+      if (releasesBookingOnDecline(others, ACTIVE_REGISTRATION_STATUSES)) {
+        await db.booking.deleteMany({ where: { eventId: reg.eventId, memberId: reg.memberId } });
+      }
     }
 
     return { reg, paidUpFront };
@@ -913,10 +975,18 @@ export async function respondToProposal(args: {
           },
         });
       }
+      // deleteMany, not delete().catch(): a statement that can fail must never be
+      // swallowed inside a transaction (see approveRegistration). And the
+      // Booking stays if another registration on the same member record still
+      // holds a confirmed spot on this event.
       if (reg.memberId) {
-        await db.booking
-          .delete({ where: { eventId_memberId: { eventId: reg.eventId, memberId: reg.memberId } } })
-          .catch(() => undefined);
+        const others = await db.eventRegistration.findMany({
+          where: { eventId: reg.eventId, memberId: reg.memberId, id: { not: reg.id } },
+          select: { status: true, approvalStatus: true },
+        });
+        if (releasesBookingOnDecline(others, ACTIVE_REGISTRATION_STATUSES)) {
+          await db.booking.deleteMany({ where: { eventId: reg.eventId, memberId: reg.memberId } });
+        }
       }
       return { reg, accepted: false as const, delta, changes };
     }

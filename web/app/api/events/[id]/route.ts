@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { withEntryCounts } from "@/lib/eventRosterServer";
 import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { setEventStaff } from "@/lib/staffAssignmentsServer";
+import { linkProblem, normalizeEventLinks } from "@/lib/eventLinks";
 import {
   planReprice,
   pricingChanged,
@@ -109,6 +110,13 @@ const updateSchema = z.object({
   escalationAnchor: z.enum(["registrationDeadline", "eventStart", "autoChargeDate"]).nullable().optional(),
   escalationSchedule: z.enum(["DEFAULT_TOURNAMENT", "GENTLE", "AGGRESSIVE", "CUSTOM"]).nullable().optional(),
   escalationCustomDays: z.array(z.number().int()).nullable().optional(),
+  // Labeled external links (host's registration page, hotel block, …). Loose
+  // here on purpose: lib/eventLinks does the real checking and normalizing.
+  externalLinks: z
+    .array(z.object({ label: z.string().max(200).nullable().optional(), url: z.string().max(2000).nullable().optional() }))
+    .max(40)
+    .nullable()
+    .optional(),
 });
 
 function slugify(name: string): string {
@@ -172,6 +180,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       if (!ad.ok) return NextResponse.json({ error: ad.message }, { status: 400 });
       rest.autoDiscounts = ad.value;
     }
+    // undefined = not sent, leave the stored links alone. null / [] = clear them.
+    const linkIssue = rest.externalLinks === undefined ? null : linkProblem(rest.externalLinks);
+    if (linkIssue) return NextResponse.json({ error: linkIssue }, { status: 400 });
+    const cleanLinks = rest.externalLinks === undefined ? undefined : normalizeEventLinks(rest.externalLinks);
 
     const baseType =
       "customEventTypeId" in rest
@@ -246,9 +258,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       memberPrice: _mp, nonMemberPrice: _nmp, dropInFee: _dif, visibility: _vis, purchaseAccess: _pa, publicRegistration: _pr,
       invoiceScheduledAt: _isa,
       autoDiscounts,
+      externalLinks: _el,
       ...flatRest
     } = rest;
-    void _pm; void _sa; void _siw; void _sis; void _mp; void _nmp; void _dif; void _vis; void _pa; void _pr; void _isa;
+    void _pm; void _sa; void _siw; void _sis; void _mp; void _nmp; void _dif; void _vis; void _pa; void _pr; void _isa; void _el;
     const modelWrite = model
       ? {
           pricingModel: model.pricingModel,
@@ -282,6 +295,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         ...flatRest,
         ...modelWrite,
         ...(autoDiscounts !== undefined ? { autoDiscounts: autoDiscounts as Prisma.InputJsonValue } : {}),
+        ...(cleanLinks !== undefined
+          ? { externalLinks: cleanLinks.length > 0 ? (cleanLinks as unknown as Prisma.InputJsonValue) : Prisma.DbNull }
+          : {}),
         ...(baseType ? { type: baseType } : {}),
         ...(registrationForm !== undefined ? { registrationForm: registrationForm ?? undefined } : {}),
         ...(tournamentMode !== undefined ? { tournamentMode: isTournament ? tournamentMode : null } : {}),

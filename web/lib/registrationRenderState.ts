@@ -27,6 +27,7 @@
 // price directly — a discounted registrant owes the discounted number, and the
 // page, the email and the Stripe line item must all print the same one.
 
+import { eventLinksForRead, type EventLink } from "./eventLinks";
 import {
   CHECKOUT_HOLD_MS,
   registrationWaitingOn,
@@ -104,6 +105,8 @@ export type RegistrationRenderContext = {
     declineReason: string | null;
     escalationStage: number;
     cancellationPolicyText: string | null;
+    /** The event's labeled external links (host page, hotel block …). Empty once canceled. */
+    links: EventLink[];
     clubName: string;
     clubContact: string | null;
     refundedAt: Date | null;
@@ -148,6 +151,9 @@ export type RenderEvent = PricingEvent & {
   paymentDueBy?: Date | null;
   registrationDeadline?: Date | null;
   cancellationPolicyText?: string | null;
+  /** Raw Event.externalLinks / registrationLink — read through lib/eventLinks. */
+  externalLinks?: unknown;
+  registrationLink?: string | null;
   variableCostMode?: string | null;
   /** AUTO_CARD's charge date when the owner set one; else the event start. */
   autoChargeDate?: Date | string | null;
@@ -648,6 +654,7 @@ export function renderableRegistrationState(input: RenderInput): RegistrationRen
       declineReason: reg.declinedReason ?? null,
       escalationStage: Math.max(0, reg.reminderStage ?? 0),
       cancellationPolicyText: canceled ? null : (input.cancellationPolicyText ?? event.cancellationPolicyText ?? null),
+      links: canceled ? [] : eventLinksForRead(event),
       clubName: club.name,
       clubContact,
       refundedAt: input.refundedAt ?? null,

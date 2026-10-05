@@ -6,6 +6,7 @@ import { resolveFamilyContext } from "@/lib/memberContext";
 import { rosterForSignup } from "@/lib/eventRosterServer";
 import { autoDiscountView } from "@/lib/eventAutoDiscounts";
 import { resolveEventPolicy } from "@/lib/eventPayments";
+import { eventLinksForRead } from "@/lib/eventLinks";
 
 // GET /api/member/events
 // Upcoming events visible to members. Filters out STAFF_ONLY visibility,
@@ -83,6 +84,8 @@ export async function GET(req: Request) {
         roster: await rosterForSignup(e.id, e.holdSpotDuringReview),
         // B3 slice 1 — the rule lines + group question, never the raw blob.
         autoDiscounts: autoDiscountView(e.autoDiscounts),
+        // Labeled outside links, normalized (old registrationLink included).
+        externalLinks: eventLinksForRead(e),
       };
     }),
   );

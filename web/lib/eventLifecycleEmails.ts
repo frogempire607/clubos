@@ -182,6 +182,14 @@ export function renderLifecycleEmailHtml(ctx: RegistrationRenderContext, tz?: st
        ${m.proposedChange.priceDelta ? `<p style="color:#b45309;font-size:13px;margin:-8px 0 16px">Price change if you accept: ${money(m.proposedChange.priceDelta)}</p>` : ""}`
     : "";
 
+  // The event's own links (host's registration page, hotel block, directions…).
+  // Addresses were normalized to plain http(s) by lib/eventLinks.
+  const links = m.links.length
+    ? `<p style="margin:16px 0 0;color:#57534e;font-size:13px;line-height:1.8"><strong style="color:#1c1917">Links</strong><br/>${m.links
+        .map((l) => `<a href="${escapeHtml(l.url)}" style="color:#534AB7">${escapeHtml(l.label)}</a>`)
+        .join("<br/>")}</p>`
+    : "";
+
   const buttons = [ctx.actions.primary, ...ctx.actions.secondary]
     .filter(Boolean)
     .slice(0, 2)
@@ -200,6 +208,7 @@ export function renderLifecycleEmailHtml(ctx: RegistrationRenderContext, tz?: st
   ${proposal}
   ${m.declineReason ? `<blockquote style="margin:0 0 18px;padding:10px 14px;border-left:3px solid #e7e5e4;color:#57534e">${escapeHtml(m.declineReason)}</blockquote>` : ""}
   <table style="width:100%;border-collapse:collapse;border-top:1px solid #e7e5e4;border-bottom:1px solid #e7e5e4">${rows.join("")}</table>
+  ${links}
   <p style="margin:20px 0">${buttons}</p>
   ${m.cancellationPolicyText ? `<p style="color:#a8a29e;font-size:12px;line-height:1.6">${escapeHtml(m.cancellationPolicyText)}</p>` : ""}
   <p style="color:#a8a29e;font-size:12px;line-height:1.6">
@@ -231,6 +240,7 @@ export function renderLifecycleEmailText(ctx: RegistrationRenderContext, tz?: st
     ...(m.amountDue ? [`Amount due: ${money(m.amountDue)}`] : []),
     ...(m.amountRefunded ? [`Refunded: ${money(m.amountRefunded)}`] : []),
     ...(m.declineReason ? ["", `Reason from your coach: ${m.declineReason}`] : []),
+    ...(m.links.length ? ["", "Links:", ...m.links.map((l) => `${l.label}: ${l.url}`)] : []),
     "",
     ...(ctx.actions.primary ? [`${ctx.actions.primary.label}: ${ctx.actions.primary.href}`] : []),
     `View this registration: ${ctx.confirmationUrl}`,

@@ -72,6 +72,8 @@ export default function ApproveSheet({
       // The decision stands even when the money side didn't — said out loud.
       if (typeof d.chargeError === "string") problems.push(`${it.name} approved, but the card charge didn't go through: ${d.chargeError}`);
       if (typeof d.invoiceError === "string") problems.push(`${it.name} approved, but the payment link didn't send: ${d.invoiceError}`);
+      // Approved, but two athletes share one member record — say which to fix.
+      if (typeof d.warning === "string") problems.push(d.warning);
     }
     setBusy(false);
     if (single && approved === 0) {

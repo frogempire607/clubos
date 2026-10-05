@@ -14,6 +14,7 @@ import { registrationListPrice } from "@/lib/eventRepricing";
 import { documentsForEvent } from "@/lib/eventDocuments";
 import { rosterForSignup } from "@/lib/eventRosterServer";
 import { maxEntriesFor } from "@/lib/eventEntries";
+import { eventLinksForRead } from "@/lib/eventLinks";
 
 // GET /api/public/events/[slug]
 // NO AUTH. Returns the public-safe view of an event for the /e/[slug] page:
@@ -28,6 +29,8 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       id: true,
       name: true,
       description: true,
+      externalLinks: true,
+      registrationLink: true,
       startsAt: true,
       endsAt: true,
       imageUrl: true,
@@ -163,6 +166,8 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     id: event.id,
     name: event.name,
     description: event.description,
+    // Labeled outside links, normalized to plain http(s) — never the raw column.
+    links: eventLinksForRead(event),
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     // Session-free image path — /api/files 401s for a logged-out visitor.

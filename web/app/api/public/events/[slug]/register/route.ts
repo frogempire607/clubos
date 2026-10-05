@@ -27,6 +27,7 @@ import { rosterActive, type SpotPick } from "@/lib/eventRoster";
 import { checkEntries, entriesTotalCents, type CheckedEntry } from "@/lib/eventEntries";
 import { loadRosterDef, checkPicks, writeEntries } from "@/lib/eventRosterServer";
 import { confirmationCodeFor } from "@/lib/confirmationCode";
+import { matchMemberForPublicSignup } from "@/lib/registrationLink";
 import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
 import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
 import { documentsForEvent } from "@/lib/eventDocuments";
@@ -202,11 +203,31 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     if (!checked.ok) return NextResponse.json({ error: checked.message, code: checked.code }, { status: 409 });
   }
 
-  // Try to match an existing member by email (so it shows on their account).
-  const member = await prisma.member.findFirst({
-    where: { clubId: event.clubId, email: body.email.toLowerCase(), deletedAt: null },
-    select: { id: true },
+  // Match an existing member by email AND name (so it shows on their account).
+  // The email finds the household — the athlete's own address, or a guardian's
+  // — and the name picks the athlete inside it. Email alone put two brothers
+  // registered by one parent on the same member record (2026-10). Exactly one
+  // name match links; anything else stays unlinked for staff to link from
+  // Attendees → "Link to member" (lib/registrationLink).
+  const signupEmail = body.email.trim().toLowerCase();
+  const emailIs = { equals: signupEmail, mode: "insensitive" as const };
+  const matchCandidates = await prisma.member.findMany({
+    where: {
+      clubId: event.clubId,
+      deletedAt: null,
+      OR: [
+        { email: emailIs },
+        { guardianEmail: emailIs },
+        { user: { email: emailIs } },
+        { guardian: { email: emailIs } },
+        { guardianLinks: { some: { status: { not: "REVOKED" }, user: { email: emailIs } } } },
+      ],
+    },
+    select: { id: true, firstName: true, lastName: true },
+    take: 50,
   });
+  const matchedMemberId = matchMemberForPublicSignup({ name: body.name, candidates: matchCandidates });
+  const member = matchedMemberId ? { id: matchedMemberId } : null;
 
   // Variable-cost events (any mode) do NOT charge at registration. The
   // registrant signs up now; the owner sends invoices/payment links when

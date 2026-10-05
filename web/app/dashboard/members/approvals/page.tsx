@@ -539,7 +539,7 @@ export default function MembersApprovalsPage() {
       tone: "success",
       text:
         decision === "APPROVE"
-          ? `${a.memberName} approved for ${a.eventName}.${d.chargeError ? ` The card charge didn't go through: ${d.chargeError}` : ""}`
+          ? `${a.memberName} approved for ${a.eventName}.${d.chargeError ? ` The card charge didn't go through: ${d.chargeError}` : ""}${typeof d.warning === "string" ? ` ${d.warning}` : ""}`
           : `${a.memberName}'s registration for ${a.eventName} was declined — the family has been emailed.`,
     });
     load();

@@ -13,6 +13,8 @@ import AttendeesModal from "@/components/events/AttendeesModal";
 import EventEditor, { type EditorEvent } from "@/components/events/EventEditor";
 import Link from "next/link";
 import PublicLinkBox from "@/components/events/PublicLinkBox";
+import EventLinks from "@/components/events/EventLinks";
+import { eventLinksForRead } from "@/lib/eventLinks";
 import type { EventMoneySummary } from "@/lib/eventAttendees";
 import { DEFAULT_EXTRA_ENTRY_LABEL } from "@/lib/eventCategories";
 
@@ -67,6 +69,8 @@ type Event = {
   customEventType: ClubEventType | null;
   name: string;
   description: string | null;
+  externalLinks?: unknown;
+  registrationLink?: string | null;
   startsAt: string;
   endsAt: string;
   capacity: number | null;
@@ -425,6 +429,11 @@ export default function EventsPage() {
                         <div className="px-3 py-2">
                           <div className="text-[11px] font-medium text-text-muted mb-1">Public page link</div>
                           <PublicLinkBox slug={e.publicSlug} />
+                        </div>
+                      )}
+                      {eventLinksForRead(e).length > 0 && (
+                        <div className="px-3 py-2">
+                          <EventLinks links={eventLinksForRead(e)} tone="staff" compact />
                         </div>
                       )}
                       <button

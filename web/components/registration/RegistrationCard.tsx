@@ -13,6 +13,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { RegistrationRenderContext } from "@/lib/registrationRenderState";
+import EventLinks from "@/components/events/EventLinks";
 
 const SEVERITY_STYLE: Record<RegistrationRenderContext["severity"], { bg: string; fg: string; border: string }> = {
   info: { bg: "#EEF0FB", fg: "#3F3A8C", border: "#C9CCEF" },
@@ -175,6 +176,8 @@ export default function RegistrationCard({
               <Row label="Reminders sent">{m.escalationStage}</Row>
             )}
           </div>
+
+          <EventLinks links={m.links} className="mt-5" />
 
           {(ctx.actions.primary || ctx.actions.secondary.length > 0) && (
             <div className="flex flex-wrap gap-2 mt-5">

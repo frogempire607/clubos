@@ -30,6 +30,7 @@ export const GATED = [
   ["scripts/members-grep-guards.ts"],
   ["scripts/reports-mobile-guard.ts", [], { TZ: "America/New_York" }],
   ["scripts/ui-polish-guard.ts"],
+  ["scripts/tx-swallow-guard.ts"],
   // members & families
   ["scripts/family-accounts-tests.ts"],
   ["scripts/family-fixtures-tests.ts"],
@@ -83,8 +84,10 @@ export const GATED = [
   ["scripts/event-confirmation-state-tests.ts"],
   ["scripts/event-payment-tests.ts"],
   ["scripts/registration-money-tests.ts"],
+  ["scripts/registration-match-tests.ts"],
   ["scripts/event-repricing-tests.ts"],
   ["scripts/event-comp-tests.ts"],
+  ["scripts/event-links-tests.ts"],
   // products
   ["scripts/product-settings-tests.ts"],
   ["scripts/product-booking-tests.ts"],

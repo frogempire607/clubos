@@ -10,8 +10,10 @@ import { eventFormFields, type EventFormField } from "@/lib/eventForm";
 import type { SignupRoster } from "@/components/events/SpotPicker";
 import EntriesEditor, { entriesPayload, emptyEntry, type EntryDraft } from "@/components/events/EntriesEditor";
 import { maxEntriesFor } from "@/lib/eventEntries";
+import EventLinks from "@/components/events/EventLinks";
 
 type EventCard = {
+  externalLinks?: { label: string; url: string }[];
   id: string;
   type: string;
   name: string;
@@ -620,6 +622,7 @@ export default function MemberEventsPage() {
                     {e.description && (
                       <p className="text-xs text-stone-600 mt-1 line-clamp-2 whitespace-pre-wrap">{e.description}</p>
                     )}
+                    <EventLinks links={e.externalLinks} heading={null} className="mt-2" />
                     {hasPrice && !coveredByActiveSub && (
                       <div className="text-xs text-stone-500 mt-1 flex flex-wrap gap-x-3">
                         {yourPrice && (

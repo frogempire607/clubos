@@ -10,6 +10,7 @@ import type { SignupRoster } from "@/components/events/SpotPicker";
 import EntriesEditor, { entriesPayload, emptyEntry, type EntryDraft } from "@/components/events/EntriesEditor";
 import { eventFormFields } from "@/lib/eventForm";
 import { entriesTotalCents } from "@/lib/eventEntries";
+import EventLinks from "@/components/events/EventLinks";
 
 type FormField = {
   id: string;
@@ -23,6 +24,7 @@ type PublicEvent = {
   id: string;
   name: string;
   description: string | null;
+  links?: { label: string; url: string }[];
   startsAt: string;
   endsAt: string;
   imageUrl: string | null;
@@ -390,6 +392,7 @@ export default function PublicEventPage() {
           {event.description && (
             <p className="text-sm text-stone-700 mt-3 whitespace-pre-wrap leading-relaxed">{event.description}</p>
           )}
+          <EventLinks links={event.links} className="mt-4" />
           <div className="mt-4 pt-4 border-t border-stone-100 flex items-center justify-between">
             <span className="text-xs uppercase tracking-wider text-stone-400 font-medium">Cost</span>
             <span className="text-sm font-semibold text-stone-900">{event.priceLabel}</span>

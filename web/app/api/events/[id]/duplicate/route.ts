@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
+import { normalizeEventLinks } from "@/lib/eventLinks";
 import { requirePermission } from "@/lib/apiGuard";
 
 // POST /api/events/[id]/duplicate
@@ -43,6 +44,7 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
     deletedAt: _d,
     publicSlug: _slug,
     variableCostBilledAt: _vb,
+    externalLinks: srcLinks,
     sessions,
     rosters,
     rosterPositions,
@@ -57,6 +59,8 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
     publicSlug: null,
     publicRegistration: false,
     variableCostBilledAt: null,
+    // The labeled links come along (re-checked on the way through).
+    ...(normalizeEventLinks(srcLinks).length > 0 ? { externalLinks: normalizeEventLinks(srcLinks) } : {}),
   } as unknown as Prisma.EventUncheckedCreateInput;
 
   const copy = await prisma.$transaction(async (db) => {

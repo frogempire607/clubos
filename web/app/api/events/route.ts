@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { setEventStaff } from "@/lib/staffAssignmentsServer";
 import { loadEventMoneySummaries } from "@/lib/eventAttendeesServer";
 import { requirePermission } from "@/lib/apiGuard";
+import { linkProblem, normalizeEventLinks } from "@/lib/eventLinks";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -142,7 +143,13 @@ const eventFields = {
   escalationAnchor: z.enum(["registrationDeadline", "eventStart", "autoChargeDate"]).nullable().optional(),
   escalationSchedule: z.enum(["DEFAULT_TOURNAMENT", "GENTLE", "AGGRESSIVE", "CUSTOM"]).nullable().optional(),
   escalationCustomDays: z.array(z.number().int()).nullable().optional(),
-
+  // Labeled external links (host's registration page, hotel block, …). Loose
+  // here on purpose: lib/eventLinks does the real checking and normalizing.
+  externalLinks: z
+    .array(z.object({ label: z.string().max(200).nullable().optional(), url: z.string().max(2000).nullable().optional() }))
+    .max(40)
+    .nullable()
+    .optional(),
 };
 
 const createSchema = z.object({
@@ -188,6 +195,10 @@ export async function POST(req: Request) {
       if (!ad.ok) return NextResponse.json({ error: ad.message }, { status: 400 });
       data.autoDiscounts = ad.value;
     }
+
+    const linkIssue = linkProblem(data.externalLinks);
+    if (linkIssue) return NextResponse.json({ error: linkIssue }, { status: 400 });
+    const externalLinks = normalizeEventLinks(data.externalLinks);
 
     const startsAt = new Date(data.startsAt);
     const endsAt = new Date(data.endsAt);
@@ -299,6 +310,7 @@ export async function POST(req: Request) {
         escalationAnchor: data.escalationAnchor ?? undefined,
         escalationSchedule: data.escalationSchedule ?? undefined,
         escalationCustomDays: data.escalationCustomDays ?? undefined,
+        externalLinks: externalLinks.length > 0 ? (externalLinks as unknown as Prisma.InputJsonValue) : undefined,
         sessions: data.sessions?.length
           ? {
               create: data.sessions.map((s, i) => ({

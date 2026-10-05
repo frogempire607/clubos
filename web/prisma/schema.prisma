@@ -1592,6 +1592,11 @@ model Event {
   imagePositionY         Int       @default(50)
   isTournament           Boolean   @default(false)
   registrationLink       String?
+  // Labeled links families can open from the event — the host's registration
+  // page, results, hotel block, directions. Array of { label, url }, max 8,
+  // always written through lib/eventLinks.normalizeEventLinks. When empty, a
+  // non-empty registrationLink above is shown as one link ("Registration").
+  externalLinks          Json?
   registrationDeadline   DateTime?
   registrationOpen       Boolean?
   divisions              String?

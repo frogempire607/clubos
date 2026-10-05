@@ -116,6 +116,7 @@ export default function DecisionSheet({
     if (d.invoiceError) onDone({ ok: false, text: `Approved — but the payment link didn't send: ${d.invoiceError}` });
     else if (d.chargeError) onDone({ ok: false, text: `Approved — but the card charge didn't go through: ${d.chargeError}` });
     else if (d.refund?.error) onDone({ ok: false, text: `Declined — but the refund failed: ${d.refund.error}. Check Stripe.` });
+    else if (action === "approve" && typeof d.warning === "string") onDone({ ok: false, text: `${reg.name} approved. ${d.warning}` });
     else
       onDone({
         ok: true,
