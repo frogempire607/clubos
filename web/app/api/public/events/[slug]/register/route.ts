@@ -27,7 +27,9 @@ import { rosterActive, type SpotPick } from "@/lib/eventRoster";
 import { checkEntries, entriesTotalCents, type CheckedEntry } from "@/lib/eventEntries";
 import { loadRosterDef, checkPicks, writeEntries } from "@/lib/eventRosterServer";
 import { confirmationCodeFor } from "@/lib/confirmationCode";
-import { matchMemberForPublicSignup } from "@/lib/registrationLink";
+import { findMemberForPublicSignup } from "@/lib/publicSignupMember";
+import { linkAccess, urlEventFor, VIA_KEY, VIA_PRIVATE_LINK, VIA_LINK_ID_KEY } from "@/lib/eventShareLink";
+import { resolveEventLink, shareTokenFingerprint } from "@/lib/eventShareLinkServer";
 import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
 import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
 import { documentsForEvent } from "@/lib/eventDocuments";
@@ -96,8 +98,11 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
+  // /e/<slug> or the private /e/s-<token> — one route, so the form, payment
+  // options, coach approval, sibling pricing and emails are identical.
+  const link = await resolveEventLink(params.slug);
   const event = await prisma.event.findUnique({
-    where: { publicSlug: params.slug },
+    where: link.where,
     include: {
       club: true,
       // Phase 5 §5.3.1 — the type's defaultPolicy is half of what
@@ -114,26 +119,22 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       },
     },
   });
-  if (!event || event.deletedAt) {
-    return NextResponse.json({ error: "Event not found" }, { status: 404 });
+  const now = new Date();
+  // What a private link opens that the public one doesn't is decided in
+  // lib/eventShareLink.linkAccess — not here.
+  const access = linkAccess(link.via, event, now);
+  if (!event || !access.ok) {
+    return NextResponse.json(
+      { error: access.ok ? "Event not found" : access.error },
+      { status: access.ok ? 404 : access.status },
+    );
   }
-  const publicOpen =
-    event.signupAccess !== "STAFF_ONLY" &&
-    (event.signupAccess === "PUBLIC_LINK" || event.publicRegistration || event.tournamentMode === "HOST");
-  if (!publicOpen) {
+  if (!access.canRegister) {
     return NextResponse.json({ error: "Public registration is not enabled for this event" }, { status: 403 });
   }
-
-  const now = new Date();
-  if (event.publishAt && event.publishAt > now) {
-    return NextResponse.json({ error: "Registration is not open yet" }, { status: 403 });
-  }
-  if (event.unpublishAt && event.unpublishAt < now) {
-    return NextResponse.json({ error: "Registration has closed" }, { status: 403 });
-  }
-  if (event.registrationDeadline && event.registrationDeadline < now) {
-    return NextResponse.json({ error: "The registration deadline has passed" }, { status: 403 });
-  }
+  // Where this registrant is sent afterwards. A private-link signup gets the
+  // /r/<id> address: it never names the public slug, and it outlives the link.
+  const urlEvent = urlEventFor(link.via, event);
   const policy = resolveEventPolicy(event);
 
   // The count in the query above used the default capacity rule (a
@@ -209,24 +210,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // registered by one parent on the same member record (2026-10). Exactly one
   // name match links; anything else stays unlinked for staff to link from
   // Attendees → "Link to member" (lib/registrationLink).
-  const signupEmail = body.email.trim().toLowerCase();
-  const emailIs = { equals: signupEmail, mode: "insensitive" as const };
-  const matchCandidates = await prisma.member.findMany({
-    where: {
-      clubId: event.clubId,
-      deletedAt: null,
-      OR: [
-        { email: emailIs },
-        { guardianEmail: emailIs },
-        { user: { email: emailIs } },
-        { guardian: { email: emailIs } },
-        { guardianLinks: { some: { status: { not: "REVOKED" }, user: { email: emailIs } } } },
-      ],
-    },
-    select: { id: true, firstName: true, lastName: true },
-    take: 50,
-  });
-  const matchedMemberId = matchMemberForPublicSignup({ name: body.name, candidates: matchCandidates });
+  const matchedMemberId = await findMemberForPublicSignup({ clubId: event.clubId, email: body.email, name: body.name });
   const member = matchedMemberId ? { id: matchedMemberId } : null;
 
   // Variable-cost events (any mode) do NOT charge at registration. The
@@ -400,6 +384,12 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
         ...(gatedDocs.length > 0
           ? { __documentsAcknowledged: `${new Date().toISOString()} — ${gatedDocs.map((d) => d.title).join("; ")}` }
           : {}),
+        // Server-written, so staff can tell a private-link signup apart and
+        // "Register again" can send the family back to the link they used.
+        // Only a fingerprint of the token is kept — never the token.
+        ...(link.via === "token"
+          ? { [VIA_KEY]: VIA_PRIVATE_LINK, ...(link.token ? { [VIA_LINK_ID_KEY]: shareTokenFingerprint(link.token) } : {}) }
+          : {}),
       },
       // A card registration isn't complete until Stripe confirms it. When the
       // coach has to approve first, nothing else is complete either: the row
@@ -521,8 +511,8 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
         mode: "setup",
         customer: customer.id,
         currency: "usd",
-        success_url: registrationReturnUrl(baseUrl, event, registration.id, "paid"),
-        cancel_url: registrationReturnUrl(baseUrl, event, registration.id, "canceled"),
+        success_url: registrationReturnUrl(baseUrl, urlEvent, registration.id, "paid"),
+        cancel_url: registrationReturnUrl(baseUrl, urlEvent, registration.id, "canceled"),
         metadata: { guestCardRegistrationId: registration.id, clubId: event.clubId, eventId: event.id },
         setup_intent_data: { metadata: { guestCardRegistrationId: registration.id, clubId: event.clubId } },
       },
@@ -544,7 +534,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     return NextResponse.json({
       ok: true,
       registrationId: registration.id,
-      confirmationUrl: registrationUrl(baseUrlFromRequest(req), event, registration.id),
+      confirmationUrl: registrationUrl(baseUrlFromRequest(req), urlEvent, registration.id),
       pendingReview: true,
       awaitingApproval: true,
       amountDue: billOnApproval ? amountDue : null,
@@ -560,7 +550,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     return NextResponse.json({
       ok: true,
       registrationId: registration.id,
-      confirmationUrl: registrationUrl(baseUrlFromRequest(req), event, registration.id),
+      confirmationUrl: registrationUrl(baseUrlFromRequest(req), urlEvent, registration.id),
       variableCost: true,
       billedLater: true,
       estimatedShare,
@@ -584,7 +574,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       ok: true,
       free: true,
       registrationId: registration.id,
-      confirmationUrl: registrationUrl(baseUrlFromRequest(req), event, registration.id),
+      confirmationUrl: registrationUrl(baseUrlFromRequest(req), urlEvent, registration.id),
       ...(applied ? { discountCode: applied.code ?? applied.label, discountLabel: applied.label, discountOff: discountFields.discountAmount, discountNote } : {}),
       ...(applied && grossDue > 0
         ? { message: `You're registered — ${applied.label} covered the full $${grossDue.toFixed(2)}.` }
@@ -612,7 +602,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     return NextResponse.json({
       ok: true,
       registrationId: registration.id,
-      confirmationUrl: registrationUrl(baseUrlFromRequest(req), event, registration.id),
+      confirmationUrl: registrationUrl(baseUrlFromRequest(req), urlEvent, registration.id),
       offline: true,
       ...(policy.requiresCoachApproval ? { pendingReview: true, awaitingApproval: true } : {}),
       paymentMethod: method,
@@ -681,8 +671,8 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       // The live confirmation surface, which reads the row. The old
       // `?registered=true` rendered success from a query parameter — in
       // parallel with the webhook that had not written anything yet.
-      success_url: registrationReturnUrl(baseUrl, event, registration.id, "paid"),
-      cancel_url: registrationReturnUrl(baseUrl, event, registration.id, "canceled"),
+      success_url: registrationReturnUrl(baseUrl, urlEvent, registration.id, "paid"),
+      cancel_url: registrationReturnUrl(baseUrl, urlEvent, registration.id, "canceled"),
       payment_intent_data: {
         application_fee_amount: platformFee,
         metadata: {
@@ -714,6 +704,6 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     ok: true,
     url: checkout.url,
     registrationId: registration.id,
-    confirmationUrl: registrationUrl(baseUrl, event, registration.id),
+    confirmationUrl: registrationUrl(baseUrl, urlEvent, registration.id),
   });
 }

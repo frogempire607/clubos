@@ -13,6 +13,7 @@ import AttendeesModal from "@/components/events/AttendeesModal";
 import EventEditor, { type EditorEvent } from "@/components/events/EventEditor";
 import Link from "next/link";
 import PublicLinkBox from "@/components/events/PublicLinkBox";
+import PrivateShareLink from "@/components/events/PrivateShareLink";
 import EventLinks from "@/components/events/EventLinks";
 import { eventLinksForRead } from "@/lib/eventLinks";
 import type { EventMoneySummary } from "@/lib/eventAttendees";
@@ -431,6 +432,9 @@ export default function EventsPage() {
                           <PublicLinkBox slug={e.publicSlug} />
                         </div>
                       )}
+                      <div className="px-3 py-2">
+                        <PrivateShareLink eventId={e.id} />
+                      </div>
                       {eventLinksForRead(e).length > 0 && (
                         <div className="px-3 py-2">
                           <EventLinks links={eventLinksForRead(e)} tone="staff" compact />

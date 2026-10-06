@@ -88,6 +88,7 @@ export const GATED = [
   ["scripts/event-repricing-tests.ts"],
   ["scripts/event-comp-tests.ts"],
   ["scripts/event-links-tests.ts"],
+  ["scripts/event-share-link-tests.ts"],
   // products
   ["scripts/product-settings-tests.ts"],
   ["scripts/product-booking-tests.ts"],

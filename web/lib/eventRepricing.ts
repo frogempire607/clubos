@@ -252,6 +252,24 @@ export function registrationListPrice(
   return 0;
 }
 
+/**
+ * The two prices a signup link can charge, for telling a family which one is
+ * theirs BEFORE they submit:
+ *
+ *   member  — a signup matched to a member (email AND name);
+ *   other   — everyone else.
+ *
+ * Both come from `registrationListPrice`, so this can't drift from what the
+ * register route charges. `differ` is false when the event has one price (or
+ * the owner pointed the link at the member price): then everyone pays the
+ * same and there is nothing to explain.
+ */
+export function registrationPriceTiers(event: PricingEvent): { member: number; other: number; differ: boolean } {
+  const member = registrationListPrice(event, { memberId: "member" });
+  const other = registrationListPrice(event, null);
+  return { member, other, differ: member > 0 && other > 0 && member !== other };
+}
+
 export function grossExpectedAmount(
   event: PricingEvent,
   activeCount: number,

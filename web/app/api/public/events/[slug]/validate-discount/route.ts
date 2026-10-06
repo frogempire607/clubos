@@ -5,6 +5,9 @@ import { findValidDiscountFor } from "@/lib/discounts";
 import { registrationListPrice } from "@/lib/eventRepricing";
 import { eventChargeBreakdown } from "@/lib/eventDiscounts";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
+import { linkAccess } from "@/lib/eventShareLink";
+import { resolveEventLink } from "@/lib/eventShareLinkServer";
+import { findMemberForPublicSignup } from "@/lib/publicSignupMember";
 
 // POST /api/public/events/[slug]/validate-discount
 // NO AUTH. Live validation for the code field on the public event page, so a
@@ -19,7 +22,14 @@ import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
 // the code against the same server-derived price and recomputes the money.
 // This endpoint exists so the number on screen matches, not so it can be
 // passed through.
-const schema = z.object({ code: z.string().min(1).max(50) });
+// name + email are optional: when the event has a member price and a
+// non-member price, they pick the one the register route will charge, so the
+// preview is against the right number.
+const schema = z.object({
+  code: z.string().min(1).max(50),
+  name: z.string().max(200).optional().nullable(),
+  email: z.string().max(320).optional().nullable(),
+});
 
 export async function POST(req: Request, context: { params: Promise<{ slug: string }> }) {
   // Same bucket shape as public registration. Without this the endpoint is a
@@ -37,12 +47,17 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     return NextResponse.json({ error: "Enter a discount code." }, { status: 400 });
   }
 
+  const link = await resolveEventLink(params.slug);
   const event = await prisma.event.findUnique({
-    where: { publicSlug: params.slug },
+    where: link.where,
     select: {
       id: true,
       clubId: true,
       deletedAt: true,
+      publishAt: true,
+      unpublishAt: true,
+      registrationDeadline: true,
+      signupAccess: true,
       publicRegistration: true,
       tournamentMode: true,
       publicPricingOption: true,
@@ -53,8 +68,12 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       club: { select: { passProcessingFees: true } },
     },
   });
-  if (!event || event.deletedAt) return NextResponse.json({ error: "Event not found" }, { status: 404 });
-  if (!event.publicRegistration && event.tournamentMode !== "HOST") {
+  // Same decision as the register route (lib/eventShareLink.linkAccess).
+  const access = linkAccess(link.via, event);
+  if (!event || !access.ok) {
+    return NextResponse.json({ error: access.ok ? "Event not found" : access.error }, { status: access.ok ? 404 : access.status });
+  }
+  if (!access.canRegister) {
     return NextResponse.json({ error: "Public registration is not enabled for this event" }, { status: 403 });
   }
 
@@ -64,7 +83,11 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // it — but this endpoint won't invent a number.
   // Same resolver as the register route below it, so a code previewed here
   // against a member-priced event quotes the same number it will apply to.
-  const gross = registrationListPrice(event);
+  const memberId =
+    body.name?.trim() && body.email?.trim()
+      ? await findMemberForPublicSignup({ clubId: event.clubId, email: body.email, name: body.name })
+      : null;
+  const gross = registrationListPrice(event, { memberId });
   if (event.variableCostEnabled || gross <= 0) {
     const check = await findValidDiscountFor(event.clubId, body.code, { type: "EVENT", eventId: event.id });
     if (!check.ok) return NextResponse.json({ valid: false, error: check.error }, { status: 200 });

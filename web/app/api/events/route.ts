@@ -8,12 +8,16 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { setEventStaff } from "@/lib/staffAssignmentsServer";
 import { loadEventMoneySummaries } from "@/lib/eventAttendeesServer";
+import { reserveSlug } from "@/lib/eventShareLink";
 import { requirePermission } from "@/lib/apiGuard";
 import { linkProblem, normalizeEventLinks } from "@/lib/eventLinks";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Staff list only. Families read events through /api/member/events, which
+  // applies visibility — this route returns every event, hidden ones included.
+  if (session.user.role === "MEMBER") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { searchParams } = new URL(req.url);
   const upcoming = searchParams.get("upcoming") === "true";
@@ -165,11 +169,13 @@ const createSchema = z.object({
 
 // Slugify + ensure uniqueness for the public registration link.
 async function uniqueSlug(name: string): Promise<string> {
-  const base = name
+  // reserveSlug: a name that would slug to `s-<token-shaped>` is kept out of
+  // the private-link namespace (lib/eventShareLink).
+  const base = reserveSlug(name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 48) || "event";
+    .slice(0, 48) || "event");
   let slug = base;
   let n = 1;
   // Loop until we find an unused slug. Bounded by a sane cap.

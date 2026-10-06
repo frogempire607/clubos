@@ -38,6 +38,8 @@ type PublicEvent = {
   registrationForm: FormField[];
   price: number | null;
   priceLabel: string;
+  // Set only when a member and a non-member pay different amounts.
+  priceTiers?: { member: number; other: number } | null;
   variableCost?: boolean;
   capacityReached: boolean;
   registrationOpen: boolean;
@@ -109,6 +111,12 @@ export default function PublicEventPage() {
     message?: string;
   }>(null);
 
+  // Which of the two prices this athlete pays — the server's answer for the
+  // name + email typed so far (POST …/quote). `key` is what it was asked for,
+  // so an edited name can never keep an old answer on screen.
+  const [quote, setQuote] = useState<null | { key: string; tier: "MEMBER" | "NON_MEMBER"; price: number }>(null);
+  const [quoteNotice, setQuoteNotice] = useState("");
+
   const justRegistered = searchParams.get("registered") === "true";
   const justPaid = searchParams.get("paid") === "true";
   const wasCanceled = searchParams.get("canceled") === "true";
@@ -144,6 +152,38 @@ export default function PublicEventPage() {
   const eventDocs = event?.documents ?? [];
   const gatedDocs = eventDocs.filter((d) => d.requirement !== "INFO");
 
+  const twoPrices = !!event?.priceTiers && !event.variableCost;
+  const quoteKey = `${name.trim().replace(/\s+/g, " ").toLowerCase()}|${email.trim().toLowerCase()}`;
+  const activeQuote = twoPrices && quote && quote.key === quoteKey ? quote : null;
+  // The price one entry costs THIS athlete: the server's quote once it has
+  // one, else the non-member price the page opened with.
+  const unitPrice = activeQuote ? activeQuote.price : (event?.price ?? null);
+
+  // Ask the server which price applies. Returns the quote (or null when the
+  // name/email aren't ready or the request failed — the register route still
+  // charges the right amount; this only decides what the page says).
+  async function fetchQuote(): Promise<{ key: string; tier: "MEMBER" | "NON_MEMBER"; price: number } | null> {
+    if (!twoPrices || !name.trim() || !/^\S+@\S+\.\S+$/.test(email.trim())) return null;
+    if (quote && quote.key === quoteKey) return quote;
+    const key = quoteKey;
+    try {
+      const res = await fetch(`/api/public/events/${slug}/quote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), email: email.trim() }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || (d.tier !== "MEMBER" && d.tier !== "NON_MEMBER") || typeof d.price !== "number") return null;
+      const q = { key, tier: d.tier as "MEMBER" | "NON_MEMBER", price: d.price as number };
+      setQuote(q);
+      // A code previewed against the other price is stale — check it again.
+      if (applied && q.price !== unitPrice) { setApplied(null); setCodeInput(applied.code); }
+      return q;
+    } catch {
+      return null;
+    }
+  }
+
   async function applyCode() {
     const code = codeInput.trim();
     if (!code) return;
@@ -153,7 +193,7 @@ export default function PublicEventPage() {
       const res = await fetch(`/api/public/events/${slug}/validate-discount`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, ...(twoPrices && name.trim() && email.trim() ? { name: name.trim(), email: email.trim() } : {}) }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -187,14 +227,14 @@ export default function PublicEventPage() {
   // total and the server applies the code to it.
   const entryCount = Math.max(1, entryDrafts.length);
   const entriesTotal =
-    event?.price != null
+    unitPrice != null
       ? entriesTotalCents(
-          Math.round(event.price * 100),
+          Math.round(unitPrice * 100),
           entryCount,
-          event.entryRules?.additionalEntryPrice != null ? Math.round(event.entryRules.additionalEntryPrice * 100) : null,
+          event?.entryRules?.additionalEntryPrice != null ? Math.round(event.entryRules.additionalEntryPrice * 100) : null,
         ) / 100
       : 0;
-  const payableNow = entryCount > 1 ? entriesTotal : applied?.quotable && applied.net != null ? applied.net : (event?.price ?? 0);
+  const payableNow = entryCount > 1 ? entriesTotal : applied?.quotable && applied.net != null ? applied.net : (unitPrice ?? 0);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -220,6 +260,23 @@ export default function PublicEventPage() {
       setError(built.message);
       return;
     }
+    // Two prices: make sure the amount on the button is THIS athlete's before
+    // anything is submitted. If the server's answer changes what the page was
+    // showing, stop once so they can read it — the next press registers.
+    if (twoPrices) {
+      const shown = unitPrice;
+      setSubmitting(true);
+      const q = await fetchQuote();
+      setSubmitting(false);
+      if (q && q.price !== shown) {
+        setError("");
+        setQuoteNotice(
+          `${q.tier === "MEMBER" ? "Member price" : "Non-member price"} $${q.price.toFixed(2)} applies to ${name.trim()}. Check the total, then register.`,
+        );
+        return;
+      }
+    }
+    setQuoteNotice("");
     setSubmitting(true);
     setError("");
     const res = await fetch(`/api/public/events/${slug}/register`, {
@@ -501,7 +558,8 @@ export default function PublicEventPage() {
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-1">Full name *</label>
               <input
-                type="text" required value={name} onChange={(e) => setName(e.target.value)}
+                type="text" required value={name} onChange={(e) => { setName(e.target.value); setQuoteNotice(""); }}
+                onBlur={() => { void fetchQuote(); }}
                 className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2"
                 style={{ outlineColor: accent }}
               />
@@ -510,7 +568,8 @@ export default function PublicEventPage() {
               <div>
                 <label className="block text-sm font-medium text-stone-700 mb-1">Email *</label>
                 <input
-                  type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+                  type="email" required value={email} onChange={(e) => { setEmail(e.target.value); setQuoteNotice(""); }}
+                  onBlur={() => { void fetchQuote(); }}
                   className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2"
                 />
               </div>
@@ -522,6 +581,32 @@ export default function PublicEventPage() {
                 />
               </div>
             </div>
+
+            {twoPrices && event.priceTiers && (
+              <div className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2.5" aria-live="polite">
+                {activeQuote ? (
+                  <>
+                    <p className="text-sm font-semibold text-stone-900">
+                      {activeQuote.tier === "MEMBER" ? "Member price" : "Non-member price"} ${activeQuote.price.toFixed(2)}
+                    </p>
+                    <p className="text-xs text-stone-600 mt-0.5">
+                      {activeQuote.tier === "MEMBER"
+                        ? `We matched ${name.trim()} to a ${event.club.name} membership.`
+                        : `We couldn't match this name and email to a ${event.club.name} membership. A member? Use the athlete's name and the email on the membership.`}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium text-stone-900">
+                      Members ${event.priceTiers.member.toFixed(2)} · Non-members ${event.priceTiers.other.toFixed(2)}
+                    </p>
+                    <p className="text-xs text-stone-600 mt-0.5">
+                      We match your athlete by name and email — your price shows here once both are filled in.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
 
             {event.autoDiscounts?.group && (
               <div>
@@ -559,7 +644,7 @@ export default function PublicEventPage() {
               maxEntries={event.entryRules?.max ?? 1}
               athleteName={name.trim().split(/\s+/)[0] || null}
               approvalGated={!!event.requiresCoachApproval}
-              unitPriceCents={event.price != null ? Math.round(event.price * 100) : null}
+              unitPriceCents={unitPrice != null ? Math.round(unitPrice * 100) : null}
               additionalCents={event.entryRules?.additionalEntryPrice != null ? Math.round(event.entryRules.additionalEntryPrice * 100) : null}
               accent={accent}
             />
@@ -805,6 +890,9 @@ export default function PublicEventPage() {
               </div>
             )}
 
+            {quoteNotice && (
+              <div className="text-sm text-stone-900 bg-stone-100 border border-stone-300 rounded-lg px-3 py-2" role="status">{quoteNotice}</div>
+            )}
             {error && (
               <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>
             )}

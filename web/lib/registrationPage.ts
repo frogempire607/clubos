@@ -13,6 +13,8 @@ import { getAppBaseUrl, baseUrlFromRequest } from "@/lib/baseUrl";
 import { resolveCardSnapshot, prettyBrand } from "@/lib/memberCard";
 import { resolveEventPolicy } from "@/lib/eventPayments";
 import { confirmationCodeFor } from "@/lib/confirmationCode";
+import { viaLinkId, shareTokenForReturn } from "@/lib/eventShareLink";
+import { shareTokenForEvent, shareTokenFingerprint } from "@/lib/eventShareLinkServer";
 import {
   renderableRegistrationState,
   type RegistrationRenderContext,
@@ -85,10 +87,20 @@ export async function loadRegistrationPage(registrationId: string): Promise<Load
     }
   }
 
+  // "Register again" goes back to the private link only for someone who came
+  // in by it, and only while that same link is still the event's link.
+  const storedLinkId = viaLinkId(reg.formResponses);
+  const currentToken = storedLinkId ? await shareTokenForEvent(reg.eventId) : null;
+  const shareToken = shareTokenForReturn({
+    storedLinkId,
+    currentToken,
+    currentLinkId: currentToken ? shareTokenFingerprint(currentToken) : null,
+  });
+
   const policy = resolveEventPolicy(reg.event);
   const ctx = renderableRegistrationState({
     registration: { ...reg, confirmationCode: code },
-    event: reg.event,
+    event: { ...reg.event, shareToken },
     club: reg.club,
     activeCount,
     baseUrl: baseUrlFromHeaders(),

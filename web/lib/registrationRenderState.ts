@@ -27,6 +27,7 @@
 // price directly — a discounted registrant owes the discounted number, and the
 // page, the email and the Stripe line item must all print the same one.
 
+import { cameViaPrivateLink, registerAgainPath } from "@/lib/eventShareLink";
 import { eventLinksForRead, type EventLink } from "./eventLinks";
 import {
   CHECKOUT_HOLD_MS,
@@ -148,6 +149,8 @@ export type RenderEvent = PricingEvent & {
   startsAt: Date;
   endsAt: Date;
   publicSlug?: string | null;
+  /** The event's private share link token, when the caller loaded it. */
+  shareToken?: string | null;
   paymentDueBy?: Date | null;
   registrationDeadline?: Date | null;
   cancellationPolicyText?: string | null;
@@ -426,7 +429,13 @@ export function renderableRegistrationState(input: RenderInput): RegistrationRen
       timeZone: tz,
     });
 
-  const registerAgainHref = event.publicSlug ? `${baseUrl}/e/${event.publicSlug}` : `${baseUrl}/member/events`;
+  // Someone who came in by the private link goes back to it, not to a public
+  // page that may not exist for this event (lib/eventShareLink).
+  const registerAgainHref = `${baseUrl}${registerAgainPath({
+    publicSlug: event.publicSlug,
+    shareToken: event.shareToken,
+    viaPrivateLink: cameViaPrivateLink(reg.formResponses),
+  })}`;
   const calendar = { label: "Add to calendar", href: `${confirmationUrl}/calendar.ics` };
 
   let headline: string;

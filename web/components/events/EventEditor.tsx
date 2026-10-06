@@ -27,6 +27,7 @@ import { MAX_EVENT_LINKS, MAX_LINK_LABEL, MAX_LINK_URL, eventLinksForRead, hostL
 import ImageUpload from "@/components/ImageUpload";
 import EventImageFocalPicker from "@/components/events/EventImageFocalPicker";
 import PublicLinkBox from "@/components/events/PublicLinkBox";
+import PrivateShareLink, { PRIVATE_LINK_HINT } from "@/components/events/PrivateShareLink";
 import { validateRosterDef, rostersNamedInLabel } from "@/lib/eventRoster";
 import { ESCALATION_SCHEDULE_DAYS, type EscalationSchedule } from "@/lib/eventPayments";
 import {
@@ -940,6 +941,17 @@ export default function EventEditor({
           </div>
         )}
         {exclusions.publicLinkLocked && <Lock>{exclusions.publicLinkLocked}</Lock>}
+        {/* The private link works whatever is chosen above — that is its point. */}
+        <div className="rounded-xl bg-app-bg px-3 py-2.5">
+          {ev?.id ? (
+            <PrivateShareLink eventId={ev.id} />
+          ) : (
+            <>
+              <p className="text-xs font-medium text-text-primary">Private share link</p>
+              <p className="text-xs text-text-muted mt-1">Save the event first, then create a private link here. {PRIVATE_LINK_HINT}</p>
+            </>
+          )}
+        </div>
         <div>
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-medium text-text-primary">Signup questions</span>

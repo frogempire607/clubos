@@ -1713,6 +1713,8 @@ model Event {
   registrations    EventRegistration[]
   rosters          EventRoster[]
   rosterPositions  EventRosterPosition[]
+  // The private share link (/e/s-<token>), when a coach has made one.
+  shareLink        EventShareLink?
   entries          EventRegistrationEntry[]
   bundleItems      EventBundleItem[]
   expenseItems     EventExpenseItem[]
@@ -1802,6 +1804,30 @@ model EventRosterPosition {
 
   @@index([eventId])
   @@map("event_roster_positions")
+}
+
+// An event's PRIVATE share link: /e/s-<token>. Anyone holding the link can see
+// and register for the event even when it is not public; the event is never
+// listed anywhere because of it. One per event; "Make a new link" replaces the
+// token (the old link stops working), "Turn off" deletes the row.
+//
+// Its own table ON PURPOSE, not a column on Event: many routes hand whole
+// event rows to members and staff (GET /api/events, the portal, the schedule),
+// and a column would ride along in every one of them. Nothing reads this table
+// except lib/eventShareLinkServer and /api/events/[id]/share-link.
+model EventShareLink {
+  id              String   @id @default(cuid())
+  eventId         String   @unique
+  clubId          String
+  token           String   @unique
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([clubId])
+  @@map("event_share_links")
 }
 
 // One spot a registration asked for. Carries no money — EventRegistration is

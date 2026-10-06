@@ -10,7 +10,9 @@ import {
   publicSignupRequiresAccount,
   publicPaymentMethods,
 } from "@/lib/eventPayments";
-import { registrationListPrice } from "@/lib/eventRepricing";
+import { registrationListPrice, registrationPriceTiers } from "@/lib/eventRepricing";
+import { linkAccess } from "@/lib/eventShareLink";
+import { resolveEventLink } from "@/lib/eventShareLinkServer";
 import { documentsForEvent } from "@/lib/eventDocuments";
 import { rosterForSignup } from "@/lib/eventRosterServer";
 import { maxEntriesFor } from "@/lib/eventEntries";
@@ -19,12 +21,15 @@ import { eventLinksForRead } from "@/lib/eventLinks";
 // GET /api/public/events/[slug]
 // NO AUTH. Returns the public-safe view of an event for the /e/[slug] page:
 // image, info, owner-defined registration form, and the price a non-member
-// would pay. Only resolves events that have a publicSlug and are within their
-// publish window.
+// would pay. Resolves an event by its publicSlug, or — when the segment is
+// `s-<token>` — by its private share link (lib/eventShareLink has the rules for
+// what a private link opens that the public one doesn't). The response never
+// carries the slug or the token, so neither link gives the other away.
 export async function GET(_req: Request, context: { params: Promise<{ slug: string }> }) {
   const params = await context.params;
+  const link = await resolveEventLink(params.slug);
   const event = await prisma.event.findUnique({
-    where: { publicSlug: params.slug },
+    where: link.where,
     select: {
       id: true,
       name: true,
@@ -102,24 +107,18 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     },
   });
 
-  if (!event || event.deletedAt) {
-    return NextResponse.json({ error: "Event not found" }, { status: 404 });
-  }
-
-  const now = new Date();
-  if (event.publishAt && event.publishAt > now) {
-    return NextResponse.json({ error: "Registration is not open yet" }, { status: 403 });
-  }
-  if (event.unpublishAt && event.unpublishAt < now) {
-    return NextResponse.json({ error: "Registration has closed" }, { status: 403 });
-  }
-  if (event.registrationDeadline && event.registrationDeadline < now) {
-    return NextResponse.json({ error: "The registration deadline has passed" }, { status: 403 });
+  const access = linkAccess(link.via, event);
+  if (!event || !access.ok) {
+    return NextResponse.json(
+      { error: access.ok ? "Event not found" : access.error },
+      { status: access.ok ? 404 : access.status },
+    );
   }
 
   // Compute the price a public registrant pays.
   let price: number | null = null;
   let priceLabel = "Free";
+  let priceTiers: { member: number; other: number } | null = null;
   if (
     event.variableCostEnabled &&
     event.variableCostMode === "ESTIMATED" &&
@@ -135,6 +134,13 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     // only used to render here as "Free" and then register walk-ins for $0.
     price = registrationListPrice(event);
     priceLabel = `$${price.toFixed(2)}`;
+    // Two different prices: say both, up front. Which one applies is only
+    // known once they type the athlete's name and email (the quote route).
+    const t = registrationPriceTiers(event);
+    if (t.differ) {
+      priceTiers = { member: t.member, other: t.other };
+      priceLabel = `Members $${t.member.toFixed(2)} · Non-members $${t.other.toFixed(2)}`;
+    }
   } else if (
     event.variableCostEnabled &&
     event.variableCostMode === "OFFICIAL"
@@ -189,6 +195,8 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     registrationForm: event.registrationForm ?? [],
     price,
     priceLabel,
+    // Set only when a member and a non-member pay different amounts here.
+    priceTiers,
     // Variable-cost events bill later, so the page can still offer a discount
     // code field even though it has no total to quote yet.
     variableCost: !!event.variableCostEnabled,
@@ -240,12 +248,10 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     // either is off, "sign in to register" would lead nowhere.
     portalAvailable:
       (event.visibility === "PUBLIC" || event.visibility === "MEMBERS_ONLY") && event.purchaseAccess === "ANYONE",
-    // Slice 2: signupAccess is the answer; STAFF_ONLY closes the link even on a
-    // hosted tournament, PUBLIC_LINK opens it. The legacy flag is kept in sync
-    // by every write, so this reads the same as before for untouched events.
-    registrationOpen:
-      event.signupAccess !== "STAFF_ONLY" &&
-      (event.signupAccess === "PUBLIC_LINK" || event.publicRegistration || event.tournamentMode === "HOST") &&
-      !capacityReached,
+    // lib/eventShareLink.linkAccess: the public link follows signupAccess
+    // (STAFF_ONLY closes it even on a hosted tournament, PUBLIC_LINK opens
+    // it); a private link takes signups whatever those say. Full is full
+    // either way.
+    registrationOpen: access.canRegister && !capacityReached,
   });
 }

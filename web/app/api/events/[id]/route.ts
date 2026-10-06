@@ -7,6 +7,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { withEntryCounts } from "@/lib/eventRosterServer";
+import { reserveSlug } from "@/lib/eventShareLink";
 import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { setEventStaff } from "@/lib/staffAssignmentsServer";
 import { linkProblem, normalizeEventLinks } from "@/lib/eventLinks";
@@ -120,9 +121,11 @@ const updateSchema = z.object({
 });
 
 function slugify(name: string): string {
-  return (
+  // reserveSlug keeps a public slug out of the private-link namespace
+  // (`s-<token>`, lib/eventShareLink).
+  return reserveSlug(
     name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) ||
-    "event"
+    "event",
   );
 }
 
