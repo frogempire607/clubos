@@ -2,11 +2,16 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/apiGuard";
 
 export async function GET(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Dashboard list of occurrences (substitute coach ids, notes). Members use
+  // /api/member/* — this used to answer any signed-in user.
+  const denied = requirePermission(session, "classes", "view");
+  if (denied) return denied;
 
   const cls = await prisma.recurringClass.findFirst({
     where: { id: params.id, clubId: session.user.clubId, deletedAt: null },

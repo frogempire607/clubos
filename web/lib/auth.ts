@@ -3,10 +3,24 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
 import { resolvePermissions } from "./permissions";
+import { liveUser } from "./apiGuard";
 import { rateLimit } from "./ratelimit";
 import { resolveIsMinor, childHasCurrentConsent, parentalConsentEnforced } from "./parentalConsent";
 
 const isProd = process.env.NODE_ENV === "production";
+
+// What the session carries for a STAFF user: every permission level resolved,
+// PLUS the sub-scope maps. The sub-scopes used to be dropped here (only
+// resolvePermissions' flat levels were kept), so `requireMessagesSubScope` and
+// the billing transfer switch read defaults no matter what the owner granted.
+export function sessionPermissions(raw: unknown): Record<string, unknown> {
+  const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...resolvePermissions(obj) };
+  for (const k of ["messages_subScopes", "billing_subScopes"]) {
+    if (obj[k] && typeof obj[k] === "object") out[k] = obj[k];
+  }
+  return out;
+}
 
 // Precomputed bcrypt hash (cost 12), used ONLY to equalize login response
 // timing on the club/user-not-found paths. Without it, a missing email returns
@@ -137,23 +151,55 @@ export const authOptions: NextAuthOptions = {
           // this token; the live nav uses /api/me so the UI is never stale.
           permissions:
             user.role === "STAFF"
-              ? resolvePermissions(user.staffProfile?.permissions ?? null)
+              ? sessionPermissions(user.staffProfile?.permissions ?? null)
               : null,
         } as any;
       },
     }),
   ],
   callbacks: {
+    // Runs at sign-in AND on every getServerSession() / /api/auth/session read.
+    //
+    // Session revocation without waiting 14 days for the token to expire: each
+    // read re-checks the user against the database (lib/apiGuard.ts `liveUser`,
+    // one indexed lookup cached 20s per server instance).
+    //   - removed (deletedAt), missing, or moved to another club → the token is
+    //     marked `revoked`, the session callback below returns an empty session,
+    //     getServerSession() yields null and every API route answers 401.
+    //   - role or permissions changed → refreshed into the token, so a demotion
+    //     or a narrowed permission applies within the cache window (and a grant
+    //     does too — including the messages/billing sub-scopes, which used to be
+    //     dropped from the token entirely).
+    // If the lookup itself fails the token is left as it was: signing everyone
+    // out on a database blip would be worse, and the routes that change money or
+    // staff use the *Live guards, which fail closed on their own.
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
         token.role = (user as any).role;
         token.clubId = (user as any).clubId;
         token.permissions = (user as any).permissions ?? null;
+        delete (token as any).revoked;
+        return token;
       }
+      if ((token as any).revoked) return token; // sticky — sign in again
+      if (!token.id) return token;
+      const live = await liveUser(token.id as string);
+      if (live === undefined) return token;
+      if (!live || live.deleted || live.clubId !== token.clubId) {
+        (token as any).revoked = true;
+        (token as any).permissions = null;
+        return token;
+      }
+      token.role = live.role as typeof token.role;
+      (token as any).permissions = live.role === "STAFF" ? sessionPermissions(live.perms) : null;
       return token;
     },
     async session({ session, token }) {
+      // A revoked token yields NO session: next-auth treats an empty body as
+      // "not signed in", so getServerSession() returns null and the client's
+      // useSession() flips to unauthenticated on its next refresh.
+      if ((token as any).revoked) return {} as typeof session;
       if (session.user) {
         (session.user as any).id = token.id;
         (session.user as any).role = token.role;

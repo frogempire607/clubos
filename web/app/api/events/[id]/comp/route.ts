@@ -3,7 +3,8 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermissionLive, hasPermissionLive, isOwnerLive } from "@/lib/apiGuard";
+import { SELF_DENY_MESSAGE } from "@/lib/staffSelf";
 import { addEventStaffIfMissing } from "@/lib/staffAssignmentsServer";
 import {
   COMP_METHODS,
@@ -102,7 +103,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "finances", "view");
+  const denied = await requirePermissionLive(session, "finances", "view");
   if (denied) return denied;
 
   const event = await loadEvent(id, session.user.clubId);
@@ -129,9 +130,14 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "finances", "edit");
+  // Money: Financials & payroll FULL, read live (was the token-snapshot
+  // `finances:edit` until 2026-10-07).
+  const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
   const clubId = session.user.clubId;
+  const me = session.user.id;
+  // Owners have no manager above them; everyone else is under the self rule.
+  const actorIsOwner = await isOwnerLive(session);
 
   const event = await loadEvent(id, clubId);
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -151,7 +157,9 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
     .filter(Boolean) as string[];
   const [users, contractors] = await Promise.all([
     prisma.user.findMany({
-      where: { id: { in: userIds }, clubId, deletedAt: null },
+      // A STAFF payee is a current OWNER/STAFF of this club — never a member's
+      // login or a removed account.
+      where: { id: { in: userIds }, clubId, deletedAt: null, role: { in: ["OWNER", "STAFF"] } },
       select: { id: true, firstName: true, lastName: true },
     }),
     prisma.contractor.findMany({
@@ -179,10 +187,54 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
 
   const existing = await prisma.eventCompAssignment.findMany({
     where: { eventId: event.id, clubId },
-    select: { id: true, payoutId: true },
+    select: {
+      id: true, payoutId: true, payeeType: true, userId: true,
+      compMethod: true, flatAmount: true, percent: true, basis: true, notes: true,
+    },
   });
   const existingById = new Map(existing.map((e) => [e.id, e]));
   const keptIds = new Set(assignments.map((a) => a.id).filter(Boolean) as string[]);
+
+  // ── Self rule: nobody but an owner sets their own event pay ───────────────
+  // "A staff member must never be able to set or modify their own event pay
+  // unless an authorized admin does so." The save is one list, so compare the
+  // caller's OWN rows before and after: adding one, changing one, removing one,
+  // or re-pointing any row at/away from the caller refuses the WHOLE save —
+  // nothing is written. Other people's rows are unaffected by this check.
+  if (!actorIsOwner) {
+    const norm = (r: { compMethod: string; flatAmount?: unknown; percent?: unknown; basis: string; notes?: string | null }) =>
+      JSON.stringify([
+        r.compMethod,
+        r.compMethod === "FLAT" && r.flatAmount != null ? Number(r.flatAmount) : null,
+        r.compMethod === "PERCENT" && r.percent != null ? Number(r.percent) : null,
+        r.basis,
+        (r.notes ?? "").trim() || null, // "" and null are the same "no note"
+      ]);
+    const mineBefore = new Map(existing.filter((e) => e.payeeType === "STAFF" && e.userId === me).map((e) => [e.id, norm(e)]));
+    const mineAfter = assignments.filter((a) => a.payeeType === "STAFF" && a.userId === me);
+    const unchanged =
+      mineAfter.length === mineBefore.size &&
+      mineAfter.every((a) => !!a.id && mineBefore.get(a.id) === norm(a));
+    if (!unchanged) {
+      return NextResponse.json({ error: SELF_DENY_MESSAGE.edit_pay, code: "SELF_PAY_FORBIDDEN" }, { status: 403 });
+    }
+  }
+
+  // Pay follows the roster (below): a NEW staff payee is put on the event,
+  // which is an assignment — schedule:edit (live) only. Without it the payee
+  // must already be on "Staff on this event".
+  const roster = await prisma.eventStaffAssignment.findMany({ where: { eventId: event.id, clubId }, select: { userId: true } });
+  const onRoster = new Set(roster.map((r) => r.userId));
+  const offRoster = Array.from(new Set(userIds)).filter((uid) => !onRoster.has(uid));
+  if (offRoster.length > 0 && !(await hasPermissionLive(session, "schedule", "edit"))) {
+    return NextResponse.json(
+      {
+        error: "Someone you're paying isn't on this event's staff yet. Adding them needs schedule-management access — ask a schedule manager to put them on the event first.",
+        code: "ASSIGNMENT_FORBIDDEN",
+      },
+      { status: 403 },
+    );
+  }
 
   // Deleting an assignment never deletes an already-generated Payout — the
   // ledger row stands on its own for the owner to void/mark-paid there.

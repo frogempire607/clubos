@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermissionLive, hasPermissionLive } from "@/lib/apiGuard";
 import {
   asDayOverrides,
   asIdList,
@@ -21,9 +22,19 @@ const YMD = /^\d{4}-\d{2}-\d{2}$/;
 // calendar, member schedule and payroll use.
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Must be current staff (live): a removed or demoted login gets nothing.
+  const notStaff = await requirePermissionLive(session, "schedule", "none");
+  if (notStaff) return notStaff;
+  // 2026-10-07 — this was role-only and handed every staff login everyone's
+  // email, weekly availability and time-off notes. Now:
+  //   schedule:view (live) → the whole club's schedule, as before
+  //   without it           → ONLY the caller's own row: their hours, their time
+  //                          off, the classes/events they are on. No other
+  //                          person, no club-wide "assign to" lists.
+  const seesAll = await hasPermissionLive(session, "schedule", "view");
+  const canAssign = seesAll && (await hasPermissionLive(session, "schedule", "edit"));
+  const me = session.user.id;
 
   const url = new URL(req.url);
   const fromYmd = (url.searchParams.get("from") ?? "").slice(0, 10);
@@ -45,11 +56,11 @@ export async function GET(req: Request) {
   const [staff, availability, exceptions, classes, events, sessionRows] = await Promise.all([
     listScheduleStaff(clubId),
     prisma.staffAvailability.findMany({
-      where: { clubId, active: true },
+      where: { clubId, active: true, ...(seesAll ? {} : { userId: me }) },
       select: { userId: true, dayOfWeek: true, startTime: true, endTime: true },
     }),
     prisma.staffAvailabilityException.findMany({
-      where: { clubId, date: { gte: dayFrom, lte: dayTo } },
+      where: { clubId, date: { gte: dayFrom, lte: dayTo }, ...(seesAll ? {} : { userId: me }) },
       orderBy: { date: "asc" },
     }),
     prisma.recurringClass.findMany({
@@ -120,7 +131,13 @@ export async function GET(req: Request) {
     sessions: e.sessions.map((s) => ({ startsAt: iso(s.startsAt), endsAt: iso(s.endsAt) })),
   });
 
-  const result = staff.map((s) => ({
+  // Own-only view: an occurrence still lists who else is on it by id, which
+  // would leak the roster — reduce each to the caller.
+  const visibleStaff = seesAll ? staff : staff.filter((s) => s.id === me);
+  const ownOnly = <T extends { staffIds: string[]; seriesStaffIds: string[] }>(c: T): T =>
+    seesAll ? c : { ...c, staffIds: c.staffIds.filter((x) => x === me), seriesStaffIds: c.seriesStaffIds.filter((x) => x === me) };
+
+  const result = visibleStaff.map((s) => ({
     id: s.id,
     firstName: s.firstName,
     lastName: s.lastName,
@@ -140,18 +157,19 @@ export async function GET(req: Request) {
       })),
     classes: classInstances
       .filter((c) => c.staffIds.includes(s.id))
+      .map(ownOnly)
       .sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime)),
     events: eventsInRange.filter((e) => e.staffAssignments.some((a) => a.userId === s.id)).map(eventOut),
   }));
 
   // Everything in range, so the schedule UI can offer "assign to this
   // event/class on this day" — not just show pre-assigned ones.
-  const allEvents = eventsInRange.map((e) => ({
+  const allEvents = (seesAll ? eventsInRange : []).map((e) => ({
     ...eventOut(e),
     date: e.startsAt.toISOString().slice(0, 10),
     assignedUserIds: e.staffAssignments.map((a) => a.userId),
   }));
-  const allClasses = classes.map((c) => ({
+  const allClasses = (seesAll ? classes : []).map((c) => ({
     id: c.id,
     name: c.name,
     daysOfWeek: Array.isArray(c.daysOfWeek) ? (c.daysOfWeek as number[]) : [],
@@ -167,5 +185,7 @@ export async function GET(req: Request) {
     staff: result,
     allEvents,
     allClasses,
+    // What the viewer may do — the write routes enforce the same (lib/staffSelf.ts).
+    viewer: { userId: me, seesAll, canAssign },
   });
 }

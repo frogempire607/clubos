@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isValidPrivateDuration } from "@/lib/privateLessonRules";
 import { requirePermission } from "@/lib/apiGuard";
+import { validScheduleStaffIds } from "@/lib/staffAssignmentsServer";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -42,6 +43,24 @@ const schema = z.object({
   sortOrder:        z.number().int().default(0),
 });
 
+// Coach ids on a lesson type (who may teach it, and per-option coach limits)
+// are reduced to this club's current OWNER/STAFF before they are stored.
+async function cleanCoachIds<T extends { eligibleCoachIds?: string[]; priceOptions?: { coachIds: string[] }[] }>(
+  clubId: string,
+  data: T,
+): Promise<T> {
+  const all = [...(data.eligibleCoachIds ?? []), ...(data.priceOptions ?? []).flatMap((o) => o.coachIds)];
+  if (all.length === 0) return data;
+  const ok = new Set(await validScheduleStaffIds(clubId, all));
+  return {
+    ...data,
+    ...(data.eligibleCoachIds ? { eligibleCoachIds: data.eligibleCoachIds.filter((id) => ok.has(id)) } : {}),
+    ...(data.priceOptions
+      ? { priceOptions: data.priceOptions.map((o) => ({ ...o, coachIds: o.coachIds.filter((id) => ok.has(id)) })) }
+      : {}),
+  };
+}
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   // Privates live under the "events / purchase options" permission. Owner
@@ -50,7 +69,7 @@ export async function POST(req: Request) {
   if (guard) return guard;
 
   try {
-    const data = schema.parse(await req.json());
+    const data = await cleanCoachIds(session!.user.clubId, schema.parse(await req.json()));
     const type = await prisma.privateLessonType.create({
       data: { clubId: session!.user.clubId, ...data },
     });

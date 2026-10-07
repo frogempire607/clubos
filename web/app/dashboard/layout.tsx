@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useSession } from "next-auth/react";
+import { useSession, getSession } from "next-auth/react";
+import { signOutEverywhere } from "@/lib/signOutEverywhere";
 import { useRouter, usePathname } from "next/navigation";
 import GlobalSearch from "@/components/GlobalSearch";
 import BackButton from "@/components/BackButton";
@@ -43,7 +44,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (status !== "authenticated") return;
     fetch("/api/me")
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        // The browser still holds a session cookie but the server says there is
+        // no session: this login was removed (lib/auth.ts revokes it on the
+        // next request). Sign out for real so the shell doesn't sit there with
+        // every request failing.
+        // Confirmed against /api/auth/session first, so a one-off 401 (the
+        // WKWebView cookie race this effect is gated for) never signs anyone out.
+        if (r.status === 401) {
+          void getSession().then((s) => {
+            if (!s) void signOutEverywhere();
+          });
+          return null;
+        }
+        return r.ok ? r.json() : null;
+      })
       .then((d) => {
         if (d) setMe(d);
       })

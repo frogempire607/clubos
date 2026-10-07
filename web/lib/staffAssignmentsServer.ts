@@ -10,6 +10,11 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { removedIds } from "@/lib/staffAssignments";
+import { hasPermission } from "@/lib/permissions";
+import { recordStaffActivity } from "@/lib/staffActivity";
+import { sendEmail } from "@/lib/email";
+import { hasPermissionLive } from "@/lib/apiGuard";
+import { assignmentVerdict, type AssignmentVerdict } from "@/lib/staffSelf";
 
 /** Every schedulable person in the club: OWNER + STAFF, not deleted. Owners coach too. */
 export async function listScheduleStaff(clubId: string) {
@@ -30,6 +35,39 @@ export async function validScheduleStaffIds(clubId: string, ids: string[]): Prom
   });
   const ok = new Set(rows.map((r) => r.id));
   return uniq.filter((id) => ok.has(id));
+}
+
+/**
+ * THE check for any write that changes who is on a class or an event
+ * (rule: lib/staffSelf.ts "Assignments"). Call it BEFORE writing.
+ *
+ *   `before`     the ids on it now
+ *   `requested`  the ids the caller wants on it
+ *
+ * Both lists are reduced to this club's current OWNER/STAFF first, so a
+ * made-up id, a member's id or another club's id can never be written, and a
+ * stale id left over from a removed coach does not read as a change.
+ * `schedule:edit` is read LIVE (database, 20s cache), never from the token.
+ */
+export async function checkAssignmentChange(
+  session: { user?: { id?: string; role?: string; clubId?: string; permissions?: Record<string, unknown> | null } } | null,
+  clubId: string,
+  before: string[],
+  requested: string[],
+): Promise<{ verdict: AssignmentVerdict; after: string[]; before: string[]; canManage: boolean }> {
+  const [canManage, valid] = await Promise.all([
+    hasPermissionLive(session, "schedule", "edit"),
+    validScheduleStaffIds(clubId, [...before, ...requested]),
+  ]);
+  const ok = new Set(valid);
+  const uniq = (ids: string[]) => Array.from(new Set(ids.filter((id) => ok.has(id))));
+  const b = uniq(before);
+  const a = uniq(requested);
+  // Without schedule:edit the only possible "allow" is a self-removal, and that
+  // is for staff only — a MEMBER session can never reach it.
+  const role = session?.user?.role;
+  const actorId = role === "OWNER" || role === "STAFF" ? session?.user?.id : null;
+  return { verdict: assignmentVerdict({ canManage, actorId, before: b, after: a }), after: a, before: b, canManage };
 }
 
 /** Value to write to ClassSession.staffOverride: null clears it (inherit the series). */
@@ -111,4 +149,75 @@ export async function setEventStaff(
     });
   }
   return { staffIds: next, removed: gone };
+}
+
+/**
+ * A coach WITHOUT schedule-management access took themself off a class or an
+ * event (the one assignment change they may make — lib/staffSelf.ts). Tell the
+ * people who now have a gap to cover: the other coaches on it, every owner,
+ * and every staff member with schedule:edit.
+ *
+ * Three channels, all best-effort and all AFTER the write has committed (never
+ * inside a transaction — a failed notice must not undo or block the removal):
+ *   - a line in the leaver's Recent activity (StaffActivity, kind ASSIGNMENT)
+ *   - an in-app message from the leaver to each recipient (same mechanism the
+ *     private-lesson "you've been assigned" notice uses)
+ *   - an email to each recipient (lib/email.sendEmail; a no-op without SMTP)
+ */
+export async function notifySelfRemoval(input: {
+  clubId: string;
+  actorId: string;
+  actorName: string | null | undefined;
+  /** "Tuesday Advanced" / the event's name. */
+  what: string;
+  /** "every week" | "on Oct 14" | "" for an event. */
+  when?: string;
+  /** Other people on the same class/event. */
+  otherCoachIds: string[];
+}): Promise<{ notified: number }> {
+  const who = (input.actorName ?? "").trim() || "A coach";
+  const whenPart = input.when ? ` ${input.when}` : "";
+  const body = `${who} took themself off ${input.what}${whenPart}. It may need someone to cover.`;
+  try {
+    await recordStaffActivity({
+      clubId: input.clubId,
+      staffUserId: input.actorId,
+      actorUserId: input.actorId,
+      actorName: input.actorName ?? null,
+      kind: "ASSIGNMENT",
+      summary: `Took themself off ${input.what}${whenPart}`,
+    });
+    const staff = await prisma.user.findMany({
+      where: { clubId: input.clubId, role: { in: ["OWNER", "STAFF"] }, deletedAt: null },
+      select: { id: true, email: true, role: true, staffProfile: { select: { permissions: true } } },
+    });
+    const others = new Set(input.otherCoachIds);
+    const recipients = staff.filter(
+      (u) =>
+        u.id !== input.actorId &&
+        (u.role === "OWNER" ||
+          others.has(u.id) ||
+          hasPermission((u.staffProfile?.permissions ?? null) as Record<string, unknown> | null, "schedule", "edit")),
+    );
+    if (recipients.length === 0) return { notified: 0 };
+    await prisma.message.createMany({
+      data: recipients.map((r) => ({ clubId: input.clubId, senderId: input.actorId, recipientId: r.id, body })),
+    });
+    const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    await Promise.allSettled(
+      recipients
+        .filter((r) => !!r.email)
+        .map((r) =>
+          sendEmail({
+            to: r.email,
+            subject: `${who} is off ${input.what}${whenPart}`,
+            html: `<p style="font-size:15px;color:#1C1917">${esc(body)}</p><p style="font-size:13px;color:#57534e">Open the staff schedule to assign someone else.</p>`,
+          }),
+        ),
+    );
+    return { notified: recipients.length };
+  } catch (err) {
+    console.error("[staffAssignments] self-removal notice failed", err);
+    return { notified: 0 };
+  }
 }

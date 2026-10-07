@@ -3,9 +3,10 @@ import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
+import { ASSIGNMENT_DENY_MESSAGE } from "@/lib/staffSelf";
 import { prisma } from "@/lib/prisma";
-import { addEventStaff, removeEventStaff } from "@/lib/staffAssignmentsServer";
+import { addEventStaff, removeEventStaff, checkAssignmentChange, notifySelfRemoval } from "@/lib/staffAssignmentsServer";
 
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
@@ -31,7 +32,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "events", "edit");
+  // Putting someone on an event is an ASSIGNMENT: schedule:edit, read live
+  // (was events:edit until 2026-10-07). Nobody without it can add anyone —
+  // themself included (lib/staffSelf.ts "Assignments").
+  const denied = await requirePermissionLive(session, "schedule", "edit");
   if (denied) return denied;
 
   const event = await prisma.event.findFirst({
@@ -60,21 +64,44 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "events", "edit");
-  if (denied) return denied;
 
   const { searchParams } = new URL(req.url);
   const userId = searchParams.get("userId");
   if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
 
-  const existing = await prisma.eventStaffAssignment.findFirst({
-    where: { eventId: params.id, userId, clubId: session.user.clubId },
+  // schedule:edit (live) removes anyone. Without it, a coach may take THEMSELF
+  // off this event — nothing else — and the rest of the roster + the schedule
+  // managers are told.
+  if (userId !== session.user.id) {
+    const denied = await requirePermissionLive(session, "schedule", "edit");
+    if (denied) return denied;
+  }
+
+  const roster = await prisma.eventStaffAssignment.findMany({
+    where: { eventId: params.id, clubId: session.user.clubId },
+    select: { userId: true, event: { select: { name: true } } },
   });
-  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!roster.some((r) => r.userId === userId)) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const before = roster.map((r) => r.userId);
+  const check = await checkAssignmentChange(session, session.user.clubId, before, before.filter((x) => x !== userId));
+  if (check.verdict === "deny" || (check.verdict === "none" && !check.canManage)) {
+    return NextResponse.json({ error: ASSIGNMENT_DENY_MESSAGE, code: "ASSIGNMENT_FORBIDDEN" }, { status: 403 });
+  }
 
   // Through the shared helper so the coach's unpaid event comp row and any
   // "responsible coach" designation go with them (lib/staffAssignmentsServer).
   await removeEventStaff(session.user.clubId, params.id, [userId]);
+
+  if (check.verdict === "self_remove") {
+    await notifySelfRemoval({
+      clubId: session.user.clubId,
+      actorId: session.user.id,
+      actorName: session.user.name,
+      what: roster[0]?.event?.name ?? "an event",
+      otherCoachIds: check.after,
+    });
+  }
 
   return new NextResponse(null, { status: 204 });
 }

@@ -36,6 +36,11 @@ const RANK: Record<PermissionLevel, number> = {
   full: 3,
 };
 
+/** Numeric tier of a level (send and edit are the same tier). */
+export function levelRank(level: PermissionLevel | null | undefined): number {
+  return level ? RANK[level] ?? 0 : 0;
+}
+
 export type PermissionKey =
   | "members"
   | "attendance"

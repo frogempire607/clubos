@@ -427,6 +427,7 @@ export default function OverviewTab({ data, goTo }: StaffTabProps) {
             </section>
           )}
 
+          {viewer.canSeeAccess !== false && (
           <section className={card}>
             <div className="flex items-center justify-between gap-3">
               <h2 className={h2}>Access</h2>
@@ -464,6 +465,7 @@ export default function OverviewTab({ data, goTo }: StaffTabProps) {
               </>
             )}
           </section>
+          )}
 
           <section className={card}>
             <div className="flex items-center justify-between gap-3">

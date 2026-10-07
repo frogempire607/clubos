@@ -6,7 +6,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendMemberMessage } from "@/lib/memberMessaging";
 import { activatePartnersOnAccept } from "@/lib/privatePartners";
-import { hasPermission } from "@/lib/permissions";
+import { requirePermissionLive, hasPermissionLive } from "@/lib/apiGuard";
+import { validScheduleStaffIds } from "@/lib/staffAssignmentsServer";
 
 const schema = z.object({
   action: z.enum(["ACCEPT", "DECLINE", "PROPOSE", "COMPLETE", "REOPEN", "CANCEL", "ASSIGN_COACH", "APPROVE", "CONFIRM_PAYMENT"]),
@@ -26,6 +27,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Staff-side route: must be current staff (live). Members act on their own
+  // lessons through /api/member/privates/[id].
+  const notStaff = await requirePermissionLive(session, "events", "none");
+  if (notStaff) return notStaff;
 
   const booking = await prisma.privateBooking.findFirst({
     where: { id: params.id, clubId: session.user.clubId },
@@ -35,11 +40,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
   const isOwner = session.user.role === "OWNER";
   const isCoach = booking.coachId === session.user.id;
-  const perms = (session.user as { permissions?: Record<string, unknown> | null }).permissions ?? null;
   // A staff member with Events access manages privates too — not just the
   // assigned coach or the owner. Fixes "unauthorized" for full-perm staff (Sal).
-  const canManage = isOwner || isCoach || hasPermission(perms, "events", "edit");
-  const canAdminister = isOwner || hasPermission(perms, "events", "full");
+  // Read live, so a narrowed permission applies without a re-login.
+  const canManage = isOwner || isCoach || (await hasPermissionLive(session, "events", "edit"));
+  const canAdminister = isOwner || (await hasPermissionLive(session, "events", "full"));
 
   try {
     const { action, confirmedStartAt, confirmedEndAt, proposedSlots, coachId, cancelReason, notes } = schema.parse(await req.json());
@@ -137,6 +142,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
       case "ASSIGN_COACH": {
         if (!canAdminister) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+        // Only a current OWNER/STAFF of this club can be the coach — the id used
+        // to be stored as sent (a member's or another club's id included).
+        if (coachId && (await validScheduleStaffIds(session.user.clubId, [coachId])).length === 0) {
+          return NextResponse.json({ error: "Coach not found." }, { status: 400 });
+        }
         updateData = { coachId: coachId || null, status: coachId ? "PENDING_COACH" : "REQUESTED" };
 
         // Notify coach

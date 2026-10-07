@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { requirePermission, requirePermissionLive, invalidatePermissionCache } from "@/lib/apiGuard";
+import { requirePermissionLive, hasPermissionLive, liveUser, invalidatePermissionCache } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
 import { SAFE_USER_SELECT, invitePending } from "@/lib/safeUser";
 import { resolvePermissions, MESSAGES_SUBSCOPES, BILLING_SUBSCOPES, type MessagesSubScope, type BillingSubScope } from "@/lib/permissions";
 import { selfRule, SELF_DENY_MESSAGE } from "@/lib/staffSelf";
 import { recordStaffActivity, actorFrom } from "@/lib/staffActivity";
-import { describeAccessChanges, accessStateFromJson } from "@/lib/staffAccess";
+import { describeAccessChanges, accessStateFromJson, accessAboveOwn, accessAboveOwnMessage } from "@/lib/staffAccess";
 
 const permissionLevel = z.enum(["none", "view", "edit", "full", "send"]);
 
@@ -95,8 +95,10 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const self = session.user.id === params.id;
   const viewerIsOwner = session.user.role === "OWNER";
-  if (!self && !viewerIsOwner) {
-    const denied = await requirePermissionLive(session, "staff", "view");
+  if (!viewerIsOwner) {
+    // Self may always open their own profile — but must still BE staff (live):
+    // a removed or demoted login gets nothing, even for "their own" id.
+    const denied = await requirePermissionLive(session, "staff", self ? "none" : "view");
     if (denied) return denied;
   }
 
@@ -110,10 +112,12 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     viewerIsOwner ? true : (await requirePermissionLive(session, key, level)) === null;
 
   const targetIsOwner = user.role === "OWNER";
-  const [staffFull, financesView, financesFull, scheduleEdit, classesEdit, eventsEdit] = await Promise.all([
+  const [staffFull, financesView, financesFull, scheduleEdit] = await Promise.all([
     can("staff", "full"), can("finances", "view"), can("finances", "full"), can("schedule", "edit"),
-    can("classes", "edit"), can("events", "edit"),
   ]);
+  // Private phone, the access grid and the activity log are for the person
+  // themself and for staff managers — not for everyone with staff:view.
+  const seesPrivate = self || staffFull;
   const viewer = {
     isSelf: self,
     isOwner: viewerIsOwner,
@@ -123,12 +127,14 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     canEditAccess: !self && !targetIsOwner && staffFull,
     canViewPay: self || financesView,
     canEditPay: !self && financesFull,
-    // The assign routes check classes:edit / events:edit (not schedule), so
-    // the button follows what the server will actually accept.
-    canAssign: classesEdit || eventsEdit,
+    // Assignments are schedule:edit since 2026-10-07 (lib/staffSelf.ts) — the
+    // button follows what the server will actually accept.
+    canAssign: scheduleEdit,
     canEditHours: self || scheduleEdit,
     canEditOwnInfo: self,
     canRemove: !self && !targetIsOwner && staffFull,
+    // The access grid, private phone and activity log: self or staff:full.
+    canSeeAccess: self || staffFull,
   };
 
   const raw = (user.staffProfile?.permissions ?? null) as Record<string, unknown> | null;
@@ -145,12 +151,14 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       },
       select: { id: true, kind: true },
     }),
-    prisma.staffActivity.findMany({
-      where: { clubId: session.user.clubId, staffUserId: user.id },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      select: { id: true, kind: true, summary: true, actorName: true, selfMade: true, createdAt: true },
-    }),
+    seesPrivate
+      ? prisma.staffActivity.findMany({
+          where: { clubId: session.user.clubId, staffUserId: user.id },
+          orderBy: { createdAt: "desc" },
+          take: 20,
+          select: { id: true, kind: true, summary: true, actorName: true, selfMade: true, createdAt: true },
+        })
+      : Promise.resolve([] as { id: string; kind: string; summary: string; actorName: string | null; selfMade: boolean; createdAt: Date }[]),
   ]);
   const lessonCount = lessonTypes.filter((t) =>
     Array.isArray(t.eligibleCoachIds) && (t.eligibleCoachIds as unknown[]).includes(user.id)).length;
@@ -161,15 +169,17 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       ...rest,
       invitePending: invitePending({ resetToken, lastLoginAt: user.lastLoginAt }),
       title: staffProfile?.title ?? null,
-      phone: staffProfile?.phone ?? null,
+      phone: seesPrivate ? staffProfile?.phone ?? null : null,
       bio: staffProfile?.bio ?? null,
       publicEmail: staffProfile?.publicEmail ?? null,
       publicPhone: staffProfile?.publicPhone ?? null,
       photoUrl: staffProfile?.photoUrl ?? null,
       showOnPortal: staffProfile?.showOnPortal ?? false,
-      permissions: resolvePermissions(raw),
-      messagesSubScopes: (raw?.messages_subScopes as Record<string, boolean> | undefined) ?? null,
-      billingSubScopes: (raw?.billing_subScopes as Record<string, boolean> | undefined) ?? null,
+      // {} (not null) so older clients that index it do not crash; the UI
+      // hides the Access card/tab when viewer.canSeeAccess is false.
+      permissions: seesPrivate ? resolvePermissions(raw) : {},
+      messagesSubScopes: seesPrivate ? (raw?.messages_subScopes as Record<string, boolean> | undefined) ?? null : null,
+      billingSubScopes: seesPrivate ? (raw?.billing_subScopes as Record<string, boolean> | undefined) ?? null : null,
     },
     viewer,
     counts: {
@@ -191,9 +201,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   if (selfRule(session.user.role, session.user.id, params.id, "edit_record") === "deny") {
     return NextResponse.json({ error: SELF_DENY_MESSAGE.edit_access }, { status: 403 });
   }
-  const denied = requirePermission(session, "staff", "full");
+  const denied = await requirePermissionLive(session, "staff", "full");
   if (denied) return denied;
 
+  // STAFF rows only: an OWNER's record is never edited here, and there is no
+  // `role` field in the schema — this route cannot promote or demote anyone.
   const user = await prisma.user.findFirst({
     where: { id: params.id, clubId: session.user.clubId, role: "STAFF" },
     include: { staffProfile: true },
@@ -202,6 +214,32 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
   try {
     const data = updateSchema.parse(await req.json());
+
+    const actor = await liveUser(session.user.id);
+    const actorIsOwner = !!actor && actor.role === "OWNER";
+    // No privilege escalation: a non-owner manager cannot raise anyone above
+    // their own level in any area or sub-scope (lib/staffAccess.accessAboveOwn).
+    if (data.permissions && !actorIsOwner) {
+      const refused = accessAboveOwn(
+        actor?.perms ?? null,
+        (user.staffProfile?.permissions ?? null) as Record<string, unknown> | null,
+        foldPermissions(data.permissions),
+        { newAccount: !user.staffProfile },
+      );
+      if (refused.length) {
+        return NextResponse.json({ error: accessAboveOwnMessage(refused), code: "ACCESS_ABOVE_OWN" }, { status: 403 });
+      }
+    }
+    // The legacy pay columns are pay: staff:full alone does not write them.
+    const touchesPay =
+      data.hourlyRate !== undefined || data.salary !== undefined ||
+      data.appointmentPrice !== undefined || data.perSessionRate !== undefined;
+    if (touchesPay && !(await hasPermissionLive(session, "finances", "full"))) {
+      return NextResponse.json(
+        { error: "Changing pay needs Financials & payroll: full.", code: "FINANCES_FULL_REQUIRED" },
+        { status: 403 },
+      );
+    }
 
     const profileData = {
       ...(data.title !== undefined && { title: data.title }),
@@ -309,14 +347,31 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
   if (selfRule(session.user.role, session.user.id, params.id, "remove") === "deny") {
     return NextResponse.json({ error: SELF_DENY_MESSAGE.remove }, { status: 403 });
   }
-  const denied = requirePermission(session, "staff", "full");
+  const denied = await requirePermissionLive(session, "staff", "full");
   if (denied) return denied;
 
+  // STAFF rows only — an owner cannot be removed through this route.
   const user = await prisma.user.findFirst({
     where: { id: params.id, clubId: session.user.clubId, role: "STAFF" },
   });
   if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  await prisma.user.update({ where: { id: params.id }, data: { deletedAt: new Date() } });
+  // Removal ends access, not just the listing:
+  //   - deletedAt   → sign-in refused (lib/auth.ts authorize) and every live
+  //                   session revoked on its next request (jwt callback +
+  //                   lib/apiGuard.ts liveUser; ≤20s on other server instances)
+  //   - resetToken  → a pending invite / password-reset link dies with it
+  await prisma.user.update({
+    where: { id: params.id },
+    data: { deletedAt: new Date(), resetToken: null, resetExpires: null },
+  });
+  invalidatePermissionCache(params.id);
+  await recordStaffActivity({
+    clubId: session.user.clubId,
+    staffUserId: params.id,
+    ...actorFrom(session),
+    kind: "ACCOUNT",
+    summary: "Removed from staff — sign-in and active sessions ended",
+  });
   return NextResponse.json({ ok: true });
 }

@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isValidPrivateDuration } from "@/lib/privateLessonRules";
 import { requirePermission } from "@/lib/apiGuard";
+import { validScheduleStaffIds } from "@/lib/staffAssignmentsServer";
 import { recordStaffActivity, actorFrom } from "@/lib/staffActivity";
 
 const priceOption = z.object({
@@ -35,6 +36,24 @@ async function requireType(id: string, clubId: string) {
   return prisma.privateLessonType.findFirst({ where: { id, clubId, deletedAt: null } });
 }
 
+// Coach ids on a lesson type (who may teach it, and per-option coach limits)
+// are reduced to this club's current OWNER/STAFF before they are stored.
+async function cleanCoachIds<T extends { eligibleCoachIds?: string[]; priceOptions?: { coachIds: string[] }[] }>(
+  clubId: string,
+  data: T,
+): Promise<T> {
+  const all = [...(data.eligibleCoachIds ?? []), ...(data.priceOptions ?? []).flatMap((o) => o.coachIds)];
+  if (all.length === 0) return data;
+  const ok = new Set(await validScheduleStaffIds(clubId, all));
+  return {
+    ...data,
+    ...(data.eligibleCoachIds ? { eligibleCoachIds: data.eligibleCoachIds.filter((id) => ok.has(id)) } : {}),
+    ...(data.priceOptions
+      ? { priceOptions: data.priceOptions.map((o) => ({ ...o, coachIds: o.coachIds.filter((id) => ok.has(id)) })) }
+      : {}),
+  };
+}
+
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
@@ -45,7 +64,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   if (!type) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   try {
-    const data = schema.parse(await req.json());
+    const data = await cleanCoachIds(session!.user.clubId, schema.parse(await req.json()));
     const updated = await prisma.privateLessonType.update({ where: { id: params.id }, data });
 
     // B21 — a coach added to / removed from this lesson type shows in that

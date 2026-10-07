@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
+import { checkAssignmentChange } from "@/lib/staffAssignmentsServer";
+import { ASSIGNMENT_DENY_MESSAGE } from "@/lib/staffSelf";
 import { z } from "zod";
 import { buildSessions } from "@/lib/classSessions";
 
@@ -43,6 +45,10 @@ const createSchema = z.object({
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Dashboard list (coach ids, pricing, visibility). Members read classes
+  // through /api/member/* — this used to answer any signed-in user.
+  const denied = requirePermission(session, "classes", "view");
+  if (denied) return denied;
 
   const classes = await prisma.recurringClass.findMany({
     where: { clubId: session.user.clubId, deletedAt: null },
@@ -63,8 +69,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "classes", "edit");
+  const denied = await requirePermissionLive(session, "classes", "edit");
   if (denied) return denied;
 
   const body = await req.json();
@@ -72,6 +77,15 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
   const d = parsed.data;
+
+  // Coaches named on a new class are an assignment: schedule:edit only, and
+  // only this club's OWNER/STAFF ids are ever stored (lib/staffSelf.ts).
+  const staffCheck = await checkAssignmentChange(session, session.user.clubId, [], d.assignedStaffIds);
+  if (staffCheck.verdict === "deny") {
+    return NextResponse.json({ error: ASSIGNMENT_DENY_MESSAGE, code: "ASSIGNMENT_FORBIDDEN" }, { status: 403 });
+  }
+  d.assignedStaffIds = staffCheck.after;
+
   const recStart = new Date(d.recurrenceStartDate);
   const recEnd = d.recurrenceEndDate ? new Date(d.recurrenceEndDate) : null;
 

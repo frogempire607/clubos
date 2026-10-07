@@ -60,6 +60,8 @@ type Feed = {
   staff: StaffSchedule[];
   allEvents: AllEvent[];
   allClasses: AllClass[];
+  // What the signed-in person may do; the APIs enforce the same (lib/staffSelf.ts).
+  viewer: { userId: string; canAssign: boolean };
 };
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -97,7 +99,10 @@ export default function StaffSchedulePage() {
     fetch(`/api/staff/schedule?from=${weekDays[0]}&to=${weekDays[6]}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        setFeed(d ? { staff: d.staff ?? [], allEvents: d.allEvents ?? [], allClasses: d.allClasses ?? [] } : null);
+        setFeed(d ? {
+          staff: d.staff ?? [], allEvents: d.allEvents ?? [], allClasses: d.allClasses ?? [],
+          viewer: { userId: d.viewer?.userId ?? "", canAssign: !!d.viewer?.canAssign },
+        } : null);
         setLoading(false);
       });
   }, [weekDays]);
@@ -191,6 +196,8 @@ export default function StaffSchedulePage() {
                         allClasses={feed!.allClasses}
                         allStaff={allStaff}
                         report={report}
+                        canManage={feed!.viewer.canAssign}
+                        isMe={s.id === feed!.viewer.userId}
                       />
                     ))}
                   </tr>
@@ -216,6 +223,8 @@ function DayCell({
   allClasses,
   allStaff,
   report,
+  canManage,
+  isMe,
 }: {
   staff: StaffSchedule;
   dateStr: string;
@@ -223,7 +232,12 @@ function DayCell({
   allClasses: AllClass[];
   allStaff: StaffLite[];
   report: (tone: "ok" | "error", text: string) => void;
+  /** Schedule managers (schedule:edit) assign, edit and remove anyone. */
+  canManage: boolean;
+  /** This row is the signed-in person — without canManage they may only take themself off. */
+  isMe: boolean;
 }) {
+  const selfOnly = isMe && !canManage;
   const dow = ymdToUtc(dateStr).getUTCDay();
   const slots = staff.availability.filter((a) => a.dayOfWeek === dow);
   const exception = staff.exceptions.find((e) => e.date === dateStr);
@@ -307,6 +321,21 @@ function DayCell({
           );
     if (ok) setConfirm(null);
   }
+  // A coach without schedule access taking themself off ONE day. The server
+  // works out the list and tells the other coaches (POST …/occurrence removeSelf).
+  async function removeMeThisDay() {
+    if (!confirm || confirm.kind !== "class") return;
+    const ok = await run(
+      fetch(`/api/classes/${confirm.inst.classId}/occurrence`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: dateStr, scope: "occurrence", removeSelf: true }),
+      }),
+      `You're off ${confirm.inst.name} on ${dayText} — the other coaches have been told.`,
+      "Couldn't take you off that day.",
+    );
+    if (ok) setConfirm(null);
+  }
 
   return (
     <td className="px-2 py-3 align-top">
@@ -345,11 +374,13 @@ function DayCell({
                 {c.note && <span className="block opacity-80 truncate" title={c.note}>Note: {c.note}</span>}
               </span>
               <span className="flex flex-col items-end">
-                <button onClick={() => setEditingOcc(c)} disabled={busy} aria-label={`Edit ${c.name} on ${dayText}`} className={iconBtn}>
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
-                {c.seriesStaffIds.includes(staff.id) && (
-                  <button onClick={() => setConfirm({ kind: "class", inst: c })} disabled={busy} aria-label={`Remove ${who} from every ${c.name}`} className={iconBtn}>
+                {canManage && (
+                  <button onClick={() => setEditingOcc(c)} disabled={busy} aria-label={`Edit ${c.name} on ${dayText}`} className={iconBtn}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {(canManage ? c.seriesStaffIds.includes(staff.id) : isMe && !c.canceled) && (
+                  <button onClick={() => setConfirm({ kind: "class", inst: c })} disabled={busy} aria-label={selfOnly ? `Remove me from ${c.name}` : `Remove ${who} from every ${c.name}`} className={iconBtn}>
                     <X className="h-3.5 w-3.5" />
                   </button>
                 )}
@@ -363,9 +394,11 @@ function DayCell({
                 <span className="font-medium block truncate">{e.name}</span>
                 <span className="block opacity-80">{range12h(localHhmm(e.part.startsAt), localHhmm(e.part.endsAt))}</span>
               </span>
-              <button onClick={() => setConfirm({ kind: "event", id: e.id, name: e.name })} disabled={busy} aria-label={`Remove ${who} from ${e.name}`} className={iconBtn}>
-                <X className="h-3.5 w-3.5" />
-              </button>
+              {(canManage || isMe) && (
+                <button onClick={() => setConfirm({ kind: "event", id: e.id, name: e.name })} disabled={busy} aria-label={selfOnly ? `Remove me from ${e.name}` : `Remove ${who} from ${e.name}`} className={iconBtn}>
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           ))}
 
@@ -373,7 +406,7 @@ function DayCell({
             <div className="text-xs text-text-muted mb-1">Off</div>
           )}
 
-          {canAssign && (
+          {canManage && canAssign && (
             <button onClick={() => setPicking(true)} className="inline-flex min-h-[44px] items-center text-xs text-text-muted hover:text-brand md:min-h-[28px]">
               + Assign
             </button>
@@ -420,16 +453,29 @@ function DayCell({
       <Sheet
         open={!!confirm}
         onClose={() => !busy && setConfirm(null)}
-        title={confirm ? (confirm.kind === "event" ? `Remove ${who} from ${confirm.name}?` : `Remove ${who} from every ${confirm.inst.name}?`) : ""}
+        title={confirm
+          ? selfOnly
+            ? `Remove me from ${confirm.kind === "event" ? confirm.name : confirm.inst.name}?`
+            : confirm.kind === "event" ? `Remove ${who} from ${confirm.name}?` : `Remove ${who} from every ${confirm.inst.name}?`
+          : ""}
         footer={
           <>
             <button onClick={() => setConfirm(null)} disabled={busy} className={`${btn} border border-app-border text-text-primary hover:bg-app-bg`}>Cancel</button>
-            <button onClick={confirmRemove} disabled={busy} className={`${btn} bg-brand text-white hover:bg-brand-hover`}>{busy ? "Removing…" : "Remove"}</button>
+            {selfOnly && confirm?.kind === "class" && (
+              <button onClick={removeMeThisDay} disabled={busy} className={`${btn} border border-app-border text-text-primary hover:bg-app-bg`}>Just {dayText}</button>
+            )}
+            {(!selfOnly || confirm?.kind === "event" || (confirm?.kind === "class" && confirm.inst.seriesStaffIds.includes(staff.id))) && (
+              <button onClick={confirmRemove} disabled={busy} className={`${btn} bg-brand text-white hover:bg-brand-hover`}>
+                {busy ? "Removing…" : selfOnly && confirm?.kind === "class" ? "Every week" : "Remove"}
+              </button>
+            )}
           </>
         }
       >
         <p className="text-[13px] text-text-muted">
-          {confirm?.kind === "event"
+          {selfOnly
+            ? "You can take yourself off. The other coaches and whoever manages the schedule are told right away so they can cover it. To be put back on, ask a schedule manager."
+            : confirm?.kind === "event"
             ? "They come off the staff schedule, their profile and the calendar for this event. Any pay set up for them on this event that hasn't been generated yet is removed too."
             : `This takes them off every ${confirm?.kind === "class" ? confirm.inst.name : ""} session, not just ${dayText}. To change one day only, use the pencil instead.`}
         </p>

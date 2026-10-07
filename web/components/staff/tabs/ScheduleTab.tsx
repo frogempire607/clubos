@@ -496,12 +496,14 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
                                 <Pencil className="h-3.5 w-3.5" />
                               </button>
                             )}
-                            {viewer.canAssign && (it.kind === "event" || it.inSeries) && (
+                            {/* Schedule managers remove anyone; a coach may take THEMSELF off
+                                (the server tells the other coaches — lib/staffSelf.ts). */}
+                            {(viewer.canAssign || self) && (it.kind === "event" || it.inSeries) && (
                               <button
                                 type="button"
                                 disabled={busy}
                                 onClick={() => (it.kind === "class" ? setConfirmClass(it) : unassign(it))}
-                                aria-label={`Remove ${it.name} on ${shortDate(d)}`}
+                                aria-label={viewer.canAssign ? `Remove ${it.name} on ${shortDate(d)}` : `Remove me from ${it.name}`}
                                 className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md opacity-70 hover:opacity-100 md:h-7 md:w-7"
                               >
                                 <X className="h-3.5 w-3.5" />

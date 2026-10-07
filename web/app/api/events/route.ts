@@ -6,7 +6,8 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { setEventStaff } from "@/lib/staffAssignmentsServer";
+import { setEventStaff, checkAssignmentChange } from "@/lib/staffAssignmentsServer";
+import { ASSIGNMENT_DENY_MESSAGE } from "@/lib/staffSelf";
 import { loadEventMoneySummaries } from "@/lib/eventAttendeesServer";
 import { reserveSlug } from "@/lib/eventShareLink";
 import { requirePermission } from "@/lib/apiGuard";
@@ -196,6 +197,17 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const data = createSchema.parse(body);
+
+    // Staff named on a new event are an assignment: schedule:edit (live), and
+    // only this club's OWNER/STAFF (lib/staffSelf.ts). Checked before the
+    // event is created so a refusal leaves nothing behind.
+    if (data.staffUserIds.length > 0) {
+      const check = await checkAssignmentChange(session, session.user.clubId, [], data.staffUserIds);
+      if (check.verdict === "deny") {
+        return NextResponse.json({ error: ASSIGNMENT_DENY_MESSAGE, code: "ASSIGNMENT_FORBIDDEN" }, { status: 403 });
+      }
+      data.staffUserIds = check.after;
+    }
     if (data.autoDiscounts !== undefined) {
       const ad = validateAutoDiscounts(data.autoDiscounts);
       if (!ad.ok) return NextResponse.json({ error: ad.message }, { status: 400 });

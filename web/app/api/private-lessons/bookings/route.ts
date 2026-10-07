@@ -4,6 +4,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { validScheduleStaffIds } from "@/lib/staffAssignmentsServer";
 import { packageAllowsLessonType } from "@/lib/privateLessonRules";
 import { hasPermission } from "@/lib/permissions";
 import { requirePermission } from "@/lib/apiGuard";
@@ -103,6 +104,11 @@ export async function POST(req: Request) {
       prisma.member.findFirst({ where: { id: data.memberId, clubId: session.user.clubId, deletedAt: null } }),
       prisma.privateLessonType.findFirst({ where: { id: data.lessonTypeId, clubId: session.user.clubId, deletedAt: null, active: true } }),
     ]);
+
+    // Only a current OWNER/STAFF of this club can be the coach.
+    if (data.coachId && (await validScheduleStaffIds(session.user.clubId, [data.coachId])).length === 0) {
+      return NextResponse.json({ error: "Coach not found." }, { status: 400 });
+    }
 
     if (!member)     return NextResponse.json({ error: "Member not found" }, { status: 404 });
     if (!lessonType) return NextResponse.json({ error: "Lesson type not found or inactive" }, { status: 404 });

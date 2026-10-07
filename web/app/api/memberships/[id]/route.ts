@@ -70,9 +70,11 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // 2026-10-07: was role-only — any staff login could change a plan's prices.
+  // Same key as creating a plan (POST /api/memberships: finances:edit).
+  const denied = requirePermission(session, "finances", "edit");
+  if (denied) return denied;
 
   const membership = await requireMembership(params.id, session.user.clubId);
   if (!membership) return NextResponse.json({ error: "Not found" }, { status: 404 });

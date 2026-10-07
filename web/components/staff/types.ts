@@ -35,6 +35,8 @@ export type StaffProfileData = {
     canEditHours: boolean;
     canEditOwnInfo: boolean;
     canRemove: boolean;
+    /** Access grid / private phone / activity visible (self or staff:full). Absent on old payloads = true. */
+    canSeeAccess?: boolean;
   };
   counts: { lessons: number; documents: number; w9Missing: boolean };
   activity: { id: string; kind: string; summary: string; actorName: string | null; selfMade: boolean; createdAt: string }[];

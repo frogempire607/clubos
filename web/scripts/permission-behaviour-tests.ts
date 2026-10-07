@@ -65,11 +65,20 @@ const prismaStub: unknown = new Proxy(
   {},
   {
     get(_t, model: string) {
-      if (model === "staffProfile") {
-        // What requirePermissionLive re-reads. This is the whole point of the
-        // "live" variant: a permission revoked five minutes ago must apply
-        // without the staff member signing in again.
-        return { findUnique: async () => ({ permissions: LIVE_PERMS }) };
+      if (model === "user") {
+        // What requirePermissionLive re-reads (lib/apiGuard.ts `liveUser`). This
+        // is the whole point of the "live" variant: a permission revoked five
+        // minutes ago must apply without the staff member signing in again.
+        // Since 2026-10-07 the lookup is the USER row (role, club, removed-or-
+        // not, plus the staff profile's permissions) rather than the staff
+        // profile alone, so a removed or demoted login is refused as well —
+        // scripts/staff-authz-tests.ts covers those cases.
+        return {
+          findUnique: async () =>
+            CURRENT
+              ? { role: CURRENT.user.role, clubId: CURRENT.user.clubId, deletedAt: null, staffProfile: { permissions: LIVE_PERMS } }
+              : null,
+        };
       }
       if (model === "then" || model === "$disconnect") return undefined;
       return new Proxy(

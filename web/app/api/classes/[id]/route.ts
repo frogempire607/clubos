@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
+import { checkAssignmentChange, notifySelfRemoval } from "@/lib/staffAssignmentsServer";
+import { asIdList } from "@/lib/staffAssignments";
+import { ASSIGNMENT_DENY_MESSAGE } from "@/lib/staffSelf";
 import { z } from "zod";
 import { syncFutureSessions } from "@/lib/classSessionSync";
 
@@ -47,6 +50,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Dashboard detail (coach ids, pricing). Members use /api/member/*.
+  const denied = requirePermission(session, "classes", "view");
+  if (denied) return denied;
 
   const cls = await prisma.recurringClass.findFirst({
     where: { id: params.id, clubId: session.user.clubId, deletedAt: null },
@@ -63,9 +69,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!["OWNER", "STAFF"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  // 2026-10-07: this was role-only — ANY staff login could rewrite a class and
+  // its coaches. Class details need classes:edit, read live.
+  const denied = await requirePermissionLive(session, "classes", "edit");
+  if (denied) return denied;
 
   const cls = await findClass(params.id, session.user.clubId);
   if (!cls) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -74,7 +81,22 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const { recurrenceStartDate, recurrenceEndDate, ...rest } = parsed.data;
+  const { recurrenceStartDate, recurrenceEndDate, assignedStaffIds: requestedStaff, ...rest } = parsed.data;
+
+  // Changing the coaches is an ASSIGNMENT, not a class detail: schedule:edit
+  // (live). Without it the one allowed change is taking yourself off. The class
+  // editor sends the whole form every save, so an unchanged list is a no-op and
+  // is not rewritten.
+  let staffWrite: string[] | undefined;
+  let selfRemoved = false;
+  if (requestedStaff !== undefined) {
+    const check = await checkAssignmentChange(session, session.user.clubId, asIdList(cls.assignedStaffIds), requestedStaff);
+    if (check.verdict === "deny") {
+      return NextResponse.json({ error: ASSIGNMENT_DENY_MESSAGE, code: "ASSIGNMENT_FORBIDDEN" }, { status: 403 });
+    }
+    if (check.verdict !== "none") staffWrite = check.after;
+    selfRemoved = check.verdict === "self_remove";
+  }
 
   // Clean overrides against the (possibly updated) daysOfWeek list
   const effectiveDaysOfWeek = (rest.daysOfWeek ?? (cls.daysOfWeek as number[])) || [];
@@ -87,6 +109,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     where: { id: params.id },
     data: {
       ...rest,
+      ...(staffWrite !== undefined ? { assignedStaffIds: staffWrite } : {}),
       ...(cleanOverrides !== undefined ? { dayOverrides: cleanOverrides } : {}),
       ...(recurrenceStartDate !== undefined ? { recurrenceStartDate: new Date(recurrenceStartDate) } : {}),
       ...(recurrenceEndDate !== undefined ? { recurrenceEndDate: recurrenceEndDate ? new Date(recurrenceEndDate) : null } : {}),
@@ -108,6 +131,17 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     recurrenceEndDate !== undefined;
 
   const sessionSync = scheduleChanged ? await syncFutureSessions(updated) : null;
+
+  if (selfRemoved && staffWrite) {
+    await notifySelfRemoval({
+      clubId: session.user.clubId,
+      actorId: session.user.id,
+      actorName: session.user.name,
+      what: updated.name,
+      when: "every week",
+      otherCoachIds: staffWrite,
+    });
+  }
 
   return NextResponse.json({ ...updated, sessionSync });
 }

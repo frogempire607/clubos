@@ -4,6 +4,7 @@
 // scripts/staff-self-tests.ts.
 import {
   PERMISSION_CATALOG, MESSAGES_SUBSCOPES, BILLING_SUBSCOPES,
+  resolvePermissions, levelRank, hasMessagesSubScope, hasBillingSubScope,
   type PermissionKey, type PermissionLevel, type MessagesSubScope, type BillingSubScope,
 } from "@/lib/permissions";
 
@@ -101,4 +102,55 @@ export function accessStateFromJson(raw: unknown, resolved: Record<PermissionKey
   const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const pick = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, boolean>) : null);
   return { levels: resolved, messages: pick(obj.messages_subScopes), billing: pick(obj.billing_subScopes) };
+}
+
+// ── No privilege escalation (2026-10-07) ────────────────────────────────────
+//
+// A staff manager (Staff & contractors: full) who is NOT an owner can hand out
+// access — but never more than they hold themselves. Without this, staff:full
+// was a master key: grant a second login `finances:full`, or raise a friend's
+// billing access, and the manager's own limits meant nothing.
+//
+// The rule, per area and per sub-scope switch:
+//   a change is refused when it RAISES the target above the manager's own
+//   level. Leaving a level alone or lowering it is always fine — a manager
+//   can still narrow someone who already has more than they do.
+//
+// `before` is the target's stored permissions (null/{} for a brand-new
+// invite, which is treated as "nothing yet" so every default is a grant).
+// Returns human labels of what was refused; empty = allowed. Pure.
+export function accessAboveOwn(
+  actorRaw: Record<string, unknown> | null | undefined,
+  beforeRaw: Record<string, unknown> | null | undefined,
+  afterRaw: Record<string, unknown> | null | undefined,
+  opts?: { newAccount?: boolean },
+): string[] {
+  const actor = resolvePermissions(actorRaw ?? null);
+  const after = resolvePermissions(afterRaw ?? null);
+  const before = opts?.newAccount ? null : resolvePermissions(beforeRaw ?? null);
+  const out: string[] = [];
+  for (const area of PERMISSION_CATALOG) {
+    const a = levelRank(after[area.key]);
+    const b = before ? levelRank(before[area.key]) : 0;
+    if (a > b && a > levelRank(actor[area.key])) out.push(`${area.label}: ${cap(after[area.key])}`);
+  }
+  // Sub-scope switches only count when the area itself is on for the target.
+  if (levelRank(after.messages) > 0) {
+    for (const s of MESSAGES_SUBSCOPES) {
+      const on = hasMessagesSubScope(afterRaw ?? null, s);
+      const was = !opts?.newAccount && levelRank(before?.messages) > 0 && hasMessagesSubScope(beforeRaw ?? null, s);
+      const mine = levelRank(actor.messages) > 0 && hasMessagesSubScope(actorRaw ?? null, s);
+      if (on && !was && !mine) out.push(`Messaging: ${MESSAGES_SUBSCOPE_LABEL[s]}`);
+    }
+  }
+  for (const s of BILLING_SUBSCOPES) {
+    const on = hasBillingSubScope(afterRaw ?? null, s);
+    const was = !opts?.newAccount && hasBillingSubScope(beforeRaw ?? null, s);
+    if (on && !was && !hasBillingSubScope(actorRaw ?? null, s)) out.push(`Billing: ${BILLING_SUBSCOPE_LABEL[s]}`);
+  }
+  return out;
+}
+
+export function accessAboveOwnMessage(refused: string[]): string {
+  return `You can't give someone more access than you have yourself (${refused.join("; ")}). Ask an owner.`;
 }

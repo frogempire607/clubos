@@ -487,9 +487,11 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // 2026-10-07: was role-only — any staff login could edit any member. Same key
+  // the UI already gates on (members:edit; DELETE below is members:full).
+  const denied = requirePermission(session, "members", "edit");
+  if (denied) return denied;
 
   const member = await requireMember(params.id, session.user.clubId);
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });

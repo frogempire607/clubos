@@ -30,9 +30,11 @@ const schema = z.object({
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // 2026-10-07: was role-only — any staff login could reprice a product.
+  // Same key as creating one (POST /api/products: finances:edit).
+  const denied = requirePermission(session, "finances", "edit");
+  if (denied) return denied;
 
   const existing = await prisma.product.findFirst({
     where: { id: params.id, clubId: session.user.clubId, deletedAt: null },

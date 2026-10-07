@@ -78,9 +78,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  // 2026-10-07: was role-only — a staff login with messaging switched off could
+  // still post to any group. Same key as creating a group (messages:send).
+  const denied = requirePermission(session, "messages", "send");
+  if (denied) return denied;
 
   const group = await prisma.messageGroup.findFirst({
     where: { id: params.id, clubId: session.user.clubId },

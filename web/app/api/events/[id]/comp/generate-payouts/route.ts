@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermissionLive, isOwnerLive } from "@/lib/apiGuard";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import {
   collectedRevenue,
@@ -20,9 +20,15 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "finances", "edit");
+  // Money: Financials & payroll FULL, read live (was the token-snapshot
+  // `finances:edit` until 2026-10-07).
+  const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
   const clubId = session.user.clubId;
+  // Self rule: a non-owner never generates a payout to THEMSELF. Their own row
+  // is skipped (and reported as skippedSelf) rather than failing the whole run,
+  // so the other coaches still get their payables; an owner generates theirs.
+  const actorIsOwner = await isOwnerLive(session);
 
   const event = await prisma.event.findFirst({
     where: { id, clubId, deletedAt: null },
@@ -54,12 +60,17 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
   let skippedExisting = 0;
   let skippedZero = 0;
   let skippedOffRoster = 0;
+  let skippedSelf = 0;
   const results: Array<{ payeeName: string; amount: number }> = [];
 
   for (const a of assignments) {
     if (a.compMethod === "NONE") continue;
     if (a.payoutId) {
       skippedExisting++;
+      continue;
+    }
+    if (!actorIsOwner && a.payeeType === "STAFF" && a.userId === session.user.id) {
+      skippedSelf++;
       continue;
     }
     if (a.payeeType === "STAFF" && a.userId && !onRoster.has(a.userId)) {
@@ -128,6 +139,7 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
     skippedExisting,
     skippedZero,
     skippedOffRoster,
+    skippedSelf,
     revenue,
     results,
   });

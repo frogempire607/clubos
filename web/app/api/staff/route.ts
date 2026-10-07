@@ -4,18 +4,32 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermissionLive, requireOwnerLive, hasPermissionLive, liveUser, invalidatePermissionCache } from "@/lib/apiGuard";
+import { accessAboveOwn, accessAboveOwnMessage } from "@/lib/staffAccess";
 import { prisma } from "@/lib/prisma";
 import { SAFE_USER_SELECT, invitePending } from "@/lib/safeUser";
 import { sendStaffInviteEmail } from "@/lib/email";
 import { resolvePermissions } from "@/lib/permissions";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 
+// Legacy pay columns on StaffProfile. Payroll never reads them, but they are
+// still pay: they ride along only for someone who may see pay.
+const PAY_FIELDS = ["hourlyRate", "salary", "perSessionRate", "appointmentPrice"] as const;
+
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "staff", "view");
+  const denied = await requirePermissionLive(session, "staff", "view");
   if (denied) return denied;
+
+  // What this viewer may see BEYOND the directory (name, title, portal bio):
+  //   pay fields                      → finances:view
+  //   permissions + private phone     → staff:full, or it is their own row
+  // Before 2026-10-07 the whole StaffProfile row went to anyone with staff:view.
+  const [canSeePay, canManageStaff] = await Promise.all([
+    hasPermissionLive(session, "finances", "view"),
+    hasPermissionLive(session, "staff", "full"),
+  ]);
 
   const { searchParams } = new URL(req.url);
   const includeOwners = searchParams.get("includeOwners") === "true";
@@ -31,7 +45,23 @@ export async function GET(req: Request) {
   });
 
   return NextResponse.json(
-    staff.map(({ resetToken, ...u }) => ({ ...u, invitePending: invitePending({ resetToken, lastLoginAt: u.lastLoginAt }) })),
+    staff.map(({ resetToken, staffProfile, ...u }) => {
+      let profile: Record<string, unknown> | null = null;
+      if (staffProfile) {
+        const { permissions, phone, hourlyRate, salary, perSessionRate, appointmentPrice, ...directory } = staffProfile;
+        const own = u.id === session.user.id;
+        profile = {
+          ...directory,
+          ...(canSeePay ? { hourlyRate, salary, perSessionRate, appointmentPrice } : {}),
+          ...(canManageStaff || own ? { permissions, phone } : {}),
+        };
+      }
+      return {
+        ...u,
+        staffProfile: profile,
+        invitePending: invitePending({ resetToken, lastLoginAt: u.lastLoginAt }),
+      };
+    }),
   );
 }
 
@@ -59,7 +89,7 @@ const inviteSchema = z.object({
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "staff", "full");
+  const denied = await requirePermissionLive(session, "staff", "full");
   if (denied) return denied;
 
   try {
@@ -69,6 +99,28 @@ export async function POST(req: Request) {
         { error: "Provide a password or set sendSetupLink to true." },
         { status: 400 },
       );
+    }
+
+    // Only an OWNER can make an OWNER — verified against the database, not the
+    // token. Staff & contractors: full still invites STAFF. (Before 2026-10-07
+    // any staff:full login could mint a second owner here.)
+    if (data.accountRole === "OWNER") {
+      const ownerDenied = await requireOwnerLive(session);
+      if (ownerDenied) {
+        return ownerDenied.status === 403
+          ? NextResponse.json({ error: "Only an owner can add another owner.", code: "OWNER_REQUIRED" }, { status: 403 })
+          : ownerDenied;
+      }
+    }
+    // No privilege escalation: a non-owner cannot hand a new account more
+    // access than they hold themselves (lib/staffAccess.accessAboveOwn).
+    const actor = await liveUser(session.user.id);
+    const actorIsOwner = !!actor && actor.role === "OWNER";
+    if (!actorIsOwner && data.accountRole === "STAFF") {
+      const refused = accessAboveOwn(actor?.perms ?? null, null, resolvePermissions(data.permissions ?? null), { newAccount: true });
+      if (refused.length) {
+        return NextResponse.json({ error: accessAboveOwnMessage(refused), code: "ACCESS_ABOVE_OWN" }, { status: 403 });
+      }
     }
 
     // Soft-deleted accounts keep the (clubId, email) row in place because of
@@ -81,6 +133,14 @@ export async function POST(req: Request) {
     });
     if (existing && !existing.deletedAt) {
       return NextResponse.json({ error: "Email already registered in this club" }, { status: 409 });
+    }
+    // Re-adding a removed STAFF account is a normal manager task. Bringing back
+    // an account that was an OWNER (or a member's login) is not — owners only.
+    if (existing && existing.role !== "STAFF" && !actorIsOwner) {
+      return NextResponse.json(
+        { error: "That email belongs to a removed account only an owner can restore.", code: "OWNER_REQUIRED" },
+        { status: 403 },
+      );
     }
 
     // Setup-link flow: bcrypt-hash a random, never-shared secret so the
@@ -141,6 +201,9 @@ export async function POST(req: Request) {
           },
           include: { staffProfile: true },
         });
+
+    // A restored account must not be served from a cached "removed" record.
+    invalidatePermissionCache(user.id);
 
     // Email send is fire-and-forget — never block invite creation on it. We
     // also return the setupUrl in the response when applicable so the owner

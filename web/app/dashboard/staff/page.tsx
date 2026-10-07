@@ -300,7 +300,7 @@ function StaffDirectory() {
                     </span>
                   </Link>
                   <Link href={href} className="min-w-0 text-[12.5px] text-text-muted hover:text-text-primary md:text-text-primary">
-                    {accessSummary(s.role, s.staffProfile?.permissions ?? null)}
+                    {s.role === "OWNER" || s.staffProfile?.permissions ? accessSummary(s.role, s.staffProfile?.permissions ?? null) : ""}
                   </Link>
                   <span className="flex items-center gap-1.5 text-[12.5px]">
                     <span

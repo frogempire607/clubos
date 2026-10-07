@@ -223,7 +223,8 @@ export default function AddStaffSheet({
         <fieldset>
           <legend className="mb-1.5 block text-[13px] font-medium text-text-primary">Role</legend>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup">
-            {ROLES.map((r) => {
+            {/* Only an owner can add an owner (POST /api/staff enforces it). */}
+            {ROLES.filter((r) => r.v !== "OWNER" || session?.user?.role === "OWNER").map((r) => {
               const on = role === r.v;
               return (
                 <button

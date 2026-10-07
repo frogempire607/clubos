@@ -65,8 +65,14 @@ export default withAuth(
     pages: { signIn: "/login" },
     callbacks: {
       // `/member/signup` is public; everything else under the matcher needs a token.
+      // A token marked `revoked` (lib/auth.ts — the user was removed) is not a
+      // session: send them to /login like any signed-out visitor. Middleware
+      // runs at the edge and cannot ask the database itself, so it sees the
+      // mark once the browser's next /api/auth/session read has rewritten the
+      // cookie; until then pages may render their shell, but every API call
+      // behind them already answers 401.
       authorized: ({ token, req }) =>
-        isPublicPath(req.nextUrl.pathname) ? true : !!token,
+        isPublicPath(req.nextUrl.pathname) ? true : !!token && !(token as { revoked?: boolean }).revoked,
     },
   }
 );

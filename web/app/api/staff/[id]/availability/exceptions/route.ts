@@ -3,19 +3,35 @@ import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermissionLive } from "@/lib/apiGuard";
+import { validScheduleStaffIds } from "@/lib/staffAssignmentsServer";
 import { recordStaffActivity, actorFrom } from "@/lib/staffActivity";
 
 import { prisma } from "@/lib/prisma";
+
+// Who may touch this person's availability (2026-10-07, all read LIVE):
+//   their own   → any current staff member (lib/staffSelf.ts edit_hours / edit_time_off)
+//   someone else → schedule:view to read, schedule:edit to change
+// and the target must be a current OWNER/STAFF of this club — the id in the URL
+// used to be written as-is, so rows could be created for a member or a made-up id.
+async function authorize(
+  session: Parameters<typeof requirePermissionLive>[0] & { user: { id: string; clubId: string } },
+  targetId: string,
+  level: "view" | "edit",
+) {
+  const denied = await requirePermissionLive(session, "schedule", session.user.id === targetId ? "none" : level);
+  if (denied) return denied;
+  const ok = await validScheduleStaffIds(session.user.clubId, [targetId]);
+  if (ok.length === 0) return NextResponse.json({ error: "Staff member not found" }, { status: 404 });
+  return null;
+}
 
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (session.user.role !== "OWNER" && session.user.id !== params.id) {
-    const denied = requirePermission(session, "schedule", "view");
-    if (denied) return denied;
-  }
+  const denied = await authorize(session, params.id, "view");
+  if (denied) return denied;
 
   const exceptions = await prisma.staffAvailabilityException.findMany({
     where: { userId: params.id, clubId: session.user.clubId },
@@ -41,10 +57,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (session.user.role !== "OWNER" && session.user.id !== params.id) {
-    const denied = requirePermission(session, "schedule", "edit");
-    if (denied) return denied;
-  }
+  const denied = await authorize(session, params.id, "edit");
+  if (denied) return denied;
 
   try {
     const data = schema.parse(await req.json());
@@ -80,10 +94,8 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (session.user.role !== "OWNER" && session.user.id !== params.id) {
-    const denied = requirePermission(session, "schedule", "edit");
-    if (denied) return denied;
-  }
+  const denied = await authorize(session, params.id, "edit");
+  if (denied) return denied;
 
   const { searchParams } = new URL(req.url);
   const exceptionId = searchParams.get("exceptionId");

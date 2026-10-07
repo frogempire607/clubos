@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
 import { range12h, to12h } from "@/lib/time12";
 
 type Staff = {
@@ -40,15 +41,30 @@ export default function StaffAvailabilityPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
 
+  const { data: session, status } = useSession();
+  const myId = session?.user?.id ?? null;
+  const myName = session?.user?.name ?? "";
+  const myEmail = session?.user?.email ?? "";
+  const myRole = session?.user?.role ?? "STAFF";
+
   useEffect(() => {
+    if (status === "loading") return;
     fetch("/api/staff?includeOwners=true")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((d: Staff[]) => {
-        setStaff(d);
-        if (d.length > 0) setSelectedId(d[0].id);
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: Staff[] | null) => {
+        // The staff list needs Staff & contractors: view. A coach without it
+        // used to get an empty picker here; they still manage their OWN hours
+        // (the availability API allows self), so show just them.
+        let list: Staff[] = Array.isArray(d) ? d : [];
+        if (list.length === 0 && myId) {
+          const [firstName, ...rest] = myName.trim().split(/\s+/);
+          list = [{ id: myId, firstName: firstName || "Me", lastName: rest.join(" "), email: myEmail, role: myRole }];
+        }
+        setStaff(list);
+        if (list.length > 0) setSelectedId(list[0].id);
         setLoading(false);
       });
-  }, []);
+  }, [status, myId, myName, myEmail, myRole]);
 
   const loadData = useCallback((staffId: string) => {
     Promise.all([

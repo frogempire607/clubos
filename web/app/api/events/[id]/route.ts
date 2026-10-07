@@ -9,7 +9,8 @@ import { prisma } from "@/lib/prisma";
 import { withEntryCounts } from "@/lib/eventRosterServer";
 import { reserveSlug } from "@/lib/eventShareLink";
 import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
-import { setEventStaff } from "@/lib/staffAssignmentsServer";
+import { setEventStaff, checkAssignmentChange, notifySelfRemoval } from "@/lib/staffAssignmentsServer";
+import { ASSIGNMENT_DENY_MESSAGE } from "@/lib/staffSelf";
 import { linkProblem, normalizeEventLinks } from "@/lib/eventLinks";
 import {
   planReprice,
@@ -177,7 +178,27 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
   try {
     const body = await req.json();
-    const { sessions, staffUserIds, ...rest } = updateSchema.parse(body);
+    const { sessions, staffUserIds: requestedStaff, ...rest } = updateSchema.parse(body);
+
+    // "Staff on this event" is an ASSIGNMENT, not an event detail: changing it
+    // needs schedule:edit (live); without it the one allowed change is taking
+    // yourself off (lib/staffSelf.ts). The editor sends the roster on every
+    // save, so an unchanged roster is a no-op and is not rewritten. Checked
+    // BEFORE anything is written — a refused roster must not half-save the event.
+    let staffUserIds: string[] | undefined;
+    let selfRemovedOthers: string[] | null = null;
+    if (requestedStaff !== undefined) {
+      const roster = await prisma.eventStaffAssignment.findMany({
+        where: { eventId: params.id, clubId: session.user.clubId },
+        select: { userId: true },
+      });
+      const check = await checkAssignmentChange(session, session.user.clubId, roster.map((r) => r.userId), requestedStaff);
+      if (check.verdict === "deny") {
+        return NextResponse.json({ error: ASSIGNMENT_DENY_MESSAGE, code: "ASSIGNMENT_FORBIDDEN" }, { status: 403 });
+      }
+      if (check.verdict !== "none") staffUserIds = check.after;
+      if (check.verdict === "self_remove") selfRemovedOthers = check.after;
+    }
     if (rest.autoDiscounts !== undefined) {
       const ad = validateAutoDiscounts(rest.autoDiscounts);
       if (!ad.ok) return NextResponse.json({ error: ad.message }, { status: 400 });
@@ -407,6 +428,15 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       await setEventStaff(session.user.clubId, params.id, staffUserIds, {
         keepResponsibleCoach: rest.responsibleCoachUserId !== undefined,
       });
+      if (selfRemovedOthers) {
+        await notifySelfRemoval({
+          clubId: session.user.clubId,
+          actorId: session.user.id,
+          actorName: session.user.name,
+          what: event.name,
+          otherCoachIds: selfRemovedOthers,
+        });
+      }
     }
 
     // ── Pricing edits must not leave stale per-registration amounts behind ──

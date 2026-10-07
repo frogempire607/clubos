@@ -3,9 +3,11 @@ import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { requirePermission } from "@/lib/apiGuard";
+import { hasPermissionLive } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
-import { staffOverrideValue } from "@/lib/staffAssignmentsServer";
+import { staffOverrideValue, checkAssignmentChange, notifySelfRemoval } from "@/lib/staffAssignmentsServer";
+import { asIdList, effectiveClassStaff } from "@/lib/staffAssignments";
+import { ASSIGNMENT_DENY_MESSAGE } from "@/lib/staffSelf";
 
 // PATCH /api/classes/[id]/sessions/[sessionId]
 //
@@ -43,12 +45,18 @@ export async function PATCH(
   const { id: classId, sessionId } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "classes", "edit");
-  if (denied) return denied;
+  // Two different powers live in this one request (both read LIVE):
+  //   time / cancel / note      → classes:edit
+  //   staffOverride (who coaches this day) → schedule:edit, or a coach taking
+  //                               THEMSELF off (lib/staffSelf.ts "Assignments")
+  const canEditClass = await hasPermissionLive(session, "classes", "edit");
+  if (!canEditClass && session.user.role !== "OWNER" && session.user.role !== "STAFF") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const cls = await prisma.recurringClass.findFirst({
     where: { id: classId, clubId: session.user.clubId, deletedAt: null },
-    select: { id: true },
+    select: { id: true, name: true, assignedStaffIds: true },
   });
   if (!cls) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -65,6 +73,30 @@ export async function PATCH(
       return NextResponse.json({ error: formatZodError(err) }, { status: 400 });
     }
     throw err;
+  }
+
+  const touchesDetails =
+    data.startsAt !== undefined || data.endsAt !== undefined || data.startTime !== undefined ||
+    data.endTime !== undefined || data.canceled !== undefined || data.note !== undefined;
+  if (touchesDetails && !canEditClass) {
+    return NextResponse.json({ error: "You don't have permission to manage this." }, { status: 403 });
+  }
+
+  let staffOverride: string[] | null | undefined = data.staffOverride;
+  let selfRemovedOthers: string[] | null = null;
+  if (data.staffOverride !== undefined) {
+    const series = asIdList(cls.assignedStaffIds);
+    const before = effectiveClassStaff(series, cs.staffOverride).staffIds;
+    // null = "inherit the series again" — its effect on this day is the series list.
+    const check = await checkAssignmentChange(session, session.user.clubId, before, data.staffOverride ?? series);
+    if (check.verdict === "deny") {
+      return NextResponse.json({ error: ASSIGNMENT_DENY_MESSAGE, code: "ASSIGNMENT_FORBIDDEN" }, { status: 403 });
+    }
+    // Only this club's OWNER/STAFF ids are ever stored.
+    if (Array.isArray(data.staffOverride)) staffOverride = check.after;
+    if (check.verdict === "self_remove") selfRemovedOthers = check.after;
+  } else if (!touchesDetails && !canEditClass) {
+    return NextResponse.json({ error: "You don't have permission to manage this." }, { status: 403 });
   }
 
   const startsAt = data.startsAt
@@ -90,10 +122,10 @@ export async function PATCH(
       ...(startsAt !== undefined ? { startsAt } : {}),
       ...(endsAt !== undefined ? { endsAt } : {}),
       ...(data.canceled !== undefined ? { canceled: data.canceled } : {}),
-      ...(data.staffOverride !== undefined
+      ...(staffOverride !== undefined
         ? // null clears the substitute (inherit the series) — it used to be
           // turned into `undefined`, i.e. silently ignored.
-          { staffOverride: staffOverrideValue(data.staffOverride) }
+          { staffOverride: staffOverrideValue(staffOverride) }
         : {}),
       ...(data.note !== undefined ? { note: data.note ?? null } : {}),
       // Any per-occurrence edit pins this row so series regeneration
@@ -101,6 +133,17 @@ export async function PATCH(
       overridden: true,
     },
   });
+
+  if (selfRemovedOthers) {
+    await notifySelfRemoval({
+      clubId: session.user.clubId,
+      actorId: session.user.id,
+      actorName: session.user.name,
+      what: cls.name,
+      when: `on ${cs.date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`,
+      otherCoachIds: selfRemovedOthers,
+    });
+  }
 
   return NextResponse.json(updated);
 }

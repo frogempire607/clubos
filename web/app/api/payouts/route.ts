@@ -5,7 +5,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermissionLive, isOwnerLive } from "@/lib/apiGuard";
 import { PAYEE_TYPES, PAYOUT_KINDS, PAYOUT_METHODS, payeeUsesContractor } from "@/lib/payouts";
 
 // GET /api/payouts  (finances:view)
@@ -13,7 +13,7 @@ import { PAYEE_TYPES, PAYOUT_KINDS, PAYOUT_METHODS, payeeUsesContractor } from "
 // dashboard page doesn't depend on the owner-only /api/staff endpoint.
 export async function GET() {
   const session = await getServerSession(authOptions);
-  const denied = requirePermission(session, "finances", "view");
+  const denied = await requirePermissionLive(session, "finances", "view");
   if (denied) return denied;
   const clubId = session!.user.clubId;
 
@@ -72,7 +72,7 @@ const createSchema = z.object({
 // POST /api/payouts  (finances:full) — record a payout (PENDING or PAID).
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  const denied = requirePermission(session, "finances", "full");
+  const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
   const clubId = session!.user.clubId;
 
@@ -118,6 +118,17 @@ export async function POST(req: Request) {
 
   if (!payeeName) {
     return NextResponse.json({ error: "Choose a payee or enter a name." }, { status: 400 });
+  }
+
+  // A payout to a typed-in name (no staff member, no contractor on file) cannot
+  // be checked against the self rule — a manager could pay "themself by name".
+  // So free-text payees are owner-only (verified live). Everyone else picks a
+  // staff member (self is refused above) or a contractor on file.
+  if (!payeeUserId && !contractorId && !(await isOwnerLive(session))) {
+    return NextResponse.json(
+      { error: "Only an owner can record a payout to a typed-in name. Pick a staff member or a contractor on file.", code: "OWNER_REQUIRED" },
+      { status: 403 },
+    );
   }
 
   if (data.eventId) {

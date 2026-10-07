@@ -231,7 +231,7 @@ export default function StaffProfile({ staffId, selfRoute = false }: { staffId: 
 
       <div className="mt-5">
         <ProfileTabs
-          tabs={STAFF_TABS}
+          tabs={viewer.canSeeAccess === false ? STAFF_TABS.filter((t) => t.key !== "access") : STAFF_TABS}
           active={tab}
           counts={{ lessons: counts.lessons }}
           problems={allProblems}

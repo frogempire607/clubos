@@ -4,9 +4,11 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { hasPermissionLive } from "@/lib/apiGuard";
 import { syncFutureSessions } from "@/lib/classSessionSync";
-import { staffOverrideValue, validScheduleStaffIds } from "@/lib/staffAssignmentsServer";
+import { staffOverrideValue, checkAssignmentChange, notifySelfRemoval } from "@/lib/staffAssignmentsServer";
+import { asIdList, effectiveClassStaff } from "@/lib/staffAssignments";
+import { ASSIGNMENT_DENY_MESSAGE } from "@/lib/staffSelf";
 
 const TIME = /^\d{2}:\d{2}$/;
 
@@ -19,6 +21,9 @@ const schema = z.object({
   endTime: z.string().regex(TIME).optional(),
   note: z.string().max(2000).nullable().optional(),
   canceled: z.boolean().optional(),
+  // "Take me off" — the server works out the list (everyone on it now, minus
+  // the caller), so a coach who can only see their own schedule can still do it.
+  removeSelf: z.boolean().optional(),
 });
 
 // UTC day window matching how buildSessions stores ClassSession.date.
@@ -45,8 +50,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const denied = requirePermission(session, "schedule", "edit");
-  if (denied) return denied;
+  // schedule:edit, read LIVE. Without it exactly one thing is allowed further
+  // down: a coach taking THEMSELF off (this day or the series), nothing else in
+  // the same request (lib/staffSelf.ts "Assignments").
+  const canManage = await hasPermissionLive(session, "schedule", "edit");
+  if (!canManage && session.user.role !== "OWNER" && session.user.role !== "STAFF") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const cls = await prisma.recurringClass.findFirst({
     where: { id, clubId: session.user.clubId, deletedAt: null },
@@ -61,9 +71,62 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     throw err;
   }
 
-  const seriesStaff = Array.isArray(cls.assignedStaffIds) ? (cls.assignedStaffIds as string[]) : [];
-  // Only this club's OWNER/STAFF can be put on a class.
-  if (Array.isArray(body.staffIds)) body.staffIds = await validScheduleStaffIds(cls.clubId, body.staffIds);
+  const seriesStaff = asIdList(cls.assignedStaffIds);
+
+  // Who is on it now, for the scope being edited: the series list, or this
+  // day's effective list (its override if it has one, else the series).
+  const dayRow = body.scope === "series"
+    ? null
+    : await prisma.classSession.findFirst({
+        where: { classId: id, date: { gte: dayWindow(body.date).start, lt: dayWindow(body.date).end } },
+        select: { staffOverride: true },
+      });
+  const beforeStaff = body.scope === "series"
+    ? seriesStaff
+    : effectiveClassStaff(seriesStaff, dayRow?.staffOverride ?? null).staffIds;
+
+  if (body.removeSelf) body.staffIds = beforeStaff.filter((x) => x !== session.user.id);
+
+  let selfRemoved = false;
+  let selfRemovedOthers: string[] = [];
+  if (body.staffIds !== undefined) {
+    // null = "inherit the series again" — its effect on this day is the series list.
+    const requested = body.staffIds === null ? seriesStaff : body.staffIds;
+    const check = await checkAssignmentChange(session, cls.clubId, beforeStaff, requested);
+    if (check.verdict === "deny") {
+      return NextResponse.json({ error: ASSIGNMENT_DENY_MESSAGE, code: "ASSIGNMENT_FORBIDDEN" }, { status: 403 });
+    }
+    // Only this club's OWNER/STAFF can be put on a class.
+    if (Array.isArray(body.staffIds)) body.staffIds = check.after;
+    selfRemoved = check.verdict === "self_remove";
+    selfRemovedOthers = check.after;
+  }
+  if (!canManage) {
+    // Not a schedule manager: a self-removal and nothing else. No times, no
+    // cancel, no note, and not "this day and every later one".
+    const onlyStaff =
+      body.startTime === undefined && body.endTime === undefined &&
+      body.note === undefined && body.canceled === undefined;
+    if (!selfRemoved || !onlyStaff || body.scope === "following") {
+      return NextResponse.json(
+        { error: "You don't have permission to manage this.", code: "SCHEDULE_EDIT_REQUIRED" },
+        { status: 403 },
+      );
+    }
+  }
+  const tellOthers = async () => {
+    if (!selfRemoved) return;
+    await notifySelfRemoval({
+      clubId: cls.clubId,
+      actorId: session.user.id,
+      actorName: session.user.name,
+      what: cls.name,
+      when: body.scope === "series"
+        ? "every week"
+        : `on ${new Date(`${body.date}T00:00:00.000Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`,
+      otherCoachIds: selfRemovedOthers,
+    });
+  };
 
   // ── SERIES: change the recurring class itself ──
   if (body.scope === "series") {
@@ -84,7 +147,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       ? await syncFutureSessions(updated)
       : null;
 
-    return NextResponse.json({ ok: true, scope: "series", sessionSync });
+    await tellOthers();
+    return NextResponse.json({ ok: true, scope: "series", sessionSync, selfRemoved });
   }
 
   // ── OCCURRENCE / FOLLOWING: write per-session overrides ──
@@ -113,7 +177,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         overridden: true,
       },
     });
-    return NextResponse.json({ ok: true, scope: "occurrence", sessionId: created.id });
+    await tellOthers();
+    return NextResponse.json({ ok: true, scope: "occurrence", sessionId: created.id, selfRemoved });
   }
 
   let updatedCount = 0;
@@ -132,10 +197,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     updatedCount++;
   }
 
+  await tellOthers();
   return NextResponse.json({
     ok: true,
     scope: body.scope,
     updated: updatedCount,
     seriesStaff,
+    selfRemoved,
   });
 }

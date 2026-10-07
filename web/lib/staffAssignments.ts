@@ -24,16 +24,25 @@
 //                                                    set by the booking flow (not touched here)
 //
 // ── WRITE paths (one per thing) ─────────────────────────────────────────────
-//   series      POST/DELETE /api/classes/[id]/staff            (classes:edit)
-//               PATCH /api/classes/[id] assignedStaffIds       (class editor)
-//               POST /api/classes/[id]/occurrence scope=series (schedule:edit)
-//   one day     POST /api/classes/[id]/occurrence scope=occurrence|following (schedule:edit)
+// ONE permission for all of them since 2026-10-07: `schedule:edit`, read live.
+// Without it the only change anyone can make is taking THEMSELF off, and the
+// other coaches + schedule managers are notified (rule: lib/staffSelf.ts
+// "Assignments"; check: lib/staffAssignmentsServer.checkAssignmentChange).
+// classes:edit / events:edit cover the class or event's details, not its staff.
+//   series      POST/DELETE /api/classes/[id]/staff
+//               PATCH /api/classes/[id] assignedStaffIds       (class editor; classes:edit for the rest)
+//               POST /api/classes assignedStaffIds             (new class)
+//               POST /api/classes/[id]/occurrence scope=series
+//   one day     POST /api/classes/[id]/occurrence scope=occurrence|following
 //               PATCH /api/classes/[id]/sessions/[sessionId] staffOverride
-//   event       POST/DELETE /api/events/[id]/staff             (events:edit)
+//   event       POST/DELETE /api/events/[id]/staff
 //               PATCH /api/events/[id] staffUserIds (event editor "Staff on this event")
-//               PUT /api/events/[id]/comp (finances:edit) — adds STAFF payees to the event
+//               POST /api/events staffUserIds (new event)
+//               PUT /api/events/[id]/comp (finances:full) — a STAFF payee not yet on
+//                 the event is added to it, which also needs schedule:edit
 //   All event writes go through lib/staffAssignmentsServer (addEventStaff /
 //   setEventStaff / removeEventStaff) so comp + responsible coach stay in step.
+//   Every id written is checked against this club's current OWNER/STAFF.
 //
 // ── READ paths (all resolve through the helpers below) ──────────────────────
 //   /api/staff/schedule          staff Schedule page, staff profile Schedule +

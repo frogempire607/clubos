@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPermission } from "@/lib/permissions";
+import { requirePermissionLive, hasPermissionLive } from "@/lib/apiGuard";
 import { effectiveClassStaff, ymdUTC } from "@/lib/staffAssignments";
 import { listScheduleStaff } from "@/lib/staffAssignmentsServer";
 
@@ -20,9 +20,16 @@ export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   // Dashboard feed: staff names, private-lesson athletes, staff-only events.
-  if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  // Must be current staff (live) — a removed or demoted login gets nothing.
+  const notStaff = await requirePermissionLive(session, "schedule", "none");
+  if (notStaff) return notStaff;
+  // 2026-10-07 — was role-only. schedule:view (live) sees the club's calendar;
+  // without it the feed is reduced to the caller's OWN items (classes/events
+  // they are on, private lessons they coach) and carries no other person's
+  // name — no co-coaches, no staff picker.
+  const seesAll = await hasPermissionLive(session, "schedule", "view");
+  const canAssign = seesAll && (await hasPermissionLive(session, "schedule", "edit"));
+  const me = session.user.id;
 
   const url = new URL(req.url);
   const fromStr = url.searchParams.get("from");
@@ -120,6 +127,7 @@ export async function GET(req: Request) {
         clubId,
         status: { in: ["CONFIRMED", "COMPLETED"] },
         confirmedStartAt: { gte: from, lte: to },
+        ...(seesAll ? {} : { coachId: me }),
       },
       select: {
         id: true,
@@ -160,11 +168,14 @@ export async function GET(req: Request) {
 
   const nameById = new Map(staffList.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
   const staffOf = (ids: string[]) =>
-    ids.filter((id) => nameById.has(id)).map((id) => ({ id, name: nameById.get(id)! }));
+    ids
+      .filter((id) => nameById.has(id) && (seesAll || id === me))
+      .map((id) => ({ id, name: nameById.get(id)! }));
 
   const items: CalItem[] = [];
 
   for (const e of events) {
+    if (!seesAll && !e.staffAssignments.some((sa) => sa.userId === me)) continue;
     const eventStaff = staffOf(e.staffAssignments.map((sa) => sa.userId));
     const coachNames = eventStaff.map((x) => x.name).join(", ");
     const priceParts: string[] = [];
@@ -211,6 +222,7 @@ export async function GET(req: Request) {
   }
   for (const s of classSessions) {
     const eff = effectiveClassStaff(s.recurringClass.assignedStaffIds, s.staffOverride);
+    if (!seesAll && !eff.staffIds.includes(me)) continue;
     const classStaff = staffOf(eff.staffIds);
     items.push({
       kind: "class",
@@ -230,7 +242,7 @@ export async function GET(req: Request) {
       coach: classStaff.map((x) => x.name).join(", ") || null,
       staff: classStaff,
       staffIsOverride: eff.isSubstitute,
-      seriesStaffIds: effectiveClassStaff(s.recurringClass.assignedStaffIds, null).staffIds,
+      seriesStaffIds: effectiveClassStaff(s.recurringClass.assignedStaffIds, null).staffIds.filter((x) => seesAll || x === me),
       date: ymdUTC(s.date),
     });
   }
@@ -259,15 +271,13 @@ export async function GET(req: Request) {
 
   items.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 
-  // What the viewer may change from the calendar — the SAME permissions the
-  // write APIs check (events/[id]/staff: events:edit; classes/[id]/staff:
-  // classes:edit; classes/[id]/occurrence: schedule:edit).
-  const isOwner = session.user.role === "OWNER";
-  const perms = (session.user as { permissions?: Record<string, unknown> | null }).permissions ?? null;
+  // What the viewer may change from the calendar — the SAME rule the write
+  // APIs enforce: every assignment write is schedule:edit, read live
+  // (lib/staffSelf.ts "Assignments"). The three keys are kept for the client.
   const can = {
-    editEventStaff: isOwner || hasPermission(perms, "events", "edit"),
-    editClassSeriesStaff: isOwner || hasPermission(perms, "classes", "edit"),
-    editClassDayStaff: isOwner || hasPermission(perms, "schedule", "edit"),
+    editEventStaff: canAssign,
+    editClassSeriesStaff: canAssign,
+    editClassDayStaff: canAssign,
   };
 
   return NextResponse.json({
@@ -276,6 +286,7 @@ export async function GET(req: Request) {
     items,
     can,
     // OWNER + STAFF — the "+ Add coach" picker. Owners coach too.
-    staffOptions: staffList.map((u) => ({ id: u.id, name: `${u.firstName} ${u.lastName}`.trim() })),
+    staffOptions: (seesAll ? staffList : []).map((u) => ({ id: u.id, name: `${u.firstName} ${u.lastName}`.trim() })),
+    viewer: { userId: me, seesAll },
   });
 }

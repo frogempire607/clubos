@@ -101,6 +101,7 @@ export const GATED = [
   ["scripts/staff-assignments-tests.ts"],
   ["scripts/pay-schedule-tests.ts"],
   ["scripts/permission-behaviour-tests.ts"],
+  ["scripts/staff-authz-tests.ts"],
   // communication, reports, nav, platform
   ["scripts/email-drafts-tests.ts"],
   ["scripts/email-recipients-tests.ts"],
