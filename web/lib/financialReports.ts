@@ -11,30 +11,8 @@ import {
 } from "@/lib/financials";
 import { computePayrollTotalForRange } from "@/lib/payroll";
 
-export const REPORT_TYPES = [
-  "pnl",
-  "revenue_by_category",
-  "expenses_by_category",
-  "donations",
-  "contractors",
-  "cash_vs_card",
-  "stripe_fees",
-  "missing_receipts",
-  "uncategorized",
-] as const;
-export type ReportType = (typeof REPORT_TYPES)[number];
-
-export const REPORT_LABELS: Record<ReportType, string> = {
-  pnl: "Profit & Loss",
-  revenue_by_category: "Revenue by category",
-  expenses_by_category: "Expenses by category",
-  donations: "Donations summary",
-  contractors: "Contractor / guest coach payments",
-  cash_vs_card: "Cash vs card revenue",
-  stripe_fees: "Stripe fees summary",
-  missing_receipts: "Receipts missing",
-  uncategorized: "Uncategorized transactions",
-};
+export { REPORT_TYPES, REPORT_LABELS, type ReportType } from "@/lib/financialReportTypes";
+import { type ReportType } from "@/lib/financialReportTypes";
 
 export type ReportResult = { title: string; columns: string[]; rows: (string | number)[][] };
 

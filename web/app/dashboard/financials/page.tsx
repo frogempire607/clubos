@@ -13,7 +13,7 @@ import {
   FINANCIAL_DISCLAIMER,
   TAX_SUMMARY_NOTE,
 } from "@/lib/financials";
-import { REPORT_TYPES, REPORT_LABELS, type ReportType } from "@/lib/financialReports";
+import { REPORT_TYPES, REPORT_LABELS, type ReportType } from "@/lib/financialReportTypes";
 import { todayLocalISO } from "@/lib/datetime";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonList, SkeletonCard } from "@/components/LoadingSkeleton";
