@@ -8,7 +8,7 @@
 
 import { ACTIVE_REGISTRATION_STATUSES } from "@/lib/eventPayments";
 
-export type BaseType = "SALARY" | "PER_CLASS" | "HOURLY";
+export type BaseType = "SALARY" | "PER_CLASS" | "HOURLY" | "PER_EVENT";
 export type BonusType = "ATTENDANCE" | "SIGNUP" | "REVENUE_SHARE";
 export type ScopeType = "CLASS" | "EVENT" | "MEMBERSHIP" | "PRIVATE_LESSON_TYPE";
 
@@ -114,6 +114,10 @@ export function computeStaffPayout(plan: CompPlan, ctx: CompContext): PayoutBrea
       detail: `${classesCoached} class${classesCoached === 1 ? "" : "es"} × $${plan.baseAmount.toFixed(2)}`,
       pay: +(plan.baseAmount * classesCoached).toFixed(2),
     };
+  } else if (plan.baseType === "PER_EVENT") {
+    // Per-event plans are paid from the pay ledger (one line per event worked);
+    // this period calculator has nothing to add for them.
+    base = { type: "PER_EVENT", amount: plan.baseAmount, detail: "Paid per event worked", pay: 0 };
   } else {
     base = {
       type: "HOURLY",

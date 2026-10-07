@@ -21,6 +21,9 @@ type Reminder = {
   daysUntil: number;
   estimate: number | null;
   hasPlan: boolean;
+  /** The amount is the total of this period's saved pay lines (pay ledger). */
+  fromLedger?: boolean;
+  needsReview?: number;
 };
 type Schedule = { userId: string; name: string; active: boolean; nextPayday: string | null };
 type Resp = {
@@ -142,8 +145,8 @@ export default function PaydaysCard({ onPaid }: { onPaid?: () => void }) {
           Paydays
         </h2>
         <p className="mt-0.5 text-[13px] text-text-muted">
-          From each staff member&apos;s pay schedule. Amounts are this page&apos;s estimate for each pay period —
-          &ldquo;Mark paid&rdquo; records what you actually paid in Payouts.
+          From each staff member&apos;s pay schedule. The amount is the total of that pay period&apos;s pay lines (an
+          estimate for periods before the pay ledger) — &ldquo;Mark paid&rdquo; records the payment in Payouts.
         </p>
         {flash && (
           <p
@@ -185,7 +188,14 @@ export default function PaydaysCard({ onPaid }: { onPaid?: () => void }) {
                 </p>
               </div>
               <div className="text-right text-[14px]">
-                {r.estimate !== null ? (
+                {r.fromLedger ? (
+                  <span>
+                    <span className="font-semibold text-text-primary">{money(r.estimate ?? 0)}</span>
+                    {(r.needsReview ?? 0) > 0 && (
+                      <span className="block text-[12.5px] text-text-muted">+ {r.needsReview} to review</span>
+                    )}
+                  </span>
+                ) : r.estimate !== null ? (
                   <span className="font-semibold text-text-primary">about {money(r.estimate)}</span>
                 ) : (
                   <Link href={`/dashboard/staff/${r.userId}?tab=pay`} className="text-[13px] text-brand hover:underline">
@@ -193,7 +203,7 @@ export default function PaydaysCard({ onPaid }: { onPaid?: () => void }) {
                   </Link>
                 )}
               </div>
-              {canPay(r) && (
+              {canPay(r) && !(r.fromLedger && (r.estimate ?? 0) <= 0) && (
                 <button
                   type="button"
                   onClick={() => openPay(r)}
@@ -287,12 +297,15 @@ export default function PaydaysCard({ onPaid }: { onPaid?: () => void }) {
                   step="0.01"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
+                  readOnly={!!paying.fromLedger}
                   placeholder="0.00"
-                  className="min-h-[44px] w-full rounded-lg border border-app-border bg-surface pl-7 pr-3 text-[14px] text-text-primary focus:outline-none focus:ring-2 focus:ring-brand"
+                  className="min-h-[44px] w-full rounded-lg border border-app-border bg-surface pl-7 pr-3 text-[14px] text-text-primary focus:outline-none focus:ring-2 focus:ring-brand read-only:opacity-70"
                 />
               </div>
               <span className="mt-1 block text-[12px] text-text-muted">
-                {paying.estimate !== null
+                {paying.fromLedger
+                  ? `The total of this period's pay lines${(paying.needsReview ?? 0) > 0 ? ` (${paying.needsReview} more need review and are not included)` : ""}. To pay a different amount, add a bonus or adjustment below first. Marking paid locks these lines.`
+                  : paying.estimate !== null
                   ? `Payroll estimate: ${money(paying.estimate)}. Change it to what you actually paid.`
                   : "No pay plan, so there's no estimate — enter what you paid."}
               </span>

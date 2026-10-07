@@ -20,7 +20,7 @@ type Settings = {
   coverageChannels: string[];
   classCancelNotifyDefault: CancelAudience;
 };
-type Loaded = Settings & { assignmentsStartOn: string | null; options?: { staff?: { id: string; name: string; role: string }[] } };
+type Loaded = Settings & { assignmentsStartOn: string | null; payLedgerStartsOn?: string | null; options?: { staff?: { id: string; name: string; role: string }[] } };
 type Preview = { date: string; classes: (SwitchOnClassLine & { classId: string })[]; totals: { classes: number; coachAssignments: number; classDays: number } };
 
 const btn =
@@ -73,6 +73,7 @@ export default function SchedulingSection() {
       setSaved(pick(d));
       setForm(pick(d));
       setStartOn(d.assignmentsStartOn ?? null);
+      setLedgerOn(d.payLedgerStartsOn ?? null);
       setStaff(d.options?.staff ?? []);
     } catch {
       setLoadError("Couldn't reach the server. Check your connection and try again.");
@@ -81,6 +82,38 @@ export default function SchedulingSection() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // ── pay ledger ────────────────────────────────────────────────────────────
+  const [ledgerOn, setLedgerOn] = useState<string | null>(null);
+  const [ledgerDate, setLedgerDate] = useState("");
+  const [ledgerBusy, setLedgerBusy] = useState(false);
+  const [ledgerError, setLedgerError] = useState<string | null>(null);
+  const [ledgerConfirm, setLedgerConfirm] = useState(false);
+
+  async function startLedger() {
+    setLedgerBusy(true);
+    setLedgerError(null);
+    let res: Response;
+    try {
+      res = await fetch("/api/settings/schedule/pay-ledger", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: ledgerDate }),
+      });
+    } catch {
+      setLedgerBusy(false);
+      setLedgerError("Couldn't reach the server. Check your connection and try again.");
+      return;
+    }
+    setLedgerBusy(false);
+    setLedgerConfirm(false);
+    if (!res.ok) {
+      setLedgerError(await errorOf(res, "Couldn't start the pay ledger. Nothing was changed."));
+      return;
+    }
+    const d = await res.json();
+    setLedgerOn(d.payLedgerStartsOn ?? null);
+  }
 
   // ── switch on ─────────────────────────────────────────────────────────────
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -345,6 +378,55 @@ export default function SchedulingSection() {
           {saveNote && !dirty && <span role="status" className="text-xs text-text-muted">{saveNote}</span>}
         </div>
       </div>
+
+      {/* ── Pay ledger ───────────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-app-border bg-surface p-6">
+        <h2 className="text-base font-semibold text-text-primary">Pay ledger</h2>
+        {ledgerOn ? (
+          <>
+            <p className="mt-2 text-[14px] font-medium text-text-primary">Pay lines start on {ledgerOn}.</p>
+            <p className="mt-1 text-[13px] text-text-muted">
+              From that date every class day worked, salary period and bonus is saved as a pay line on Staff → Payroll, with the rate that priced it. Work before that date keeps the old calculation and is never turned into pay lines. This date can&apos;t be moved.
+            </p>
+          </>
+        ) : !startOn ? (
+          <p className="mt-2 text-[13px] text-text-muted">
+            Turn on coach scheduling above first — pay lines are built from each class day&apos;s coach list.
+          </p>
+        ) : (
+          <>
+            <p className="mt-2 text-[13px] text-text-muted">
+              Not started. Payroll is still an estimate worked out each time you look. Starting the ledger saves a pay line for every class day worked from the date you choose, so what was owed and what was paid is on record. Pick the first day of a pay period that hasn&apos;t been paid yet.
+            </p>
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <label className="block">
+                <span className="mb-1 block text-[13px] font-medium text-text-primary">First day of the pay ledger</span>
+                <input type="date" value={ledgerDate} onChange={(e) => setLedgerDate(e.target.value)}
+                  className="min-h-[44px] rounded-lg border border-app-border bg-surface px-3 text-[14px] text-text-primary md:min-h-[38px]" />
+              </label>
+              <button type="button" disabled={!ledgerDate || ledgerBusy} onClick={() => setLedgerConfirm(true)} className={ghost}>Start the pay ledger…</button>
+            </div>
+            {ledgerError && <p role="alert" className="mt-3 rounded-lg px-3 py-2 text-[13px]" style={dangerBox}>{ledgerError}</p>}
+          </>
+        )}
+      </div>
+
+      <Sheet
+        open={ledgerConfirm}
+        onClose={() => !ledgerBusy && setLedgerConfirm(false)}
+        title="Start the pay ledger?"
+        footer={
+          <>
+            <button type="button" onClick={() => setLedgerConfirm(false)} disabled={ledgerBusy} className={ghost}>Not now</button>
+            <button type="button" onClick={startLedger} disabled={ledgerBusy} className={primary}>{ledgerBusy ? "Starting…" : "Start it"}</button>
+          </>
+        }
+      >
+        <p className="text-[13px] text-text-primary">Pay lines will be saved for work from {ledgerDate} onward.</p>
+        <p className="mt-2 text-[13px] text-text-muted">
+          Nothing before that date is changed or recalculated. The date can&apos;t be moved afterwards.
+        </p>
+      </Sheet>
 
       <Sheet
         open={confirming}

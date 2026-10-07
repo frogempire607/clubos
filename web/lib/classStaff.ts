@@ -1428,7 +1428,12 @@ export function calloutNotice(i: CalloutNoticeInput): { subject: string; headlin
   return { subject: headline, headline, body: parts.join(" "), banner };
 }
 
+/** The call-out reason stamped on a coach's future class days when they are removed from the staff. */
+export const REMOVED_STAFF_REASON = "No longer on staff";
+
 export type OpenCoverage = {
+  /** The coach was removed from the staff (not a call-out): their days are grouped into one item per class. */
+  leftStaff?: boolean;
   staffRowId: string;
   sessionId: string;
   classId: string;
@@ -1469,17 +1474,44 @@ export function scheduleDayHref(dateYmd: string, opts: { classId?: string | null
 export function coverageActionItems(open: readonly OpenCoverage[], todayYmd: string): CoverageActionItem[] {
   const startMs = (o: OpenCoverage) => new Date(o.startsAt).getTime();
   const sorted = [...open].sort((a, b) => Number(b.lateCallout) - Number(a.lateCallout) || startMs(a) - startMs(b) || a.staffRowId.localeCompare(b.staffRowId));
-  return sorted.map((o, i) => {
+  // A coach who left the staff leaves every future class day open. One item
+  // per class (the soonest day), not one per day.
+  const leftCount = new Map<string, number>();
+  for (const o of sorted) {
+    if (!o.leftStaff) continue;
+    const k = `${o.classId}|${o.coachName}`;
+    leftCount.set(k, (leftCount.get(k) ?? 0) + 1);
+  }
+  const seenLeft = new Set<string>();
+  const out: CoverageActionItem[] = [];
+  sorted.forEach((o, i) => {
     const when = `${relativeDayLabel(o.dateYmd, todayYmd)} ${fmtStampTime(o.startsAt)}`;
-    return {
+    const href = scheduleDayHref(o.dateYmd, { classId: o.classId, sessionId: o.sessionId });
+    if (o.leftStaff) {
+      const k = `${o.classId}|${o.coachName}`;
+      if (seenLeft.has(k)) return;
+      seenLeft.add(k);
+      const n = leftCount.get(k) ?? 1;
+      out.push({
+        kind: `NEEDS_COVERAGE:${o.staffRowId}`,
+        label: `Needs a coach: ${o.className} from ${when} — ${o.coachName} is no longer on staff${n > 1 ? ` (${n} class days)` : ""}`,
+        count: n,
+        severity: "high" as const,
+        href,
+        order: -1_000_000 + i,
+      });
+      return;
+    }
+    out.push({
       kind: `NEEDS_COVERAGE:${o.staffRowId}`,
       label: `${o.lateCallout ? "Late call-out" : "Needs coverage"}: ${o.className} ${when} — ${o.coachName} can't make it`,
       count: 1,
       severity: "high" as const,
-      href: scheduleDayHref(o.dateYmd, { classId: o.classId, sessionId: o.sessionId }),
+      href,
       order: -1_000_000 + i,
-    };
+    });
   });
+  return out;
 }
 
 /** A day row as the API returns it: the stored row plus names and display text. */

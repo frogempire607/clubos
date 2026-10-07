@@ -9,6 +9,7 @@ import { resolvePermissions, MESSAGES_SUBSCOPES, BILLING_SUBSCOPES, type Message
 import { selfRule, SELF_DENY_MESSAGE } from "@/lib/staffSelf";
 import { recordStaffActivity, actorFrom } from "@/lib/staffActivity";
 import { describeAccessChanges, accessStateFromJson, accessAboveOwn, accessAboveOwnMessage } from "@/lib/staffAccess";
+import { releaseRemovedStaff } from "@/lib/classStaffServer";
 
 const permissionLevel = z.enum(["none", "view", "edit", "full", "send"]);
 
@@ -373,5 +374,30 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
     kind: "ACCOUNT",
     summary: "Removed from staff — sign-in and active sessions ended",
   });
-  return NextResponse.json({ ok: true });
+
+  // Their classes: recurring assignments end today, and every future class day
+  // they were on becomes "Needs coverage". Class days already over are not
+  // touched. Access is already ended above, so a failure here must not turn
+  // the removal into an error — it is reported instead.
+  let schedule: { daysOpened: number; classesEnded: number } | null = null;
+  let scheduleError = false;
+  try {
+    const res = await releaseRemovedStaff(prisma, { clubId: session.user.clubId, userId: params.id, byUserId: session.user.id ?? null });
+    if (res.switchedOn) {
+      schedule = { daysOpened: res.daysOpened, classesEnded: res.classesEnded.length };
+      if (res.daysOpened > 0 || res.classesEnded.length > 0) {
+        await recordStaffActivity({
+          clubId: session.user.clubId,
+          staffUserId: params.id,
+          ...actorFrom(session),
+          kind: "ASSIGNMENT",
+          summary: `Taken off the recurring schedule; ${res.daysOpened} future class day${res.daysOpened === 1 ? "" : "s"} now need coverage`,
+        });
+      }
+    }
+  } catch (err) {
+    scheduleError = true;
+    console.error("[staff remove] could not release class assignments", err);
+  }
+  return NextResponse.json({ ok: true, schedule, scheduleError });
 }

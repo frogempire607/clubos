@@ -62,6 +62,7 @@ import { validScheduleStaffIds } from "@/lib/staffAssignmentsServer";
 import { coverageForMembers, loadSessionCoverageContext } from "@/lib/coverageQuery";
 import { resolveRecipients } from "@/lib/emailRecipients";
 import {
+  REMOVED_STAFF_REASON,
   SUBSTITUTE_ROLE_NAME,
   addDaysYmd,
   classHasEnded,
@@ -289,6 +290,7 @@ export async function syncSessionStaff(
 
   const creates: Prisma.ClassSessionStaffCreateManyInput[] = [];
   const deleteIds: string[] = [];
+  const closeLeftIds: string[] = [];
   const updateGroups = new Map<string, { ruleId: string; roleName: string | null; ids: string[] }>();
   const scheduledBySession = new Map<string, string[]>();
   let checked = 0;
@@ -319,6 +321,12 @@ export async function syncSessionStaff(
         updated++;
       }
       deleteIds.push(...plan.deleteIds);
+      // A new recurring coach on a day that a removed staff member left open
+      // settles that opening (one per new coach) — see releaseRemovedStaff.
+      if (plan.create.length > 0) {
+        const left = rows.filter((r) => r.status === "NEEDS_COVERAGE" && r.calloutReason === REMOVED_STAFF_REASON);
+        closeLeftIds.push(...left.slice(0, plan.create.length).map((r) => r.id));
+      }
       const gone = new Set(plan.deleteIds);
       scheduled = coachingUserIds(rows.filter((r) => !gone.has(r.id)));
       for (const c of plan.create) if (!scheduled.includes(c.userId)) scheduled.push(c.userId);
@@ -331,6 +339,12 @@ export async function syncSessionStaff(
     await db.classSessionStaff.updateMany({ where: { id: { in: g.ids } }, data: { ruleId: g.ruleId, roleName: g.roleName } });
   }
   if (creates.length > 0) await db.classSessionStaff.createMany({ data: creates, skipDuplicates: true });
+  if (closeLeftIds.length > 0) {
+    await db.classSessionStaff.updateMany({
+      where: { id: { in: closeLeftIds }, status: "NEEDS_COVERAGE" },
+      data: { status: "REMOVED", note: "A new recurring coach was assigned" },
+    });
+  }
 
   // Legacy mirror — per day only. The series list is frozen (see the header).
   const series = asIdList(cls.assignedStaffIds);
@@ -943,6 +957,77 @@ export async function endUserRules(
   const after = ruleOps.length > 0 ? await loadClassRules(db, args.classId) : rules;
   const sync = await syncSessionStaff(db, args.classId, args.date, { now: args.now });
   return { ruleOps, recurringBefore: rulesForDay(rules, args.date), recurringAfter: rulesForDay(after, args.date), sync };
+}
+
+export type ReleaseStaffResult = {
+  /** false = the club is not switched on to the new assignments: nothing to do. */
+  switchedOn: boolean;
+  /** Classes whose recurring rules for this person were ended. */
+  classesEnded: string[];
+  /** Future class days that became "Needs coverage". */
+  daysOpened: number;
+};
+
+/**
+ * A staff member was removed from the staff (Julian, 2026-10-07):
+ *   1. every FUTURE class day they are scheduled on (today's classes that have
+ *      not ended included) becomes NEEDS_COVERAGE — reason "No longer on
+ *      staff" — so each one is visible until somebody covers it;
+ *   2. their recurring rules end from today on every class, so no new class
+ *      day is generated for them.
+ * Class days that have already ended are not read or written: what happened,
+ * happened (and stays payable). Days already called out / replaced / no-show
+ * are left as they are. A new recurring coach put on one of those days
+ * settles the opening (syncSessionStaff). Idempotent.
+ */
+export async function releaseRemovedStaff(
+  db: Db,
+  args: { clubId: string; userId: string; byUserId: string | null; now?: Date },
+): Promise<ReleaseStaffResult> {
+  const now = args.now ?? new Date();
+  const settings = await getScheduleSettings(args.clubId, db);
+  if (!settings.assignmentsStartOn) return { switchedOn: false, classesEnded: [], daysOpened: 0 };
+  const club = await db.club.findUnique({ where: { id: args.clubId }, select: { timezone: true } });
+  const tz = club?.timezone ?? null;
+  const today = clubTodayYmd(tz, now);
+  const from = maxYmd(today, settings.assignmentsStartOn);
+
+  const rows = await db.classSessionStaff.findMany({
+    where: {
+      clubId: args.clubId, userId: args.userId, status: "SCHEDULED",
+      session: { canceled: false, date: { gte: ymdToDate(from) } },
+    },
+    select: { id: true, sessionId: true, session: { select: { startsAt: true, endsAt: true } } },
+  });
+  const open = rows.filter((r) => !classHasEnded(r.session.endsAt, tz, now));
+  if (open.length > 0) {
+    await db.classSessionStaff.updateMany({
+      where: { id: { in: open.map((r) => r.id) }, status: "SCHEDULED" },
+      data: {
+        status: "NEEDS_COVERAGE", calledOutAt: now, calledOutByUserId: args.byUserId,
+        calloutReason: REMOVED_STAFF_REASON, lateCallout: false,
+        coverageFilledAt: null, coverageFilledByUserId: null, changedByUserId: args.byUserId,
+      },
+    });
+  }
+
+  const rules = await db.classStaffRule.findMany({
+    where: { clubId: args.clubId, userId: args.userId, OR: [{ effectiveTo: null }, { effectiveTo: { gte: ymdToDate(from) } }] },
+    select: { classId: true },
+  });
+  const classIds = Array.from(new Set(rules.map((r) => r.classId)));
+  for (const classId of classIds) {
+    const all = await loadClassRules(db, classId);
+    await applyRuleOpsDb(db, args.clubId, classId, planEndUserRules(all, args.userId, from), args.byUserId);
+  }
+  // Refresh the per-day legacy mirror for every class touched (rows or rules).
+  const touched = new Set(classIds);
+  if (open.length > 0) {
+    const sess = await db.classSession.findMany({ where: { id: { in: Array.from(new Set(open.map((r) => r.sessionId))) } }, select: { classId: true } });
+    for (const s of sess) touched.add(s.classId);
+  }
+  for (const classId of touched) await syncSessionStaff(db, classId, from, { now });
+  return { switchedOn: true, classesEnded: classIds, daysOpened: open.length };
 }
 
 /**

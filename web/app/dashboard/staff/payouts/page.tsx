@@ -31,6 +31,8 @@ type Payout = {
   paidAt: string | null;
   notes: string | null;
   createdAt: string;
+  /** > 0 = a payroll payout that settles this many pay lines (Payroll → Pay lines). */
+  lineCount?: number;
 };
 type StaffOpt = { id: string; name: string; role: string };
 type ContractorOpt = { id: string; name: string; role: string | null; active: boolean };
@@ -51,6 +53,7 @@ export default function PayoutsPage() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [showCreate, setShowCreate] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -68,13 +71,29 @@ export default function PayoutsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (res.ok) load();
-    else alert("Update failed");
+    if (res.ok) {
+      setActionError(null);
+      load();
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setActionError(typeof d.error === "string" ? d.error : "That change didn't save.");
+    }
   }
   async function del(id: string) {
     if (!confirm("Delete this payout record?")) return;
     const res = await fetch(`/api/payouts/${id}`, { method: "DELETE" });
-    if (res.ok) load();
+    if (res.ok) {
+      setActionError(null);
+      load();
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setActionError(typeof d.error === "string" ? d.error : "That payout couldn't be deleted.");
+    }
+  }
+  function voidLedger(p: Payout) {
+    const n = p.lineCount ?? 0;
+    if (!confirm(`Void this ${fmtMoney(p.amount)} payout to ${p.payeeName}? Its ${n} pay line${n === 1 ? "" : "s"} go back to unpaid on the Payroll page so they can be corrected and paid again.`)) return;
+    patch(p.id, { status: "VOID" });
   }
 
   const payouts = data?.payouts ?? [];
@@ -134,6 +153,13 @@ export default function PayoutsPage() {
         </select>
       </div>
 
+      {actionError && (
+        <p role="alert" className="mb-3 rounded-lg border px-3 py-2 text-[13px]"
+          style={{ background: "var(--color-danger-surface)", color: "var(--color-danger-text)", borderColor: "var(--color-danger-border)" }}>
+          {actionError}
+        </p>
+      )}
+
       <div className="bg-surface rounded-xl border border-app-border overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-sm text-text-muted">Loading…</div>
@@ -166,6 +192,7 @@ export default function PayoutsPage() {
                       <td className="px-5 py-3">
                         <div className="text-sm text-text-primary">{PAYOUT_KIND_LABELS[p.kind] ?? p.kind}</div>
                         {p.eventName && <div className="text-[12px] text-text-muted truncate max-w-[180px]">{p.eventName}</div>}
+                        {(p.lineCount ?? 0) > 0 && <div className="text-[12px] text-text-muted">{p.lineCount} pay line{p.lineCount === 1 ? "" : "s"}{p.status === "PAID" ? " · locked" : ""}</div>}
                         {p.notes && !p.eventName && <div className="text-[12px] text-text-muted truncate max-w-[180px]">{p.notes}</div>}
                       </td>
                       <td className="px-5 py-3 text-sm font-medium text-text-primary tabular-nums whitespace-nowrap">{fmtMoney(p.amount)}</td>
@@ -184,7 +211,12 @@ export default function PayoutsPage() {
                           {p.status !== "VOID" && p.status !== "PAID" && (
                             <button onClick={() => patch(p.id, { status: "VOID" })} className="text-xs text-text-muted px-2 py-1 rounded hover:bg-app-bg">Void</button>
                           )}
-                          <button onClick={() => del(p.id)} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">Delete</button>
+                          {/* A paid payroll payout that settles pay lines is locked: it can only be voided. */}
+                          {p.status === "PAID" && (p.lineCount ?? 0) > 0 ? (
+                            <button onClick={() => voidLedger(p)} className="text-xs text-text-muted px-2 py-1 rounded hover:bg-app-bg">Void</button>
+                          ) : (
+                            <button onClick={() => del(p.id)} className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded">Delete</button>
+                          )}
                         </div>
                       </td>
                     </tr>

@@ -20,7 +20,7 @@ type FeedPerson = {
   events: { id: string; name: string; startsAt: string; endsAt: string; sessions?: { startsAt: string; endsAt: string }[] }[];
 };
 type WeekItem = { key: string; name: string; date: string; startTime: string; endTime: string };
-type Plan = { baseType: "SALARY" | "PER_CLASS" | "HOURLY"; baseAmount: number; bonuses: { bonusType: string; amount: number }[] } | null;
+type Plan = { name?: string; baseType: string; baseAmount: number; bonuses: { bonusType: string; amount: number }[] } | null;
 type Exception = { id: string; date: string; type: string; startTime: string | null; endTime: string | null; note: string | null };
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -63,8 +63,8 @@ function relativeDay(iso: string): string {
   if (days < 7) return `${days} days ago`;
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", ...(d.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) });
 }
-const BASE_LABEL: Record<string, string> = { SALARY: "Salary (monthly)", PER_CLASS: "Per class", HOURLY: "Hourly" };
-const BASE_UNIT: Record<string, string> = { SALARY: "/ month", PER_CLASS: "per class", HOURLY: "/ hour" };
+const BASE_LABEL: Record<string, string> = { SALARY: "Salary", PER_CLASS: "Per class", HOURLY: "Hourly", PER_EVENT: "Per event" };
+const BASE_UNIT: Record<string, string> = { SALARY: "per pay period", PER_CLASS: "per class", HOURLY: "/ hour", PER_EVENT: "per event" };
 const BONUS_LABEL: Record<string, string> = { ATTENDANCE: "Attendance bonus", SIGNUP: "Signup bonus", REVENUE_SHARE: "Revenue share" };
 
 function levelStyle(l: PermissionLevel): { className?: string; style?: React.CSSProperties } {
@@ -109,12 +109,17 @@ export default function OverviewTab({ data, goTo }: StaffTabProps) {
 
   // Pay — only fetched when the viewer may see it.
   const [plan, setPlan] = useState<Plan | undefined>(undefined);
+  const [planCount, setPlanCount] = useState(0);
   useEffect(() => {
     if (!viewer.canViewPay) return;
     let live = true;
     fetch(`/api/staff/${staff.id}/compensation`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => live && setPlan((d.plan ?? null) as Plan))
+      .then((d) => {
+        if (!live) return;
+        setPlan((d.plan ?? null) as Plan);
+        setPlanCount(typeof d.planCount === "number" ? d.planCount : 0);
+      })
       .catch(() => live && setPlan(null));
     return () => {
       live = false;
@@ -412,6 +417,11 @@ export default function OverviewTab({ data, goTo }: StaffTabProps) {
                           .map((b) => `${BONUS_LABEL[b.bonusType] ?? b.bonusType} ${b.bonusType === "REVENUE_SHARE" ? `${b.amount}%` : money(b.amount)}`)
                           .join(" · ")}
                   </p>
+                  {planCount > 1 && (
+                    <p className="text-[12.5px] text-text-muted">
+                      {plan.name ? `“${plan.name}” · ` : ""}+ {planCount - 1} more pay plan{planCount - 1 === 1 ? "" : "s"}
+                    </p>
+                  )}
                 </>
               )}
               {!self && (

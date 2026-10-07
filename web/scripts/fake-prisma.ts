@@ -205,6 +205,13 @@ export function makeFakeDb(cfg: FakeConfig) {
         if (r) { Object.assign(r, clean(args.update)); return shape(model, r, args); }
         return shape(model, insert(model, args.create), args);
       },
+      async delete(args: any) {
+        log("delete", args);
+        const r = table(model).find((x) => matches(model, x, args.where));
+        if (!r) throw new Error(`fake-prisma: ${model}.delete found no row`);
+        tables[model] = table(model).filter((x) => x !== r);
+        return shape(model, r, args);
+      },
       async deleteMany(args: any = {}) {
         log("deleteMany", args);
         const keep = table(model).filter((x) => !matches(model, x, args.where));

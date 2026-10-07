@@ -157,7 +157,16 @@ function StaffDirectory() {
     setRemoveBusy(false);
     const name = removing.firstName;
     setRemoving(null);
-    setNotice(res.ok ? `${name} was removed from the staff.` : (typeof d.error === "string" ? d.error : "Couldn't remove this staff member."));
+    const opened = Number(d?.schedule?.daysOpened ?? 0);
+    setNotice(
+      !res.ok
+        ? (typeof d.error === "string" ? d.error : "Couldn't remove this staff member.")
+        : d.scheduleError
+          ? `${name} was removed from the staff, but their classes could not be updated — check Staff → Schedule.`
+          : opened > 0
+            ? `${name} was removed from the staff. ${opened} upcoming class day${opened === 1 ? "" : "s"} now need${opened === 1 ? "s" : ""} coverage — see Staff → Schedule.`
+            : `${name} was removed from the staff.`,
+    );
     load();
   }
 
@@ -472,7 +481,7 @@ function StaffDirectory() {
         open={!!removing}
         onClose={() => setRemoving(null)}
         title={`Remove ${removing?.firstName ?? ""} from the staff?`}
-        description={`${removing?.firstName ?? "They"} won't be able to sign in. Their history (attendance taken, pay records, activity) stays.`}
+        description={`${removing?.firstName ?? "They"} won't be able to sign in. They come off the recurring schedule, and any upcoming class days they were on will show as needing coverage. Their history (classes already coached, attendance taken, pay records, activity) stays.`}
         footer={
           <>
             <button

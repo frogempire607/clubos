@@ -1,13 +1,15 @@
 "use client";
 
-// Payroll & Payouts is one item under Staff: one destination, two tabs.
-//   Payroll → /dashboard/staff/payroll — calculates what each person earned
-//   Payouts → /dashboard/staff/payouts — records what was actually paid
+// Payroll & Payouts is one item under Staff: one destination, three tabs.
+//   Payroll   → /dashboard/staff/payroll       — what each person is owed (pay lines)
+//   Pay plans → /dashboard/staff/payroll/plans — how each person is paid
+//   Payouts   → /dashboard/staff/payouts       — records what was actually paid
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const TABS = [
-  { id: "payroll", label: "Payroll", hint: "calculates", href: "/dashboard/staff/payroll" },
+  { id: "payroll", label: "Payroll", hint: "what is owed", href: "/dashboard/staff/payroll" },
+  { id: "plans", label: "Pay plans", hint: "how each person is paid", href: "/dashboard/staff/payroll/plans" },
   { id: "payouts", label: "Payouts", hint: "records what was paid", href: "/dashboard/staff/payouts" },
 ] as const;
 
@@ -19,7 +21,9 @@ export default function PayrollTabs({ className = "" }: { className?: string }) 
       <div role="tablist" aria-label="Payroll and payouts" className="-mx-4 mt-3 overflow-x-auto border-b border-app-border px-4 md:mx-0 md:px-0">
         <div className="flex min-w-max gap-1">
           {TABS.map((t) => {
-            const active = pathname === t.href || pathname.startsWith(t.href + "/");
+            // The longest matching tab wins (Pay plans lives under /payroll).
+            const match = TABS.filter((x) => pathname === x.href || pathname.startsWith(x.href + "/")).sort((a, b) => b.href.length - a.href.length)[0];
+            const active = match?.id === t.id;
             return (
               <Link
                 key={t.id}

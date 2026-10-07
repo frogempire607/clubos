@@ -225,6 +225,7 @@ model Club {
   attendanceRecords              AttendanceRecord[]
   memberRelationships            MemberRelationship[]
   staffCompensations             StaffCompensation[]
+  payLines                       PayLine[]
   plaidConnections               PlaidConnection[]
   plaidTransactions              PlaidTransaction[]
   plaidSyncCursors               PlaidSyncCursor[]
@@ -493,7 +494,7 @@ model User {
   attendanceAdded            AttendanceRecord[]           @relation("AttendanceAddedBy")
   documentSignatures         DocumentSignature[]
   uploadedFiles              UploadedFile[]
-  compensation               StaffCompensation?
+  compensations              StaffCompensation[]
   staffDocuments             StaffDocument[]              @relation("StaffDocsTarget")
   uploadedStaffDocs          StaffDocument[]              @relation("StaffDocsUploader")
   legalAcceptances           LegalAcceptance[]
@@ -3436,14 +3437,27 @@ model PrivateLessonPayRate {
 // memberships/private-lesson-types a component applies to (bonusId null = the
 // base component; bonusId set = that bonus). No assignments for a component =
 // applies club-wide.
+/// A named, dated pay plan. A coach can hold several (Branch 2, 2026-10-13):
+/// "Jr Frogs Assistant", "Tadpoles Lead", a salary… Which one pays a class day
+/// is decided by lib/payLedger.matchPlan (most specific scope wins). Plans are
+/// edited in place or ended (effectiveTo / archivedAt) — never deleted and
+/// recreated, because pay lines keep the id of the plan that priced them.
 model StaffCompensation {
-  id         String   @id @default(cuid())
-  clubId     String
-  userId     String   @unique
-  baseType   String   @default("HOURLY") // SALARY | PER_CLASS | HOURLY
-  baseAmount Decimal  @default(0) @db.Decimal(10, 2)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id              String    @id @default(cuid())
+  clubId          String
+  userId          String
+  name            String    @default("Pay plan")
+  // SALARY (baseAmount per PAY PERIOD — the coach's pay schedule decides the
+  // period; never prorated) | PER_CLASS | HOURLY | PER_EVENT
+  baseType        String    @default("HOURLY")
+  baseAmount      Decimal   @default(0) @db.Decimal(10, 2)
+  effectiveFrom   DateTime  @default(now()) @db.Date
+  effectiveTo     DateTime? @db.Date // inclusive last day; null = open-ended
+  copiedFromId    String? // provenance only — a copy is fully independent
+  archivedAt      DateTime?
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   club        Club                     @relation(fields: [clubId], references: [id], onDelete: Cascade)
   user        User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -3451,6 +3465,7 @@ model StaffCompensation {
   assignments CompensationAssignment[]
 
   @@index([clubId])
+  @@index([clubId, userId])
   @@map("staff_compensations")
 }
 
@@ -3524,14 +3539,74 @@ model Payout {
   // PAYROLL only: the payday (date-only) this payout settles. Set by
   // /api/payroll/reminders/mark-paid so a pay reminder knows it's been paid.
   payPeriodEnd DateTime? @db.Date
+  // Pay ledger (Branch 2): the first work day this payout covers, and when it
+  // was locked. A payout that settles pay lines is locked once PAID — it can
+  // be voided (which releases its lines) but never edited or deleted.
+  periodStart  DateTime? @db.Date
+  lockedAt     DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+
+  payLines PayLine[]
 
   @@index([clubId])
   @@index([status])
   @@index([eventId])
   @@index([clubId, payeeUserId, payPeriodEnd])
   @@map("payouts")
+}
+
+/// One payable thing for one staff member, saved with the rate that priced it —
+/// the pay ledger (Branch 2). Written only for work on/after
+/// ClubScheduleSettings.payLedgerStartsOn; nothing earlier ever gets a line.
+///   CLASS_SESSION  sourceId = ClassSessionStaff.id   (a class day worked)
+///   EVENT          sourceId = EventStaffAssignment.id (an event worked)
+///   SALARY         sourceId = "<planId>|<periodEnd>"  (one per pay period)
+///   BONUS          sourceId = "<planId>|<periodEnd>" (plan bonus over a pay
+///                  period) or a generated id (a bonus added by hand)
+///   ADJUSTMENT     sourceId = generated id (added by hand; may be negative)
+/// component: BASE, or BONUS:<CompensationBonus.id> for a plan bonus.
+/// Generated lines are reconciled by lib/payLedgerServer.syncPayLines until
+/// they are attached to a payout; a line with a payoutId is never touched.
+model PayLine {
+  id               String    @id @default(cuid())
+  clubId           String
+  userId           String
+  sourceType       String
+  sourceId         String
+  component        String    @default("BASE")
+  workDate         DateTime  @db.Date
+  description      String
+  units            Decimal   @default(1) @db.Decimal(10, 4)
+  rateCents        Int?
+  amountCents      Int? // null while NEEDS_REVIEW
+  rateSource       String    @default("PLAN") // PLAN | OVERRIDE | MANUAL
+  planId           String?
+  planName         String? // snapshot of the plan's name when the line was priced
+  planAmountCents  Int? // what the plan would have paid — kept when overridden
+  overrideReason   String?
+  overrideByUserId String?
+  overrideAt       DateTime?
+  status           String    @default("ESTIMATED") // ESTIMATED | NEEDS_REVIEW | PAID | VOID
+  reviewReason     String?
+  voidReason       String?
+  voidedByUserId   String?
+  voidedAt         DateTime?
+  payoutId         String?
+  periodStart      DateTime? @db.Date
+  periodEnd        DateTime? @db.Date
+  createdByUserId  String? // set on lines added by hand
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  club   Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  payout Payout? @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, sourceType, sourceId, component])
+  @@index([clubId, userId, workDate])
+  @@index([clubId, status])
+  @@index([payoutId])
+  @@map("pay_lines")
 }
 
 // When a staff member gets paid — drives the payday reminders (Payroll page,
@@ -3578,6 +3653,11 @@ model CompensationBonus {
   //                  athletes"). Items above maxThreshold are not paid.
   minThreshold   Int?
   maxThreshold   Int?
+  // What the thresholds count over (pay ledger only):
+  //   PERIOD    → the whole pay period (how the old calculator counted). Needs
+  //               a pay schedule; pays as one line per pay period.
+  //   CLASS_DAY → each class day the coach worked, on its own (ATTENDANCE only).
+  countPer       String   @default("PERIOD")
   createdAt      DateTime @default(now())
 
   compensation StaffCompensation        @relation(fields: [compensationId], references: [id], onDelete: Cascade)
@@ -3591,8 +3671,8 @@ model CompensationAssignment {
   id             String  @id @default(cuid())
   compensationId String
   bonusId        String? // null = scopes the base component; set = scopes that bonus
-  scopeType      String // CLASS | EVENT | MEMBERSHIP | PRIVATE_LESSON_TYPE
-  scopeId        String // RecurringClass / Event / Membership / PrivateLessonType id
+  scopeType      String // CLASS | EVENT | MEMBERSHIP | PRIVATE_LESSON_TYPE | ROLE | EVENT_TYPE
+  scopeId        String // RecurringClass / Event / Membership / PrivateLessonType id; ROLE → the role name; EVENT_TYPE → EventType value
 
   compensation StaffCompensation  @relation(fields: [compensationId], references: [id], onDelete: Cascade)
   bonus        CompensationBonus? @relation(fields: [bonusId], references: [id], onDelete: Cascade)

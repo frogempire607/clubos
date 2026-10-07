@@ -25,7 +25,7 @@ import { MIGRATION_STATUS } from "@/lib/migration";
 import { UNPAID_REGISTRATION_STATUSES } from "@/lib/eventPayments";
 import { loadClubReminders, formatUsdShort } from "@/lib/payReminders";
 import { statusLabel } from "@/lib/paySchedule";
-import { clubTodayYmd, coverageActionItems, toYmd, ymdToDate, type OpenCoverage } from "@/lib/classStaff";
+import { REMOVED_STAFF_REASON, clubTodayYmd, coverageActionItems, toYmd, ymdToDate, type OpenCoverage } from "@/lib/classStaff";
 
 export type ActionSeverity = "high" | "medium" | "low";
 
@@ -79,7 +79,7 @@ export async function loadCoverageActionItems(clubId: string, now: Date = new Da
       session: { canceled: false, date: { gte: ymdToDate(today) }, recurringClass: { deletedAt: null } },
     },
     select: {
-      id: true, userId: true, lateCallout: true,
+      id: true, userId: true, lateCallout: true, calloutReason: true,
       session: { select: { id: true, classId: true, date: true, startsAt: true, recurringClass: { select: { name: true } } } },
     },
   });
@@ -98,6 +98,7 @@ export async function loadCoverageActionItems(clubId: string, now: Date = new Da
     dateYmd: toYmd(r.session.date),
     startsAt: r.session.startsAt,
     lateCallout: r.lateCallout,
+    leftStaff: r.calloutReason === REMOVED_STAFF_REASON,
   }));
   return coverageActionItems(open, today).slice(0, COVERAGE_ITEMS_MAX);
 }

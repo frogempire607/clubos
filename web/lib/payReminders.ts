@@ -11,6 +11,7 @@
 import { prisma } from "@/lib/prisma";
 import { wallClockNowUTC } from "@/lib/datetime";
 import { computePayroll, payrollRange } from "@/lib/payrollCalc";
+import { getLedgerStart, periodLines, syncPayLinesThrottled } from "@/lib/payLedgerServer";
 import {
   REMIND_DAYS_AHEAD,
   OVERDUE_WINDOW_DAYS,
@@ -48,6 +49,10 @@ export type ReminderView = DueReminder & {
   /** Payroll-page estimate for the period; null when they have no pay plan. */
   estimate: number | null;
   hasPlan: boolean;
+  /** true = the amount is the total of this period's saved pay lines (pay ledger), not the old estimate. */
+  fromLedger?: boolean;
+  /** Pay lines in this period that still need a decision before they can be paid. */
+  needsReview?: number;
 };
 
 export type ScheduleView = {
@@ -138,10 +143,26 @@ export async function loadClubReminders(
   );
 
   // One payroll calculation per distinct period, limited to the staff due in it.
-  const estimates = new Map<string, { estimate: number | null; hasPlan: boolean }>();
-  if (withAmounts && due.length) {
+  const estimates = new Map<string, { estimate: number | null; hasPlan: boolean; fromLedger?: boolean; needsReview?: number }>();
+  // Periods that start on/after the pay-ledger start date are read from the
+  // saved pay lines; earlier periods keep the old estimate.
+  const ledgerStart = withAmounts && due.length ? await getLedgerStart(clubId) : null;
+  const onLedger = (r: { periodStart: string }) => !!ledgerStart && r.periodStart >= ledgerStart;
+  if (withAmounts && due.some(onLedger)) {
+    await syncPayLinesThrottled(clubId);
+    const planned = await prisma.staffCompensation.findMany({ where: { clubId, archivedAt: null }, select: { userId: true } });
+    const hasPlan = new Set(planned.map((p) => p.userId));
+    for (const r of due.filter(onLedger)) {
+      const got = await periodLines(clubId, r.userId, r.periodEnd);
+      estimates.set(`${r.userId}|${r.periodStart}|${r.periodEnd}`, {
+        estimate: got.amountCents / 100, hasPlan: hasPlan.has(r.userId), fromLedger: true, needsReview: got.reviewCount,
+      });
+    }
+  }
+  if (withAmounts && due.some((r) => !onLedger(r))) {
     const byPeriod = new Map<string, { start: string; end: string; userIds: Set<string> }>();
     for (const r of due) {
+      if (onLedger(r)) continue;
       const k = `${r.periodStart}|${r.periodEnd}`;
       const g = byPeriod.get(k) ?? { start: r.periodStart, end: r.periodEnd, userIds: new Set<string>() };
       g.userIds.add(r.userId);
@@ -169,6 +190,7 @@ export async function loadClubReminders(
       firstName: names.get(r.userId)!.first,
       estimate: e?.estimate ?? null,
       hasPlan: e?.hasPlan ?? false,
+      ...(e?.fromLedger ? { fromLedger: true, needsReview: e.needsReview ?? 0 } : {}),
     };
   });
 

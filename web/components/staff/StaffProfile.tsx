@@ -250,7 +250,7 @@ export default function StaffProfile({ staffId, selfRoute = false }: { staffId: 
         open={confirmRemove}
         onClose={() => setConfirmRemove(false)}
         title={`Remove ${staff.firstName} from the staff?`}
-        description={`${staff.firstName} won't be able to sign in. Their history (attendance taken, pay records, activity) stays.`}
+        description={`${staff.firstName} won't be able to sign in. They come off the recurring schedule, and any upcoming class days they were on will show as needing coverage. Their history (classes already coached, attendance taken, pay records, activity) stays.`}
         footer={
           <>
             <button type="button" onClick={() => setConfirmRemove(false)} className={`${btn} border border-app-border text-text-primary hover:bg-app-bg`}>

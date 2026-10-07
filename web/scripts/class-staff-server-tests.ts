@@ -85,7 +85,7 @@ const perms = (schedule: string) => ({ permissions: { schedule } });
 const user = (id: string, role: string, o: Record<string, unknown> = {}) => ({
   id, clubId: CLUB, role, deletedAt: null, firstName: id, lastName: "Test", email: `${id}@example.test`,
   staffProfile: role === "STAFF" ? { title: "Coach", ...perms("view") } : null,
-  compensation: role === "MEMBER" ? null : { baseType: "PER_CLASS", baseAmount: 10, bonuses: [], assignments: [] },
+  compensations: role === "MEMBER" ? [] : [{ id: `comp_${id}`, baseType: "PER_CLASS", baseAmount: 10, effectiveFrom: new Date("2026-01-01T00:00:00Z"), archivedAt: null, bonuses: [], assignments: [] }],
   ...o,
 });
 fake.seed("club", [{ id: CLUB, name: "Test Club", timezone: NY }]);

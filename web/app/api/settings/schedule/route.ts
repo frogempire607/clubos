@@ -35,6 +35,8 @@ function payload(s: ScheduleSettings, extra: Record<string, unknown> = {}) {
     /** Read-only: set by the switch-on script, never by this endpoint. null = not switched on. */
     assignmentsStartOn: s.assignmentsStartOn,
     switchedOn: !!s.assignmentsStartOn,
+    /** Read-only here: set once by POST /api/settings/schedule/pay-ledger. null = no pay ledger yet. */
+    payLedgerStartsOn: s.payLedgerStartsOn,
     ...extra,
   };
 }

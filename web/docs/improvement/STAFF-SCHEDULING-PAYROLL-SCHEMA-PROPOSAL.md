@@ -276,3 +276,66 @@ None — all questions answered. Awaiting go-ahead to build Migration A.
 - **Classes → Change coaches** opens the next class day that is neither canceled nor already over.
 - Open, not changed (needs a decision): removing a staff member does not end their coach rules or take them off
   future class days (`endUserRules` exists for it and is not called from `DELETE /api/staff/[id]`).
+
+
+## Build notes — Branch 2: pay plans + pay ledger (2026-10-07/08)
+
+**Cut-over (approved by Julian 2026-10-07).** The report found Sal and Josh mid-period (Sep 29 – Oct 12, payday
+Oct 12) on deployment day, so the rule's "stop and ask" applied. Decision: the ledger starts **Tue 2026-10-13**
+(first full unpaid period, Oct 13 – 26). The Oct 12 payday is paid the old way. Sal's salary is **$1,700 every two
+weeks** (salary = the plan amount once per pay period on the coach's own pay schedule). The migration sets
+`club_schedule_settings."payLedgerStartsOn"` for Frog Empire only; other clubs start theirs in Settings →
+Scheduling (owner only, a date that is not in the past, set once).
+
+**Migration `20261013000000_pay_plans_ledger`** — what was actually built (differences from the proposal above):
+- `staff_compensations`: unique index on `userId` dropped; `name`, `effectiveFrom` (existing rows = their
+  `createdAt` day), `effectiveTo`, `copiedFromId`, `archivedAt`, `createdByUserId`. New base type `PER_EVENT`.
+- `compensation_bonuses.countPer` (`PERIOD` default = how the old calculator counted; `CLASS_DAY` for attendance).
+- Scope types added: `ROLE` (scopeId = role name) and `EVENT_TYPE`. **`CLASS_RULE` was not built**: rule ids are
+  re-created whenever a schedule is edited, so a plan tied to one would silently stop matching. "Rate by
+  assignment" is class + role, plus the one-day override.
+- `pay_lines` as proposed, plus `overrideAt`, `voidReason/voidedAt/voidedByUserId`, `createdByUserId`; statuses
+  are `ESTIMATED | NEEDS_REVIEW | PAID | VOID` (no separate APPROVED step — a payout is the approval).
+- `payouts.periodStart`, `payouts.lockedAt`.
+
+**Where things live.** `lib/payLedger.ts` (pure rules: matching, what earns a line, reconcile, words) ·
+`lib/payLedgerServer.ts` (sync, plans, overrides, manual lines, payouts) · `lib/payLedgerApi.ts` (route helpers) ·
+`lib/payrollCalc.ts` (the period calculator, now shared; used for work before the ledger and for bonuses counted
+over a pay period) · `lib/payroll.ts` (report total = old calculation before the date + pay lines after).
+
+**Rules as built.**
+- A class day gets a line once it has ENDED, for each coach whose row is still SCHEDULED; a cancelled day only
+  when marked "cancelled — paid". Called-out / replaced / no-show / removed never pay. A line that stops being
+  payable is VOIDED with the reason, not deleted.
+- Plan match, most specific first: class + role → class → role → any. A tie, or no plan, is `NEEDS_REVIEW` with
+  no amount. A coach whose only plan in force is a salary gets a $0 "covered by salary" line for each class day.
+- Salary: one line per pay period at the full amount, dated on the payday; only periods that START on/after the
+  ledger date. No pay schedule → no salary line, and Payroll says so.
+- Substitute: their own plan. Override: `ClassSessionStaff.payOverride*` (can be set before the class), mirrored
+  on the line with the plan amount kept; non-class lines carry their own override. Reason required.
+- The sync (`syncPayLines`) is idempotent, never writes a line dated before the ledger date, never touches a line
+  that is PAID, on a payout, or added by hand, and only reconsiders the last 62 days. It runs when Payroll is
+  opened, after each pay change, at most once a minute for report totals, and nightly (the class top-up cron).
+- Payout: `POST /api/payroll/ledger/payouts` pays exact line ids in one transaction; amount = their total. PAID
+  → lines PAID + payout `lockedAt`. Amount edits / un-paying / deleting a paid ledger payout are refused;
+  VOID releases the lines (audit row lists them). "Mark paid" on a payday reminder does the same for that period
+  and refuses an amount that differs from the lines' total.
+- Plans are edited IN PLACE (bonuses kept by id — a pay line's key includes the bonus id, so a recreated bonus
+  would be paid twice) or archived, never deleted. The old `PUT /api/staff/[id]/compensation` no longer deletes
+  and recreates; it refuses a coach with several plans.
+- An OWNER with no pay plan is left off the ledger. Events: only for a coach with a `PER_EVENT` plan, and never
+  when the event has its own pay set for them. Private lessons: not on the ledger yet.
+- Authorization: every write is `finances:full` read live + the self rule (never your own plans, lines, bonuses,
+  overrides, payouts — owners excepted). A coach may read their own plans and lines.
+- Removed staff (`lib/classStaffServer.releaseRemovedStaff`, called by `DELETE /api/staff/[id]`): future
+  SCHEDULED rows → NEEDS_COVERAGE (reason "No longer on staff"), recurring rules end today, ended days untouched.
+  Action Items groups these into one item per class; a new recurring coach settles the openings.
+
+**API added.** `GET /api/payroll/ledger` · `POST /api/payroll/ledger/payouts` · `POST /api/payroll/lines` ·
+`PATCH /api/payroll/lines/[lineId]` · `GET /api/payroll/plans` · `GET|POST /api/staff/[id]/pay-plans` ·
+`PATCH|DELETE /api/staff/[id]/pay-plans/[planId]` · `POST …/[planId]/copy` ·
+`PUT /api/classes/session-staff/[staffRowId]/pay-override` · `POST /api/settings/schedule/pay-ledger`.
+
+**Verified.** Migration applied twice on a scratch Postgres 16 (applies, idempotent, backfill correct, only Frog
+Empire's ledger date set). Not provable here: a real `next build`, layout/CSS, and the Prisma queries against
+the real database (they are type-checked and run against the in-memory fake).

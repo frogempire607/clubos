@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermissionLive, isOwnerLive } from "@/lib/apiGuard";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { PAYOUT_STATUSES, PAYOUT_METHODS } from "@/lib/payouts";
+import { payoutLineCount, releasePayoutLines, settleLedgerPayout } from "@/lib/payLedgerServer";
 
 // A row with no staff member and no contractor behind it was paid to a typed-in
 // name; the self rule cannot see who that is, so only an owner touches it
@@ -54,6 +55,23 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     throw err;
   }
 
+  // A payout that settles pay lines (the pay ledger): its amount IS its lines'
+  // total, so the amount is never edited; once PAID it is locked — it can be
+  // voided (the lines go back to unpaid and can be corrected and paid again),
+  // nothing else.
+  const lineCount = await payoutLineCount(clubId, existing.id);
+  if (lineCount > 0) {
+    if (data.amount !== undefined && Math.abs(data.amount - Number(existing.amount)) > 0.004) {
+      return NextResponse.json({ error: "This payout pays specific pay lines, so its amount can't be edited. Void it, fix the lines on the Payroll page, and pay again.", code: "LEDGER_LOCKED" }, { status: 409 });
+    }
+    if (existing.status === "PAID" && data.status !== undefined && data.status !== "VOID" && data.status !== "PAID") {
+      return NextResponse.json({ error: "A paid payroll payout is locked. Void it instead — its pay lines go back to unpaid.", code: "LEDGER_LOCKED" }, { status: 409 });
+    }
+    if (existing.status === "PAID" && data.status === undefined && data.paidAt !== undefined) {
+      return NextResponse.json({ error: "A paid payroll payout is locked.", code: "LEDGER_LOCKED" }, { status: 409 });
+    }
+  }
+
   const update: Record<string, unknown> = {};
   if (data.method !== undefined) update.method = data.method;
   if (data.amount !== undefined) update.amount = data.amount;
@@ -73,6 +91,21 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   }
 
   const payout = await prisma.payout.update({ where: { id }, data: update });
+  if (lineCount > 0 && data.status !== undefined && data.status !== existing.status) {
+    if (data.status === "PAID") {
+      await settleLedgerPayout(clubId, id);
+    } else if (data.status === "VOID") {
+      const released = await releasePayoutLines(clubId, id);
+      await writeBillingAudit({
+        clubId,
+        actorUserId: session!.user.id ?? null,
+        action: "PAYROLL_PAYOUT_VOIDED",
+        before: { ...snapshot(existing), lines: released },
+        after: snapshot(payout),
+        note: `A payroll payout to ${existing.payeeName} was voided; ${released.length} pay line${released.length === 1 ? "" : "s"} went back to unpaid.`,
+      });
+    }
+  }
   // A PAID row is ledger history. Editing it is allowed (the ledger is not
   // being redesigned here) but never silently: who, what it was, what it is now.
   if (existing.status === "PAID") {
@@ -103,6 +136,14 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
   }
   if (!existing.payeeUserId && !existing.contractorId && !(await isOwnerLive(session))) return FREE_TEXT_DENIED();
 
+  // Ledger payouts: a PAID one is locked (void it instead, which keeps the
+  // record); a PENDING or VOID one can go, and its lines return to unpaid.
+  if ((await payoutLineCount(clubId, existing.id)) > 0) {
+    if (existing.status === "PAID") {
+      return NextResponse.json({ error: "A paid payroll payout can't be deleted. Void it instead — its pay lines go back to unpaid.", code: "LEDGER_LOCKED" }, { status: 409 });
+    }
+    await releasePayoutLines(clubId, existing.id);
+  }
   await prisma.payout.delete({ where: { id } });
   // Deleting a PAID row removes money that was recorded as paid — keep the
   // record of what it was and who removed it.

@@ -38,12 +38,19 @@ export async function GET() {
   ]);
 
   const eventName = new Map(events.map((e) => [e.id, e.name]));
+  // Pay-ledger payouts settle specific pay lines; the page shows how many.
+  const lineRows = payouts.length
+    ? await prisma.payLine.findMany({ where: { clubId, payoutId: { in: payouts.map((p) => p.id) } }, select: { payoutId: true } })
+    : [];
+  const lineCount = new Map<string, number>();
+  for (const l of lineRows) if (l.payoutId) lineCount.set(l.payoutId, (lineCount.get(l.payoutId) ?? 0) + 1);
 
   return NextResponse.json({
     payouts: payouts.map((p) => ({
       ...p,
       amount: Number(p.amount),
       eventName: p.eventId ? eventName.get(p.eventId) ?? null : null,
+      lineCount: lineCount.get(p.id) ?? 0,
     })),
     staff: staffRows.map((u) => ({
       id: u.id,

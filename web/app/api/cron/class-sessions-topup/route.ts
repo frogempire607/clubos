@@ -1,6 +1,8 @@
 import { timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { runClassTopUp } from "@/lib/classTopUp";
+import { prisma } from "@/lib/prisma";
+import { syncPayLines } from "@/lib/payLedgerServer";
 
 /** Constant-time compare so the secret can't be probed a byte at a time. */
 function secretMatches(provided: string | null, expected: string): boolean {
@@ -54,7 +56,22 @@ async function handle(req: Request) {
     },
     { classes: 0, sessionsCreated: 0, staffRowsCreated: 0, failedClubs: 0 },
   );
-  return NextResponse.json({ ok: tally.failedClubs === 0, clubs: results.length, tally, results });
+  // Pay ledger: bring every ledger club's pay lines up to date once a day, so
+  // a class that ended yesterday has its line even if nobody opened Payroll.
+  const ledgerClubs = await prisma.clubScheduleSettings.findMany({ where: { payLedgerStartsOn: { not: null } }, select: { clubId: true } });
+  const payLines = { clubs: ledgerClubs.length, created: 0, updated: 0, voided: 0, failedClubs: 0 };
+  for (const c of ledgerClubs) {
+    try {
+      const r = await syncPayLines(c.clubId);
+      payLines.created += r.created;
+      payLines.updated += r.updated;
+      payLines.voided += r.voided;
+    } catch (err) {
+      payLines.failedClubs++;
+      console.error("[cron] pay-line sync failed for club", c.clubId, err);
+    }
+  }
+  return NextResponse.json({ ok: tally.failedClubs === 0 && payLines.failedClubs === 0, clubs: results.length, tally, payLines, results });
 }
 
 export async function POST(req: Request) {
