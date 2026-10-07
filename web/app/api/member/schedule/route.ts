@@ -4,7 +4,8 @@ import { cookies } from "next/headers";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { effectiveClassStaff, staffNames } from "@/lib/staffAssignments";
+import { staffNames } from "@/lib/staffAssignments";
+import { loadSessionStaffResolver } from "@/lib/classStaffServer";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { readPreviewCookie, canStartPreview } from "@/lib/preview";
 import { trialCoversClass } from "@/lib/freeTrial";
@@ -323,10 +324,12 @@ export async function GET(req: Request) {
   const ctxState = context ? stateById.get(context.id) : undefined;
   const activeMembershipIds = ctxState?.membershipIds ?? [];
   const activeMembershipNames = ctxState?.membershipNames ?? [];
+  // Who is actually on THIS session: the legacy lists before the club's
+  // assignment start date, that day's coach rows on/after it (lib/classStaff.ts).
+  const staffOn = await loadSessionStaffResolver(clubId, classes);
   const staffIds = new Set<string>();
   for (const cls of classes) {
-    // Who is actually on THIS session: a one-day substitute wins over the series.
-    effectiveClassStaff(cls.recurringClass.assignedStaffIds, cls.staffOverride).staffIds.forEach((id) => staffIds.add(id));
+    staffOn.forSession(cls, cls.recurringClass.assignedStaffIds).staffIds.forEach((id) => staffIds.add(id));
   }
   const staff = staffIds.size
     ? await prisma.user.findMany({
@@ -524,7 +527,7 @@ export async function GET(req: Request) {
       const ctxEval = ctxState ? evalFor(ctxState) : null;
       const price = ctxEval?.price ?? null;
       const coachNames = staffNames(
-        effectiveClassStaff(sessionItem.recurringClass.assignedStaffIds, sessionItem.staffOverride).staffIds,
+        staffOn.forSession(sessionItem, sessionItem.recurringClass.assignedStaffIds).staffIds,
         staffById,
       ).join(", ");
       return {

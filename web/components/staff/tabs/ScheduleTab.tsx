@@ -7,6 +7,9 @@
 //   week feed    GET  /api/staff/schedule?from&to
 //   assign       POST/DELETE /api/classes/:id/staff, /api/events/:id/staff
 //   one day      POST /api/classes/:id/occurrence
+// A club on the new coach scheduling (feed.assignmentsStartOn): a class opens
+// the ONE class-day sheet (components/staff/schedule/ClassDaySheet.tsx) for
+// coaches, call-outs, coverage and canceling; the pencil is then time/note only.
 //   weekly hours GET/POST /api/staff/:id/availability (POST replaces the full list)
 //   time off     GET/POST/DELETE /api/staff/:id/availability/exceptions
 // Fit ("outside hours") comes from lib/staffScheduleFit.ts: SAVED weekly
@@ -31,6 +34,9 @@ import {
   type WeeklySlot,
 } from "@/lib/staffScheduleFit";
 import type { StaffTabProps } from "@/components/staff/types";
+import type { RichStaffRow, StaffKind, StaffStatus } from "@/lib/classStaff";
+import { chipState } from "@/lib/classStaffUi";
+import ClassDaySheet from "@/components/staff/schedule/ClassDaySheet";
 
 // ── feed shapes (GET /api/staff/schedule) ───────────────────────────────────
 type ClassInstance = {
@@ -45,6 +51,15 @@ type ClassInstance = {
   isSubstitute: boolean;
   canceled: boolean;
   note: string | null;
+  // Clubs on the new coach scheduling (absent / false otherwise).
+  switched?: boolean;
+  staffRows?: RichStaffRow[];
+  cancel?: { paid: boolean } | null;
+  myStatus?: StaffStatus | null;
+  myRowId?: string | null;
+  myRoleName?: string | null;
+  myKind?: StaffKind | null;
+  myLateCallout?: boolean;
 };
 type FeedException = { id: string; date: string; type: string; startTime: string | null; endTime: string | null; note: string | null };
 type FeedPerson = {
@@ -58,7 +73,11 @@ type FeedPerson = {
 };
 type AllEvent = { id: string; name: string; type: string; startsAt: string; endsAt: string; sessions?: { startsAt: string; endsAt: string }[]; date: string; assignedUserIds: string[] };
 type AllClass = { id: string; name: string; daysOfWeek: number[]; startTime: string; endTime: string; dayOverrides?: { dayOfWeek: number; startTime: string; endTime: string }[]; assignedStaffIds: string[] };
-type Feed = { me: FeedPerson | null; allEvents: AllEvent[]; allClasses: AllClass[]; allStaff: { id: string; firstName: string; lastName: string }[] };
+type Feed = {
+  me: FeedPerson | null; allEvents: AllEvent[]; allClasses: AllClass[]; allStaff: { id: string; firstName: string; lastName: string }[];
+  /** YYYY-MM-DD the new coach scheduling applies from; null = this club is not on it. */
+  assignmentsStartOn: string | null;
+};
 
 // ── editor shapes ───────────────────────────────────────────────────────────
 type Slot = { key: number; dayOfWeek: number; startTime: string; endTime: string; active: boolean };
@@ -138,6 +157,7 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
       allEvents: d.allEvents ?? [],
       allClasses: d.allClasses ?? [],
       allStaff: all.map((p) => ({ id: p.id, firstName: p.firstName, lastName: p.lastName })),
+      assignmentsStartOn: typeof d.assignmentsStartOn === "string" ? d.assignmentsStartOn : null,
     });
     setFeedError(null);
   }, [days, staffId]);
@@ -208,7 +228,11 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
 
   const fitSlots: WeeklySlot[] = useMemo(() => (feed?.me?.availability ?? []).map((a) => ({ ...a, active: true })), [feed]);
   const fitExceptions: DateException[] = useMemo(() => feed?.me?.exceptions ?? [], [feed]);
-  const live = useMemo(() => items.filter((i) => !(i.kind === "class" && i.inst.canceled)), [items]);
+  // Not judged against hours: canceled days, and (new coach scheduling) days this person is no longer coaching.
+  const live = useMemo(
+    () => items.filter((i) => !(i.kind === "class" && (i.inst.canceled || (i.inst.switched && !!i.inst.myStatus && i.inst.myStatus !== "SCHEDULED")))),
+    [items],
+  );
   const fit = useMemo(() => scheduleFit(days, fitSlots, fitExceptions, live), [days, fitSlots, fitExceptions, live]);
   const outsideKeys = useMemo(() => new Set(fit.results.filter((r) => r.fit === "outside").map((r) => r.assignment.key)), [fit]);
 
@@ -241,6 +265,12 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
   const [pickDate, setPickDate] = useState<string | null>(null);
   const [confirmClass, setConfirmClass] = useState<Extract<Item, { kind: "class" }> | null>(null);
   const [editing, setEditing] = useState<ClassInstance | null>(null);
+  const switchedOn = !!feed?.assignmentsStartOn;
+  const [daySheet, setDaySheet] = useState<{ classId: string; date: string; start?: "edit"; addUserId?: string } | null>(null);
+  const staffOptions = useMemo(
+    () => (feed?.allStaff ?? []).map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName}`.trim() })),
+    [feed],
+  );
 
   async function assign(kind: "class" | "event", id: string, name: string, date: string) {
     setBusy(true);
@@ -392,7 +422,10 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
         return [{ kind: "event" as const, id: e.id, name: e.name, time: to12h(st), fits: fitsWindows(st, "", band.windows), sort: st }];
       });
     const cls = feed.allClasses
-      .filter((c) => c.daysOfWeek.includes(dow) && !c.assignedStaffIds.includes(staffId))
+      // New coach scheduling: coaches can differ by weekday, so "already on it" is judged on THIS day.
+      .filter((c) => c.daysOfWeek.includes(dow) && (feed.assignmentsStartOn
+        ? !(feed.me?.classes ?? []).some((x) => x.classId === c.id && x.date === pickDate)
+        : !c.assignedStaffIds.includes(staffId)))
       .map((c) => {
         // That weekday's own time when the class has a per-day override.
         const t = classTimesForDay(c.startTime, c.endTime, c.dayOverrides, dow);
@@ -425,6 +458,7 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
         </div>
         <p className="mt-1.5 text-[12.5px] text-text-muted">
           Green = when {whoIs} available. Orange = assigned outside those hours, or time off. {rangeCap}.
+          {switchedOn && (self ? " Tap a class to see its coaches or to say you can’t make it." : " Tap a class to see its coaches and what it needs.")}
         </p>
 
         {(flash || weekError) && (
@@ -467,6 +501,47 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
                         const outside = outsideKeys.has(it.key);
                         const style = canceled ? tint.chip : outside ? tint.warn : tint.pending;
                         const sub = it.kind === "class" && it.inst.isSubstitute && !canceled;
+                        // New coach scheduling: the class opens the class-day sheet and says its state.
+                        if (switchedOn && it.kind === "class") {
+                          const inst = it.inst;
+                          const st = inst.switched ? chipState(inst) : null;
+                          const tone = st?.tone ?? "normal";
+                          const stStyle =
+                            tone === "warn" ? { ...tint.warn, boxShadow: "inset 0 0 0 1px var(--color-warn-border)" }
+                            : tone === "late" ? { ...tint.danger, boxShadow: "inset 0 0 0 1px var(--color-danger-text)" }
+                            : tone === "noshow" ? tint.danger
+                            : tone === "canceled" || canceled ? tint.chip
+                            : { ...style, ...(outside ? { boxShadow: "inset 0 0 0 1px var(--color-warn-border)" } : {}) };
+                          const label = st ? st.label : canceled ? "Canceled" : sub ? "Changed for this day" : "Coach";
+                          return (
+                            <div key={it.key} className="flex min-w-0 items-center gap-0.5 rounded-lg py-1 pl-1 pr-1" style={stStyle}>
+                              <button
+                                type="button"
+                                onClick={() => setDaySheet({ classId: inst.classId, date: inst.date })}
+                                aria-label={`${it.name}, ${shortDate(d)} — ${label}. Open this class day`}
+                                className="min-h-[44px] min-w-0 flex-1 rounded-md px-1.5 text-left text-[13px] font-medium leading-snug hover:opacity-80 md:min-h-0"
+                              >
+                                <span className={`block truncate ${canceled ? "line-through" : ""}`}>{it.name}</span>
+                                <small className="block text-[12px] font-normal opacity-90">
+                                  {range12h(it.startTime, it.endTime)}
+                                  {outside && " · outside hours"}
+                                </small>
+                                <small className={`block text-[12px] ${tone === "normal" ? "font-normal opacity-90" : "font-semibold"}`}>{label}</small>
+                              </button>
+                              {viewer.canAssign && !canceled && (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => setEditing(inst)}
+                                  aria-label={`Change the time or note for ${it.name} on ${shortDate(d)}`}
+                                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md opacity-70 hover:opacity-100 md:h-7 md:w-7"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        }
                         return (
                           <div
                             key={it.key}
@@ -762,7 +837,7 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
         open={!!pickDate}
         onClose={() => setPickDate(null)}
         title={pickDate ? `Assign ${first} — ${shortDate(pickDate)}` : ""}
-        description={pickBand ? `${self ? "Your" : `${first}'s`} hours that day: ${bandLabel(pickBand)}. Saves as soon as you pick.` : undefined}
+        description={pickBand ? `${self ? "Your" : `${first}'s`} hours that day: ${bandLabel(pickBand)}. ${switchedOn ? "An event saves as soon as you pick; for a class you review the change first." : "Saves as soon as you pick."}` : undefined}
         footer={
           <button type="button" onClick={() => setPickDate(null)} className={`${btn} border border-app-border text-text-primary hover:bg-app-bg`}>
             Cancel
@@ -783,13 +858,20 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
                 key={`${o.kind}-${o.id}`}
                 type="button"
                 disabled={busy}
-                onClick={() => pickDate && assign(o.kind, o.id, o.name, pickDate)}
+                onClick={() => {
+                  if (!pickDate) return;
+                  // New coach scheduling: choose the role and which class days in the class-day sheet.
+                  if (switchedOn && o.kind === "class") {
+                    setDaySheet({ classId: o.id, date: pickDate, start: "edit", addUserId: staffId });
+                    setPickDate(null);
+                  } else assign(o.kind, o.id, o.name, pickDate);
+                }}
                 className="flex min-h-[44px] w-full items-center gap-3 rounded-lg border border-app-border px-3 py-2 text-left hover:bg-app-bg disabled:opacity-50"
               >
                 <span className="min-w-0 flex-1">
                   <b className="block truncate text-[13.5px] font-medium text-text-primary">{o.name}</b>
                   <small className="block text-[12px] text-text-muted">
-                    {o.kind === "event" ? `Event · starts ${o.time}` : `${o.time} · every ${DAY_NAMES[ymdToUtc(pickDate!).getUTCDay()]}`}
+                    {o.kind === "event" ? `Event · starts ${o.time}` : switchedOn ? `${o.time} · you choose which class days next` : `${o.time} · every ${DAY_NAMES[ymdToUtc(pickDate!).getUTCDay()]}`}
                   </small>
                 </span>
                 <span className="shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[12px] font-medium" style={o.fits ? tint.ok : tint.warn}>
@@ -831,10 +913,26 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
       {editing && feed && (
         <OccurrenceEditor
           instance={editing}
+          timesOnly={switchedOn && !!editing.switched}
           allStaff={feed.allStaff}
           onClose={() => setEditing(null)}
           onSaved={(msg) => {
             setEditing(null);
+            setFlash(msg);
+            loadWeek();
+          }}
+        />
+      )}
+      {daySheet && (
+        <ClassDaySheet
+          key={`${daySheet.classId}:${daySheet.date}:${daySheet.start ?? ""}`}
+          classId={daySheet.classId}
+          date={daySheet.date}
+          start={daySheet.start}
+          addUserId={daySheet.addUserId}
+          staffOptions={viewer.canAssign && staffOptions.length > 0 ? staffOptions : undefined}
+          onClose={() => setDaySheet(null)}
+          onChanged={(msg) => {
             setFlash(msg);
             loadWeek();
           }}
@@ -853,11 +951,14 @@ const SCOPES: { value: "occurrence" | "following" | "series"; label: string; hin
 
 function OccurrenceEditor({
   instance,
+  timesOnly = false,
   allStaff,
   onClose,
   onSaved,
 }: {
   instance: ClassInstance;
+  /** New coach scheduling: coaches and canceling live in the class-day sheet — this edits time and note only. */
+  timesOnly?: boolean;
   allStaff: { id: string; firstName: string; lastName: string }[];
   onClose: () => void;
   onSaved: (msg: string) => void;
@@ -876,14 +977,15 @@ function OccurrenceEditor({
     setBusy(true);
     setErr("");
     const payload: Record<string, unknown> = { date: instance.date, scope };
-    if (staffMode === "__reset__") payload.staffIds = null;
+    if (timesOnly) { /* coaches are not sent from here */ }
+    else if (staffMode === "__reset__") payload.staffIds = null;
     else if (staffMode === "__none__") payload.staffIds = [];
     else if (staffMode) payload.staffIds = [staffMode];
     if (startTime && startTime !== instance.startTime) payload.startTime = startTime;
     if (endTime && endTime !== instance.endTime) payload.endTime = endTime;
     if (!seriesScope) {
       payload.note = note.trim() ? note.trim() : null;
-      payload.canceled = canceled;
+      if (!timesOnly) payload.canceled = canceled;
     }
     const res = await fetch(`/api/classes/${instance.classId}/occurrence`, {
       method: "POST",
@@ -930,7 +1032,10 @@ function OccurrenceEditor({
             </label>
           ))}
         </fieldset>
-        <label className={label}>
+        {timesOnly && (
+          <p className="text-[12px] text-text-muted">This changes the time and the note. To change coaches or cancel this day, close this and tap the class.</p>
+        )}
+        <label className={timesOnly ? "hidden" : label}>
           Staff on this class
           <select value={staffMode} onChange={(e) => setStaffMode(e.target.value)} className={`${input} w-full`}>
             <option value="">Keep current staff</option>
@@ -961,10 +1066,12 @@ function OccurrenceEditor({
               Note for this occurrence
               <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="e.g. Room B today" className="w-full rounded-lg border border-app-border bg-surface px-2.5 py-2 text-[14px] text-text-primary md:text-[13px]" />
             </label>
-            <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-[13.5px] text-text-primary md:min-h-0">
-              <input type="checkbox" checked={canceled} onChange={(e) => setCanceled(e.target.checked)} />
-              Cancel this {scope === "following" ? "and following sessions" : "session"}
-            </label>
+            {!timesOnly && (
+              <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-[13.5px] text-text-primary md:min-h-0">
+                <input type="checkbox" checked={canceled} onChange={(e) => setCanceled(e.target.checked)} />
+                Cancel this {scope === "following" ? "and following sessions" : "session"}
+              </label>
+            )}
           </div>
         </Reveal>
         {seriesScope && (

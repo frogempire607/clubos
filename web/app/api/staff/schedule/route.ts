@@ -12,6 +12,10 @@ import {
   type ClassOccurrence,
 } from "@/lib/staffAssignments";
 import { listScheduleStaff } from "@/lib/staffAssignmentsServer";
+import { loadSessionStaffResolver } from "@/lib/classStaffServer";
+import { clubTodayYmd, currentRuleStaffIds, maxYmd, richStaffRows, type RichStaffRow, type StaffRule } from "@/lib/classStaff";
+import { cancelSummary, type CancelSummary } from "@/lib/classStaffApi";
+import { loadClassRules } from "@/lib/classStaffServer";
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -106,17 +110,54 @@ export async function GET(req: Request) {
         endsAt: true,
         canceled: true,
         staffOverride: true,
+        staffManual: true,
         note: true,
+        canceledAt: true, canceledByUserId: true, cancelReason: true, cancelNotifyAudience: true,
+        cancelNotifiedCount: true, cancelPaid: true, cancelPaidByUserId: true, cancelPaidAt: true,
       },
     }),
   ]);
 
-  const classInstances: ClassOccurrence[] = [];
+  // Legacy lists before the club's assignment start date; on/after it the
+  // day's coach rows, or the class's rules for a day with no row yet.
+  const staffOn = await loadSessionStaffResolver(clubId, sessionRows, { classIds: classes.map((c) => c.id) });
+  // For a class day on/after the switch-on date each occurrence also carries
+  // its coach ROWS (status, role, late call-out, who covers whom), whether it
+  // still needs coverage, and — when canceled — the cancel record. `staffIds`
+  // stays "who is coaching" (SCHEDULED), so older screens read it as before.
+  type Occ = ClassOccurrence & {
+    /** On/after the switch-on date: staffRows are real rows and the new actions apply. */
+    switched: boolean;
+    staffRows: RichStaffRow[];
+    needsCoverage: boolean;
+    cancel: CancelSummary | null;
+  };
+  const staffNameById = new Map(staff.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
+  const nameOf = (id: string) => staffNameById.get(id) ?? "Former staff";
+  const sessionById = new Map(sessionRows.map((r) => [r.id, r]));
+  const synthetic = (ids: string[], source: "RULE" | "LEGACY") =>
+    ids.map((userId) => ({
+      id: null, userId, roleName: null, kind: "REGULAR" as const, status: "SCHEDULED" as const, source,
+      replacesStaffId: null, lateCallout: false,
+    }));
+  const classInstances: Occ[] = [];
   for (const c of classes) {
-    for (const occ of classOccurrencesInRange(c, sessionRows, fromYmd, toYmd)) {
-      // Nobody on it and not canceled → not on anyone's schedule.
-      if (occ.staffIds.length === 0 && !occ.canceled) continue;
-      classInstances.push(occ);
+    for (const legacyOcc of classOccurrencesInRange(c, sessionRows, fromYmd, toYmd)) {
+      const occ = staffOn.forOccurrence(legacyOcc);
+      const switched = staffOn.isSwitched(occ.date);
+      const rows = switched && occ.sessionId ? staffOn.rowsFor(occ.sessionId) : null;
+      const staffRows = richStaffRows(rows ?? synthetic(occ.staffIds, switched ? "RULE" : "LEGACY"), nameOf);
+      // Nobody attached to it and not canceled → not on anyone's schedule. A
+      // coach who called out is still attached: the day needs coverage.
+      if (occ.staffIds.length === 0 && !occ.canceled && !staffRows.some((r) => r.status !== "REMOVED")) continue;
+      const row = occ.sessionId ? sessionById.get(occ.sessionId) : undefined;
+      classInstances.push({
+        ...occ,
+        switched,
+        staffRows,
+        needsCoverage: switched && staffRows.some((r) => r.status === "NEEDS_COVERAGE"),
+        cancel: row ? cancelSummary(row, nameOf) : null,
+      });
     }
   }
 
@@ -134,8 +175,33 @@ export async function GET(req: Request) {
   // Own-only view: an occurrence still lists who else is on it by id, which
   // would leak the roster — reduce each to the caller.
   const visibleStaff = seesAll ? staff : staff.filter((s) => s.id === me);
-  const ownOnly = <T extends { staffIds: string[]; seriesStaffIds: string[] }>(c: T): T =>
-    seesAll ? c : { ...c, staffIds: c.staffIds.filter((x) => x === me), seriesStaffIds: c.seriesStaffIds.filter((x) => x === me) };
+  const ownOnly = (c: Occ): Occ =>
+    seesAll
+      ? c
+      : {
+          ...c,
+          staffIds: c.staffIds.filter((x) => x === me),
+          seriesStaffIds: c.seriesStaffIds.filter((x) => x === me),
+          // Only the caller's own row; no other person's name on it or on the cancel record.
+          staffRows: c.staffRows.filter((r) => r.userId === me).map((r) => ({ ...r, coveredByName: null, calledOutByName: null, coverageFilledByName: null })),
+          needsCoverage: c.staffRows.some((r) => r.userId === me && r.status === "NEEDS_COVERAGE"),
+          cancel: c.cancel ? { ...c.cancel, canceledByName: null, paidByName: null } : null,
+        };
+  // A class day is on someone's schedule when they are coaching it OR still
+  // attached to it in any state but Removed — so a coach who called out keeps
+  // seeing the class (as "Needs coverage"), and one who was replaced sees who
+  // covers. `my*` is that person's own row.
+  const mine = (c: Occ, userId: string) => {
+    const r = c.staffRows.find((x) => x.userId === userId && x.status !== "REMOVED") ?? null;
+    return {
+      myStatus: r ? r.status : c.staffIds.includes(userId) ? ("SCHEDULED" as const) : null,
+      myRowId: r?.id ?? null,
+      myRoleName: r?.roleName ?? null,
+      myKind: r?.kind ?? null,
+      myLateCallout: !!r?.lateCallout,
+    };
+  };
+  const onDay = (c: Occ, userId: string) => c.staffIds.includes(userId) || c.staffRows.some((r) => r.userId === userId && r.status !== "REMOVED");
 
   const result = visibleStaff.map((s) => ({
     id: s.id,
@@ -156,8 +222,8 @@ export async function GET(req: Request) {
         note: e.note,
       })),
     classes: classInstances
-      .filter((c) => c.staffIds.includes(s.id))
-      .map(ownOnly)
+      .filter((c) => onDay(c, s.id))
+      .map((c) => ({ ...ownOnly(c), ...mine(c, s.id) }))
       .sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime)),
     events: eventsInRange.filter((e) => e.staffAssignments.some((a) => a.userId === s.id)).map(eventOut),
   }));
@@ -169,6 +235,14 @@ export async function GET(req: Request) {
     date: e.startsAt.toISOString().slice(0, 10),
     assignedUserIds: e.staffAssignments.map((a) => a.userId),
   }));
+  // Series-level coaches: for a switched-on club the RULES (the stored list is
+  // the frozen pre-switch record), so "not on this class yet" offers are right.
+  let seriesRules: StaffRule[] = [];
+  let seriesAsOf: string | null = null;
+  if (seesAll && staffOn.assignmentsStartOn) {
+    seriesRules = await loadClassRules(prisma, classes.map((c) => c.id));
+    seriesAsOf = maxYmd(clubTodayYmd(staffOn.timezone), staffOn.assignmentsStartOn);
+  }
   const allClasses = (seesAll ? classes : []).map((c) => ({
     id: c.id,
     name: c.name,
@@ -176,7 +250,9 @@ export async function GET(req: Request) {
     startTime: c.startTime,
     endTime: c.endTime,
     dayOverrides: asDayOverrides(c.dayOverrides),
-    assignedStaffIds: asIdList(c.assignedStaffIds),
+    assignedStaffIds: seriesAsOf
+      ? currentRuleStaffIds(seriesRules.filter((r) => r.classId === c.id), seriesAsOf)
+      : asIdList(c.assignedStaffIds),
   }));
 
   return NextResponse.json({
@@ -187,5 +263,9 @@ export async function GET(req: Request) {
     allClasses,
     // What the viewer may do — the write routes enforce the same (lib/staffSelf.ts).
     viewer: { userId: me, seesAll, canAssign },
+    /** Today on the CLUB's clock (YYYY-MM-DD) — "upcoming" is judged by this, not by the viewer's device. */
+    today: clubTodayYmd(staffOn.timezone),
+    /** YYYY-MM-DD the new coach assignments apply from; null = this club is not switched on. */
+    assignmentsStartOn: staffOn.assignmentsStartOn,
   });
 }

@@ -8,6 +8,9 @@ import { prisma } from "@/lib/prisma";
 import { staffOverrideValue, checkAssignmentChange, notifySelfRemoval } from "@/lib/staffAssignmentsServer";
 import { asIdList, effectiveClassStaff } from "@/lib/staffAssignments";
 import { ASSIGNMENT_DENY_MESSAGE } from "@/lib/staffSelf";
+import { isSwitchedOn, rulesForDay, toYmd } from "@/lib/classStaff";
+import { cancelOccurrence, getScheduleSettings, loadClassRules, setDayStaff, uncancelOccurrence } from "@/lib/classStaffServer";
+import { STAFF_TX, classStaffErrorResponse } from "@/lib/classStaffApi";
 
 // PATCH /api/classes/[id]/sessions/[sessionId]
 //
@@ -82,11 +85,28 @@ export async function PATCH(
     return NextResponse.json({ error: "You don't have permission to manage this." }, { status: 403 });
   }
 
+  // A class day on/after the club's switch-on date keeps its coaches in
+  // ClassSessionStaff rows: "who is on it" is the SCHEDULED rows, "inherit the
+  // series" is what the recurring rules say for that day, and the write goes
+  // through lib/classStaffServer in one transaction (below). Earlier days, and
+  // clubs that are not switched on, are exactly as before.
+  const dayYmd = toYmd(cs.date);
+  const switched = isSwitchedOn((await getScheduleSettings(session.user.clubId)).assignmentsStartOn, dayYmd);
+
   let staffOverride: string[] | null | undefined = data.staffOverride;
   let selfRemovedOthers: string[] | null = null;
+  let newDayStaff: string[] | null = null;
   if (data.staffOverride !== undefined) {
-    const series = asIdList(cls.assignedStaffIds);
-    const before = effectiveClassStaff(series, cs.staffOverride).staffIds;
+    let series = asIdList(cls.assignedStaffIds);
+    let before = effectiveClassStaff(series, cs.staffOverride).staffIds;
+    if (switched) {
+      const [rows, rules] = await Promise.all([
+        prisma.classSessionStaff.findMany({ where: { sessionId, status: "SCHEDULED" }, select: { userId: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
+        loadClassRules(prisma, classId),
+      ]);
+      before = rows.map((r) => r.userId);
+      series = rulesForDay(rules, dayYmd).map((r) => r.userId);
+    }
     // null = "inherit the series again" — its effect on this day is the series list.
     const check = await checkAssignmentChange(session, session.user.clubId, before, data.staffOverride ?? series);
     if (check.verdict === "deny") {
@@ -95,6 +115,7 @@ export async function PATCH(
     // Only this club's OWNER/STAFF ids are ever stored.
     if (Array.isArray(data.staffOverride)) staffOverride = check.after;
     if (check.verdict === "self_remove") selfRemovedOthers = check.after;
+    if (switched && check.verdict !== "none") newDayStaff = check.after;
   } else if (!touchesDetails && !canEditClass) {
     return NextResponse.json({ error: "You don't have permission to manage this." }, { status: 403 });
   }
@@ -116,7 +137,36 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid end time" }, { status: 400 });
   }
 
-  const updated = await prisma.classSession.update({
+  let updated: Awaited<ReturnType<typeof prisma.classSession.update>>;
+  if (switched) {
+    const me = session.user.id;
+    const clubId = session.user.clubId;
+    const staff = newDayStaff;
+    try {
+      updated = await prisma.$transaction(async (tx) => {
+        // The old toggle has no audience or pay choice: recorded as "told
+        // nobody, unpaid". POST /api/classes/sessions/[id]/cancel is the way
+        // to notify families or keep pay.
+        if (data.canceled === true) await cancelOccurrence(tx, { clubId, sessionId, reason: null, notifyAudience: "NONE", paid: false, byUserId: me });
+        if (data.canceled === false) await uncancelOccurrence(tx, { clubId, sessionId, byUserId: me });
+        if (staff) await setDayStaff(tx, { clubId, sessionId, staff: staff.map((userId) => ({ userId })), byUserId: me });
+        // Details last, so the row returned carries everything written above.
+        return tx.classSession.update({
+          where: { id: sessionId },
+          data: {
+            ...(startsAt !== undefined ? { startsAt } : {}),
+            ...(endsAt !== undefined ? { endsAt } : {}),
+            ...(data.note !== undefined ? { note: data.note ?? null } : {}),
+            overridden: true,
+          },
+        });
+      }, STAFF_TX);
+    } catch (err) {
+      const res = classStaffErrorResponse(err);
+      if (res) return res;
+      throw err;
+    }
+  } else updated = await prisma.classSession.update({
     where: { id: sessionId },
     data: {
       ...(startsAt !== undefined ? { startsAt } : {}),

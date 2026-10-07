@@ -8,15 +8,18 @@ import {
   type ScopeType,
   type TaughtSession,
 } from "@/lib/compensation";
-import { effectiveClassStaff } from "@/lib/staffAssignments";
+import { loadSessionStaffResolver } from "@/lib/classStaffServer";
 
 export async function computePayrollTotalForRange(
   clubId: string,
   from: Date | null,
   to: Date,
+  // Decides which class days have ended (only days on/after the club's
+  // assignment start date ask). Callers leave it out; tests pin it.
+  now: Date = new Date(),
 ): Promise<number> {
   const rangeWhere = from ? { gte: from, lte: to } : { lte: to };
-  const [staff, classSessions, attendance, subscriptions, eventRegs, eventAssignments, privateBookings] =
+  const [staff, fetchedClassSessions, attendance, subscriptions, eventRegs, eventAssignments, privateBookings] =
     await Promise.all([
       prisma.user.findMany({
         where: { clubId, role: { in: ["OWNER", "STAFF"] }, deletedAt: null },
@@ -26,9 +29,14 @@ export async function computePayrollTotalForRange(
         },
       }),
       prisma.classSession.findMany({
-        where: { clubId, canceled: false, startsAt: rangeWhere },
+        // Canceled days are fetched ONLY when marked "cancelled — paid"; whether a
+        // day counts is decided per day below (staffOn.countsForPay).
+        where: { clubId, OR: [{ canceled: false }, { cancelPaid: true }], startsAt: rangeWhere },
         select: {
           id: true,
+          date: true,
+          canceled: true,
+          cancelPaid: true,
           startsAt: true,
           endsAt: true,
           // Per-day substitute: the person who actually coached is paid for it.
@@ -62,6 +70,21 @@ export async function computePayrollTotalForRange(
       }),
     ]);
 
+  // Who coached each class day, and whether the day counts for pay — the one
+  // switch-aware seam (lib/classStaff.ts):
+  //   days BEFORE the club's assignment start date (or a club not switched on)
+  //     → exactly as before: not canceled, coaches = the day's override list or
+  //       the series list. Numbers for those days do not change.
+  //   days ON/AFTER it → the day's coach rows (status SCHEDULED — a substitute
+  //       is paid as themself from their own plan; a replaced / called-out /
+  //       no-show / removed coach is not), only once the class has ENDED, and
+  //       a canceled day only when it was marked "cancelled — paid".
+  const staffOn = await loadSessionStaffResolver(clubId, fetchedClassSessions);
+  const payNow = now;
+  const classSessions = fetchedClassSessions
+    .filter((cs) => staffOn.countsForPay(cs, payNow))
+    .map((cs) => ({ ...cs, coachIds: staffOn.forSession(cs, cs.recurringClass.assignedStaffIds).staffIds }));
+
   function dropInPrice(pricingOptions: unknown): number {
     if (!Array.isArray(pricingOptions)) return 0;
     const opt = (pricingOptions as Array<{ type?: string; price?: number }>).find(
@@ -71,7 +94,9 @@ export async function computePayrollTotalForRange(
   }
 
   const classDropIn = new Map<string, number>();
-  for (const cs of classSessions) {
+  // Every non-canceled day prices its class (as before), plus any day that counts.
+  for (const cs of fetchedClassSessions) {
+    if (cs.canceled && !staffOn.countsForPay(cs, payNow)) continue;
     if (!classDropIn.has(cs.recurringClass.id)) {
       classDropIn.set(cs.recurringClass.id, dropInPrice(cs.recurringClass.pricingOptions));
     }
@@ -82,9 +107,7 @@ export async function computePayrollTotalForRange(
     if (!comp) return sum;
 
     const taughtSessions: TaughtSession[] = classSessions
-      .filter((cs) =>
-        effectiveClassStaff(cs.recurringClass.assignedStaffIds, cs.staffOverride).staffIds.includes(s.id),
-      )
+      .filter((cs) => cs.coachIds.includes(s.id))
       .map((cs) => ({
         sessionId: cs.id,
         classId: cs.recurringClass.id,

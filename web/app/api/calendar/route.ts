@@ -3,8 +3,11 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionLive, hasPermissionLive } from "@/lib/apiGuard";
-import { effectiveClassStaff, ymdUTC } from "@/lib/staffAssignments";
+import { ymdUTC } from "@/lib/staffAssignments";
 import { listScheduleStaff } from "@/lib/staffAssignmentsServer";
+import { loadSessionStaffResolver } from "@/lib/classStaffServer";
+import { richStaffRows, type RichStaffRow } from "@/lib/classStaff";
+import { cancelSummary, type CancelSummary } from "@/lib/classStaffApi";
 
 // Combined calendar feed for the dashboard /calendar page. Returns dated items
 // across all offering kinds so the owner can filter to one or many in the UI.
@@ -43,6 +46,9 @@ export async function GET(req: Request) {
     : new Date(now.getFullYear(), now.getMonth() + 2, 0, 23, 59, 59, 999);
 
   const clubId = session.user.clubId;
+  // Canceled class days are left out unless asked for (?includeCanceled=1) —
+  // the grid that does not ask keeps showing exactly what it did.
+  const includeCanceled = ["1", "true"].includes(url.searchParams.get("includeCanceled") ?? "");
 
   // Owner overrides for built-in EventType badge colors (Phase 1).
   const clubMeta = await prisma.club.findUnique({
@@ -98,7 +104,7 @@ export async function GET(req: Request) {
     prisma.classSession.findMany({
       where: {
         clubId,
-        canceled: false,
+        ...(includeCanceled ? {} : { canceled: false }),
         startsAt: { gte: from, lte: to },
       },
       select: {
@@ -108,6 +114,10 @@ export async function GET(req: Request) {
         startsAt: true,
         endsAt: true,
         staffOverride: true,
+        staffManual: true,
+        canceled: true,
+        canceledAt: true, canceledByUserId: true, cancelReason: true, cancelNotifyAudience: true,
+        cancelNotifiedCount: true, cancelPaid: true, cancelPaidByUserId: true, cancelPaidAt: true,
         recurringClass: {
           select: {
             name: true,
@@ -164,6 +174,16 @@ export async function GET(req: Request) {
     staffIsOverride?: boolean;   // class only — a one-day change is in effect
     seriesStaffIds?: string[];   // class only
     date?: string;               // class only — YYYY-MM-DD occurrence day
+    // Class only. On/after the club's switch-on date `staffRows` are the day's
+    // real coach rows (status, role, late call-out, who covers whom); before
+    // it, one plain row per coach from the legacy lists.
+    switched?: boolean;
+    staffRows?: RichStaffRow[];
+    needsCoverage?: boolean;
+    canceled?: boolean;          // only ever true with ?includeCanceled=1
+    cancel?: CancelSummary | null;
+    myStatus?: string | null;    // the viewer's own row on that day
+    myRowId?: string | null;
   };
 
   const nameById = new Map(staffList.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
@@ -220,10 +240,23 @@ export async function GET(req: Request) {
       });
     }
   }
+  // Who is on each class day: the legacy lists before the club's assignment
+  // start date, that day's coach rows on/after it (lib/classStaff.ts).
+  const staffOn = await loadSessionStaffResolver(clubId, classSessions);
   for (const s of classSessions) {
-    const eff = effectiveClassStaff(s.recurringClass.assignedStaffIds, s.staffOverride);
-    if (!seesAll && !eff.staffIds.includes(me)) continue;
+    const eff = staffOn.forSession(s, s.recurringClass.assignedStaffIds);
+    // Own-only view: a class day is the viewer's when they are coaching it OR
+    // still attached in any state but Removed (a coach who called out keeps
+    // seeing it, as "Needs coverage").
+    const myRow = eff.rows.find((r) => r.userId === me && r.status !== "REMOVED") ?? null;
+    if (!seesAll && !eff.staffIds.includes(me) && !myRow) continue;
     const classStaff = staffOf(eff.staffIds);
+    const nameOf = (id: string) => nameById.get(id) ?? "Former staff";
+    const allRows = richStaffRows(eff.switched ? staffOn.rowsFor(s.id) : eff.rows, nameOf);
+    const staffRows = seesAll
+      ? allRows
+      : allRows.filter((r) => r.userId === me).map((r) => ({ ...r, coveredByName: null, calledOutByName: null, coverageFilledByName: null }));
+    const cancel = cancelSummary(s, nameOf);
     items.push({
       kind: "class",
       id: s.id,
@@ -242,8 +275,15 @@ export async function GET(req: Request) {
       coach: classStaff.map((x) => x.name).join(", ") || null,
       staff: classStaff,
       staffIsOverride: eff.isSubstitute,
-      seriesStaffIds: effectiveClassStaff(s.recurringClass.assignedStaffIds, null).staffIds.filter((x) => seesAll || x === me),
+      seriesStaffIds: eff.seriesStaffIds.filter((x) => seesAll || x === me),
       date: ymdUTC(s.date),
+      switched: eff.switched,
+      staffRows,
+      needsCoverage: seesAll ? eff.needsCoverage : myRow?.status === "NEEDS_COVERAGE",
+      canceled: s.canceled,
+      cancel: cancel && !seesAll ? { ...cancel, canceledByName: null, paidByName: null } : cancel,
+      myStatus: myRow?.status ?? null,
+      myRowId: myRow?.id ?? null,
     });
   }
   for (const b of privateBookings) {

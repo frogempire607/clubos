@@ -44,7 +44,7 @@ export async function computeCoachAudienceMemberIds(ctx: CoachAudienceContext): 
   //   (3) private-lesson bookings for lessons this coach ran
   // All three folded into a single Set — a coach who teaches a class
   // AND owns an event both count.
-  const [classes, subSessions, eventAssignments, privates] = await Promise.all([
+  const [classes, subSessions, rowSessions, eventAssignments, privates, scheduleSettings] = await Promise.all([
     prisma.recurringClass.findMany({
       where: { clubId: ctx.clubId },
       select: { id: true, assignedStaffIds: true },
@@ -55,6 +55,15 @@ export async function computeCoachAudienceMemberIds(ctx: CoachAudienceContext): 
       where: { clubId: ctx.clubId, staffOverride: { array_contains: [ctx.userId] } },
       select: { id: true },
     }),
+    // (1c) class days this user is on under the new per-day coach rows
+    //      (ClassSessionStaff, status SCHEDULED — regular or substitute). The
+    //      table is empty until the club is switched on, so this adds nothing
+    //      before then; after, it covers weekday-only and one-day coaches that
+    //      the class-wide list above cannot express.
+    prisma.classSessionStaff.findMany({
+      where: { clubId: ctx.clubId, userId: ctx.userId, status: "SCHEDULED" },
+      select: { sessionId: true },
+    }),
     prisma.eventStaffAssignment.findMany({
       where: { userId: ctx.userId, event: { clubId: ctx.clubId } },
       select: { eventId: true },
@@ -63,12 +72,18 @@ export async function computeCoachAudienceMemberIds(ctx: CoachAudienceContext): 
       where: { clubId: ctx.clubId, coachId: ctx.userId },
       select: { memberId: true },
     }),
+    // Switched-on club: RecurringClass.assignedStaffIds is the FROZEN record of
+    // who coached before the switch-on date, so (1) only speaks for class days
+    // before it; later days come from the per-day rows (1c). Otherwise a coach
+    // taken off a class after the switch would keep its future athletes.
+    prisma.clubScheduleSettings.findUnique({ where: { clubId: ctx.clubId }, select: { assignmentsStartOn: true } }),
   ]);
+  const legacyBefore = scheduleSettings?.assignmentsStartOn ?? null;
 
   const myClassIds = classes
     .filter((c) => asIdList(c.assignedStaffIds).includes(ctx.userId))
     .map((c) => c.id);
-  const mySubSessionIds = subSessions.map((s) => s.id);
+  const mySubSessionIds = Array.from(new Set([...subSessions.map((s) => s.id), ...rowSessions.map((r) => r.sessionId)]));
 
   const eventIds = eventAssignments.map((a) => a.eventId);
 
@@ -78,7 +93,9 @@ export async function computeCoachAudienceMemberIds(ctx: CoachAudienceContext): 
           where: {
             clubId: ctx.clubId,
             OR: [
-              ...(myClassIds.length ? [{ classSession: { classId: { in: myClassIds } } }] : []),
+              ...(myClassIds.length
+                ? [{ classSession: { classId: { in: myClassIds }, ...(legacyBefore ? { date: { lt: legacyBefore } } : {}) } }]
+                : []),
               ...(mySubSessionIds.length ? [{ classSessionId: { in: mySubSessionIds } }] : []),
             ],
           },

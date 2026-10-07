@@ -72,6 +72,11 @@ export const GATED = [
   ["scripts/attendance-billing-tests.ts", RENDER],
   ["scripts/class-session-reconcile-tests.ts"],
   ["scripts/class-time-tests.ts"],
+  ["scripts/class-staff-tests.ts"],
+  ["scripts/class-staff-ui-tests.ts"],
+  ["scripts/class-staff-server-tests.ts"],
+  ["scripts/class-topup-tests.ts"],
+  ["scripts/class-staffing-api-tests.ts"],
   ["scripts/door-access-tests.ts"],
   ["scripts/app-links-tests.ts"],
   // events

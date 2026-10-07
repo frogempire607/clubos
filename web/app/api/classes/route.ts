@@ -7,6 +7,8 @@ import { checkAssignmentChange } from "@/lib/staffAssignmentsServer";
 import { ASSIGNMENT_DENY_MESSAGE } from "@/lib/staffSelf";
 import { z } from "zod";
 import { buildSessions } from "@/lib/classSessions";
+import { initClassStaffFromLegacy } from "@/lib/classStaffServer";
+import { seriesStaffPayload } from "@/lib/classStaffApi";
 
 const TIME_REGEX = /^\d{2}:\d{2}$/;
 const dayOverrideSchema = z.object({
@@ -63,7 +65,11 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
   });
 
-  return NextResponse.json(classes);
+  // Series-level coaches. Switched-on club: from the RULES (`staffRules`,
+  // `currentStaff`), and `assignedStaffIds` is those coaches' ids for older
+  // screens; the frozen column comes back as `legacyAssignedStaffIds`.
+  const staff = await seriesStaffPayload(session.user.clubId, classes);
+  return NextResponse.json(classes.map((c) => ({ ...c, ...(staff.get(c.id) ?? {}) })));
 }
 
 export async function POST(req: Request) {
@@ -126,6 +132,10 @@ export async function POST(req: Request) {
   if (sessions.length > 0) {
     await prisma.classSession.createMany({ data: sessions });
   }
+  // Club switched on to the new coach assignments: the coaches named above
+  // become recurring rules and the new class days get their coach rows.
+  // No-op otherwise (lib/classStaffServer).
+  await initClassStaffFromLegacy(prisma, cls.id, { byUserId: session.user.id });
 
   return NextResponse.json(cls, { status: 201 });
 }

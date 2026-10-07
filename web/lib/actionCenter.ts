@@ -25,6 +25,7 @@ import { MIGRATION_STATUS } from "@/lib/migration";
 import { UNPAID_REGISTRATION_STATUSES } from "@/lib/eventPayments";
 import { loadClubReminders, formatUsdShort } from "@/lib/payReminders";
 import { statusLabel } from "@/lib/paySchedule";
+import { clubTodayYmd, coverageActionItems, toYmd, ymdToDate, type OpenCoverage } from "@/lib/classStaff";
 
 export type ActionSeverity = "high" | "medium" | "low";
 
@@ -34,6 +35,12 @@ export type ActionItem = {
   count: number;
   severity: ActionSeverity;
   href: string;
+  /**
+   * Optional position WITHIN a severity (lower first; items without one are
+   * 0). Coverage requests use a negative order so a late call-out is the first
+   * thing in the list — see lib/classStaff.coverageActionItems.
+   */
+  order?: number;
 };
 
 export type ActionCenterResult = { items: ActionItem[]; total: number; badge: number };
@@ -48,6 +55,52 @@ const CACHE = new Map<string, CacheEntry>();
 const TTL_MS = 20_000;
 
 const SEVERITY_RANK: Record<ActionSeverity, number> = { high: 0, medium: 1, low: 2 };
+
+/** The most coverage requests listed at once (late first, then soonest — the rest surface as these clear). */
+export const COVERAGE_ITEMS_MAX = 25;
+
+/**
+ * "Needs coverage" Action Items: one per UNFILLED call-out on a class day that
+ * is today or later on the club's clock (a class that already started today
+ * without cover stays listed until the day is over), not canceled. Late
+ * call-outs first, then the soonest class. Empty for a club that is not
+ * switched on to the new coach assignments. Self-clearing like every other
+ * item: filled, closed, withdrawn or canceled and it is gone.
+ */
+export async function loadCoverageActionItems(clubId: string, now: Date = new Date()): Promise<ActionItem[]> {
+  const settings = await prisma.clubScheduleSettings.findUnique({ where: { clubId }, select: { assignmentsStartOn: true } });
+  if (!settings?.assignmentsStartOn) return [];
+  const club = await prisma.club.findUnique({ where: { id: clubId }, select: { timezone: true } });
+  const today = clubTodayYmd(club?.timezone ?? null, now);
+  const rows = await prisma.classSessionStaff.findMany({
+    where: {
+      clubId,
+      status: "NEEDS_COVERAGE",
+      session: { canceled: false, date: { gte: ymdToDate(today) }, recurringClass: { deletedAt: null } },
+    },
+    select: {
+      id: true, userId: true, lateCallout: true,
+      session: { select: { id: true, classId: true, date: true, startsAt: true, recurringClass: { select: { name: true } } } },
+    },
+  });
+  if (rows.length === 0) return [];
+  const users = await prisma.user.findMany({
+    where: { clubId, id: { in: Array.from(new Set(rows.map((r) => r.userId))) } },
+    select: { id: true, firstName: true, lastName: true },
+  });
+  const nameById = new Map(users.map((u) => [u.id, (u.firstName ?? "").trim() || `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || "A coach"]));
+  const open: OpenCoverage[] = rows.map((r) => ({
+    staffRowId: r.id,
+    sessionId: r.session.id,
+    classId: r.session.classId,
+    className: r.session.recurringClass.name,
+    coachName: nameById.get(r.userId) ?? "A coach",
+    dateYmd: toYmd(r.session.date),
+    startsAt: r.session.startsAt,
+    lateCallout: r.lateCallout,
+  }));
+  return coverageActionItems(open, today).slice(0, COVERAGE_ITEMS_MAX);
+}
 
 export async function getActionCenter(session: Sess): Promise<ActionCenterResult> {
   const role = session?.user?.role;
@@ -495,6 +548,14 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
         .catch(() => [])
     : Promise.resolve([]);
 
+  // ── Coverage — a coach called out and nobody is covering yet ──────────
+  // (lib/classStaff). One item per open request, for owners and anyone with
+  // schedule:edit — the people who can finalize a replacement. A LATE call-out
+  // (inside 2 hours of the class) is the very first item in the list.
+  const coverageItems: Promise<ActionItem[]> = can("schedule", "edit")
+    ? loadCoverageActionItems(clubId, now).catch(() => [])
+    : Promise.resolve([]);
+
   // ── Onboarding in progress (informational, low severity) ─────────────
   probe(
     can("members", "view"),
@@ -512,8 +573,12 @@ export async function getActionCenter(session: Sess): Promise<ActionCenterResult
 
   const items = (await Promise.all(probes)).filter((x): x is ActionItem => x !== null);
   items.push(...(await paydayItems));
+  items.push(...(await coverageItems));
   items.sort(
-    (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || b.count - a.count,
+    (a, b) =>
+      SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] ||
+      (a.order ?? 0) - (b.order ?? 0) ||
+      b.count - a.count,
   );
 
   const total = items.reduce((s, i) => s + i.count, 0);

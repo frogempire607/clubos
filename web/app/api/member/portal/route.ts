@@ -8,6 +8,7 @@ import { PREVIEW_COOKIE, readPreviewCookie, canStartPreview } from "@/lib/previe
 import { wallClockNowUTC } from "@/lib/datetime";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 import { portalMembershipStatusFor, type PortalMembershipStatus } from "@/lib/memberTracks";
+import { loadSessionStaffResolver } from "@/lib/classStaffServer";
 
 async function fetchUser(userId: string, clubTimezone: string | null) {
   // Class registrations live in AttendanceRecord, not Booking, so we pull
@@ -187,6 +188,28 @@ export async function GET() {
     const linked = await findOrAutoLinkMember(session.user.id, session.user.clubId, user.email);
     if (linked) {
       user = await fetchUser(session.user.id, club?.timezone ?? null);
+    }
+  }
+
+  // Coach names on booked classes. The page (components/member/BookingsPanel)
+  // resolves them from classSession.staffOverride + recurringClass
+  // .assignedStaffIds. For a class day on/after the club's assignment start
+  // date the truth is that day's coach rows, so hand the page exactly that
+  // list in staffOverride (in this response only — nothing is written).
+  // Earlier days, and clubs not switched on, are passed through untouched.
+  if (user) {
+    const booked = [
+      ...(user.memberProfile?.attendanceRecords ?? []),
+      ...user.guardianOf.flatMap((g) => g.member.attendanceRecords),
+    ]
+      .map((r) => r.classSession)
+      .filter((cs): cs is NonNullable<typeof cs> => !!cs);
+    if (booked.length > 0) {
+      const staffOn = await loadSessionStaffResolver(session.user.clubId, booked);
+      for (const cs of booked) {
+        if (!staffOn.isSwitched(cs.date)) continue;
+        cs.staffOverride = staffOn.forSession(cs, cs.recurringClass?.assignedStaffIds ?? []).staffIds;
+      }
     }
   }
 

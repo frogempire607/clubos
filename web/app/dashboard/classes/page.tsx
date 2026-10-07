@@ -7,6 +7,9 @@ import { SkeletonList } from "@/components/LoadingSkeleton";
 import { todayLocalISO } from "@/lib/datetime";
 import { parseOptions, describeDays } from "@/lib/membershipOptions";
 import { pricingRowFor } from "@/lib/acceptedPlans";
+import ClassDaySheet from "@/components/staff/schedule/ClassDaySheet";
+import { currentStaffSummary, nextClassDay } from "@/lib/classStaffUi";
+import { addDaysYmd } from "@/lib/classStaff";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,6 +32,11 @@ type RecurringClass = {
   recurrenceEndDate: string | null;
   pricingOptions: PricingOption[];
   assignedStaffIds?: string[];
+  // New coach scheduling (GET /api/classes): true once the club is switched on.
+  // Coaches then come from `currentStaff` and are changed in the class-day sheet.
+  switchedOn?: boolean;
+  assignmentsStartOn?: string | null;
+  currentStaff?: { userId: string; name: string; roleName: string | null; dayOfWeek: number | null }[];
   color?: string | null;
   textColor?: string | null;
   visibility?: string | null;
@@ -194,6 +202,8 @@ function ClassModal({
   staffList,
   onSave,
   onClose,
+  coachSummary,
+  onChangeCoaches,
 }: {
   editing: RecurringClass | null;
   locations: Location[];
@@ -201,6 +211,9 @@ function ClassModal({
   staffList: Staff[];
   onSave: () => void;
   onClose: () => void;
+  /** New coach scheduling, existing class: who coaches it now, in words. null = the checkbox list is used. */
+  coachSummary: string | null;
+  onChangeCoaches: () => void;
 }) {
   const [form, setForm] = useState<FormData>(editing ? formFromClass(editing) : emptyForm());
   const [saving, setSaving] = useState(false);
@@ -263,7 +276,9 @@ function ClassModal({
       recurrenceStartDate: form.recurrenceStartDate,
       recurrenceEndDate: form.recurrenceEndDate || null,
       pricingOptions,
-      assignedStaffIds: form.assignedStaffIds,
+      // New coach scheduling: an existing class's coaches are changed in the
+      // class-day sheet, never by this form — so the list is not sent.
+      ...(coachSummary === null ? { assignedStaffIds: form.assignedStaffIds } : {}),
       color: form.color || null,
       textColor: form.textColor || null,
       visibility: form.visibility,
@@ -605,7 +620,24 @@ function ClassModal({
             )}
           </div>
 
-          {staffList.length > 0 && (
+          {coachSummary !== null ? (
+            <div>
+              <p className="block text-xs font-medium text-text-primary mb-2">Coaches</p>
+              <div className="rounded-lg border border-app-border px-3 py-2.5">
+                <p className="text-sm text-text-primary">{coachSummary}</p>
+                <button
+                  type="button"
+                  onClick={onChangeCoaches}
+                  className="mt-2 inline-flex min-h-[44px] items-center justify-center rounded-lg border border-app-border px-3.5 text-[13px] font-medium text-text-primary hover:bg-app-bg md:min-h-[36px]"
+                >
+                  Change coaches
+                </button>
+                <p className="mt-1.5 text-xs text-text-muted">
+                  Opens the next class day. There you pick the coaches, their roles, and whether the change is for one day, one weekday, or every class day. It saves on its own — not with this form.
+                </p>
+              </div>
+            </div>
+          ) : staffList.length > 0 && (
             <div>
               <label className="block text-xs font-medium text-text-primary mb-2">Assigned staff / coaches</label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto">
@@ -801,6 +833,32 @@ export default function ClassesPage() {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [occurrenceSuccess, setOccurrenceSuccess] = useState("");
+  // New coach scheduling: the class-day sheet, opened over the class editor or the one-day editor.
+  const [daySheet, setDaySheet] = useState<{ classId: string; date: string; start?: "edit" } | null>(null);
+
+  /** Re-read the class list without the page-level loading state (a sheet is open on top). */
+  async function refreshClasses() {
+    const cRes = await fetch("/api/classes");
+    if (cRes.ok) setClasses(await cRes.json());
+  }
+  async function openCoachEditor(cls: RecurringClass) {
+    const today = todayLocalISO();
+    const from = cls.assignmentsStartOn && cls.assignmentsStartOn > today ? cls.assignmentsStartOn : today;
+    let date = nextClassDay(cls.daysOfWeek, from);
+    // The coach editor needs a class day that can carry a recurring change: a
+    // canceled day has no editor at all and a day that is already over only
+    // offers "this day". Step forward to the next class day that is neither
+    // (the server says which — it knows the club's clock).
+    for (let i = 0; i < 8; i++) {
+      const res = await fetch(`/api/classes/${cls.id}/staffing?date=${date}`, { cache: "no-store" }).catch(() => null);
+      const d = res && res.ok ? await res.json().catch(() => null) : null;
+      if (!d?.day || !(d.day.canceled || d.day.hasEnded)) break;
+      const next = nextClassDay(cls.daysOfWeek, addDaysYmd(date, 1));
+      if (next === date) break;
+      date = next;
+    }
+    setDaySheet({ classId: cls.id, date, start: "edit" });
+  }
 
   async function load() {
     setLoading(true);
@@ -937,7 +995,9 @@ export default function ClassesPage() {
                           <div className="text-xs text-text-muted truncate max-w-[200px]">{cls.description}</div>
                         )}
                         <div className="text-[12px] text-text-muted mt-0.5">
-                          {cls.assignedStaffIds?.length
+                          {cls.switchedOn
+                            ? `Coaches: ${currentStaffSummary(cls.currentStaff ?? [])}`
+                            : cls.assignedStaffIds?.length
                             ? `Staff: ${cls.assignedStaffIds.map((id) => staffList.find((s) => s.id === id)).filter(Boolean).map((s) => `${s!.firstName} ${s!.lastName}`).join(", ")}`
                             : "No staff assigned"}
                         </div>
@@ -1019,6 +1079,12 @@ export default function ClassesPage() {
           staffList={staffList}
           onSave={load}
           onClose={() => { setShowModal(false); setEditing(null); }}
+          coachSummary={(() => {
+            if (!editing?.switchedOn) return null;
+            const fresh = classes.find((c) => c.id === editing.id) ?? editing;
+            return currentStaffSummary(fresh.currentStaff ?? []);
+          })()}
+          onChangeCoaches={() => editing && openCoachEditor(editing)}
         />
       )}
       {viewingSessions && (
@@ -1046,6 +1112,18 @@ export default function ClassesPage() {
             setEditing(cls);
             setShowModal(true);
           }}
+          onOpenDay={(classId, date) => setDaySheet({ classId, date })}
+        />
+      )}
+      {daySheet && (
+        <ClassDaySheet
+          key={`${daySheet.classId}:${daySheet.date}:${daySheet.start ?? ""}`}
+          classId={daySheet.classId}
+          date={daySheet.date}
+          start={daySheet.start}
+          staffOptions={staffList.length > 0 ? staffList.map((s) => ({ id: s.id, name: `${s.firstName} ${s.lastName}`.trim() })) : undefined}
+          onClose={() => setDaySheet(null)}
+          onChanged={() => { refreshClasses(); }}
         />
       )}
     </div>
@@ -1063,6 +1141,7 @@ function SessionEditModal({
   onClose,
   onSaved,
   onEditSeries,
+  onOpenDay,
 }: {
   sessionId: string;
   classes: RecurringClass[];
@@ -1070,6 +1149,8 @@ function SessionEditModal({
   onClose: () => void;
   onSaved: () => void | Promise<void>;
   onEditSeries: (cls: RecurringClass) => void;
+  /** New coach scheduling: open the class-day sheet for this class day. */
+  onOpenDay: (classId: string, date: string) => void;
 }) {
   type Sess = {
     id: string;
@@ -1125,9 +1206,16 @@ function SessionEditModal({
       if (active) setLoading(false);
     })();
     return () => { active = false; };
-  }, [sessionId, classes]);
+    // The class list is re-read while this is open (a coach change in the sheet on top);
+    // the day being edited is found once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   const parentClass = s ? classes.find((c) => c.id === s.classId) : null;
+  // New coach scheduling owns this class day (on/after the club's start date):
+  // coaches and canceling are done in the class-day sheet, not here.
+  const dayYmd = s ? s.date.slice(0, 10) : "";
+  const newScheduling = !!s && !!parentClass?.switchedOn && !!parentClass.assignmentsStartOn && dayYmd >= parentClass.assignmentsStartOn;
 
   async function save() {
     if (!s) return;
@@ -1138,9 +1226,9 @@ function SessionEditModal({
       body: JSON.stringify({
         startTime,
         endTime,
-        canceled,
         note: note || null,
-        staffOverride: useOverride ? override : null,
+        // New coach scheduling: coaches and canceling are not written from this form.
+        ...(newScheduling ? {} : { canceled, staffOverride: useOverride ? override : null }),
       }),
     });
     setSaving(false);
@@ -1193,12 +1281,26 @@ function SessionEditModal({
               </div>
             </div>
 
-            <label className="flex items-center gap-2 text-sm text-text-primary">
+            {newScheduling && (
+              <div className="rounded-lg border border-app-border px-3 py-2.5">
+                <p className="text-sm text-text-primary">Coaches, call-outs and canceling for this day are in one place.</p>
+                <button
+                  type="button"
+                  onClick={() => onOpenDay(s.classId, dayYmd)}
+                  className="mt-2 inline-flex min-h-[44px] items-center justify-center rounded-lg border border-app-border px-3.5 text-[13px] font-medium text-text-primary hover:bg-app-bg md:min-h-[36px]"
+                >
+                  Open this class day
+                </button>
+                <p className="mt-1.5 text-xs text-text-muted">Changes made there save on their own — this form only saves the time and the note.</p>
+              </div>
+            )}
+
+            <label className={newScheduling ? "hidden" : "flex items-center gap-2 text-sm text-text-primary"}>
               <input type="checkbox" checked={canceled} onChange={(e) => setCanceled(e.target.checked)} />
               Cancel this occurrence
             </label>
 
-            <div>
+            <div className={newScheduling ? "hidden" : undefined}>
               <label className="flex items-center gap-2 text-sm text-text-primary mb-2">
                 <input type="checkbox" checked={useOverride} onChange={(e) => setUseOverride(e.target.checked)} />
                 Substitute staff for this day

@@ -23,6 +23,30 @@
 //   PrivateBooking.coachId           column         private lessons — one coach per booking,
 //                                                    set by the booking flow (not touched here)
 //
+// ── 2026-10-08: per-day coach rows (lib/classStaff.ts + lib/classStaffServer.ts) ──
+// A club that has been SWITCHED ON (ClubScheduleSettings.assignmentsStartOn,
+// set by scripts/switch-on-class-assignments.ts) keeps class coaches in two
+// new tables for class days ON/AFTER that date:
+//   ClassStaffRule       the recurring assignment (role, weekday, from/to dates)
+//   ClassSessionStaff    one coach on one class day — the truth for that day
+//                        (status SCHEDULED / NEEDS_COVERAGE / REPLACED / NO_SHOW /
+//                        REMOVED; a substitute is its own SCHEDULED row)
+// Class days BEFORE the date — and every day of a club that is not switched
+// on — read the JSON columns exactly as described here; nothing about them
+// changed. For a switched-on club:
+//   RecurringClass.assignedStaffIds  is FROZEN at switch-on: the legacy record
+//       of who coached before the date. Nothing writes it afterwards, so a
+//       later change can never rewrite who appears on an earlier class day.
+//       Series-level "who coaches this class now" = the rules
+//       (lib/classStaff.currentRuleStaff; the class list/detail responses
+//       return it as staffRules + currentStaff).
+//   ClassSession.staffOverride       is still MIRRORED for days on/after the
+//       date (exactly the SCHEDULED coaches, relative to the frozen list), so
+//       older readers, exports and a rollback still see the right people.
+// Readers do not branch themselves: they call
+// lib/classStaffServer.loadSessionStaffResolver(clubId, sessions) and ask it
+// (resolver.forSession / forOccurrence / countsForPay).
+//
 // ── WRITE paths (one per thing) ─────────────────────────────────────────────
 // ONE permission for all of them since 2026-10-07: `schedule:edit`, read live.
 // Without it the only change anyone can make is taking THEMSELF off, and the
@@ -40,6 +64,15 @@
 //               POST /api/events staffUserIds (new event)
 //               PUT /api/events/[id]/comp (finances:full) — a STAFF payee not yet on
 //                 the event is added to it, which also needs schedule:edit
+//   Switched-on club: the class routes above keep their URLs and bodies but
+//   write rules/rows through lib/classStaffServer (one transaction each), and
+//   the routes built for it are:
+//     POST /api/classes/[id]/staffing (+ /preview)       the three-scope edit
+//     POST /api/classes/sessions/[sessionId]/call-out    a coach: "I can't make it"
+//     POST /api/staff/me/call-out-range
+//     POST /api/classes/session-staff/[rowId]/undo-call-out | fill | close | no-show | clear-no-show
+//     POST /api/classes/sessions/[sessionId]/cancel | uncancel, PATCH …/cancel-pay  (classes:edit; pay = finances:full)
+//   Shared pieces: lib/classStaffApi.ts (views, errors), lib/classStaffNotify.ts (notices).
 //   All event writes go through lib/staffAssignmentsServer (addEventStaff /
 //   setEventStaff / removeEventStaff) so comp + responsible coach stay in step.
 //   Every id written is checked against this club's current OWNER/STAFF.

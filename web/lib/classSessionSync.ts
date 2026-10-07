@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { buildSessions, planSessionChanges, type DayOverride, type SessionPlan } from "@/lib/classSessions";
+import { syncSessionStaff, type StaffSyncResult } from "@/lib/classStaffServer";
 
 type SeriesShape = {
   id: string;
@@ -20,6 +21,12 @@ export type SessionSyncResult = {
   unresolved: { date: string; sessionIds: string[] }[];
   /** Sessions on days the series no longer runs, kept because somebody is on them. */
   kept: { id: string; date: string; reason: string }[];
+  /**
+   * Coach rows for the days just created (clubs switched on to the new
+   * assignments — lib/classStaffServer.syncSessionStaff). switchedOn false =
+   * the club is still on the legacy lists and nothing was written.
+   */
+  staffSync: StaffSyncResult;
 };
 
 // Bring a recurring class's FUTURE sessions in line with the series definition.
@@ -80,7 +87,13 @@ export async function syncFutureSessions(cls: SeriesShape): Promise<SessionSyncR
     await prisma.classSession.createMany({ data: plan.create });
   }
 
+  // New days need their coaches; a moved day keeps its row (and its coaches).
+  // A deleted day took its coach rows with it (cascade). No-op for a club that
+  // is not switched on.
+  const staffSync = await syncSessionStaff(prisma, cls.id);
+
   return {
+    staffSync,
     created: plan.create.length,
     moved: plan.update.length,
     removed: plan.deleteIds.length,

@@ -8,6 +8,10 @@ import PageHeader from "@/components/PageHeader";
 import { SkeletonLine } from "@/components/LoadingSkeleton";
 import Sheet from "@/components/Sheet";
 import CoachAssignments, { type CoachPermissions, type CoachTarget } from "@/components/staff/CoachAssignments";
+import ClassDaySheet from "@/components/staff/schedule/ClassDaySheet";
+import ClassDayCoaches from "@/components/staff/schedule/ClassDayCoaches";
+import type { RichStaffRow } from "@/lib/classStaff";
+import { classDayState, type ChipState } from "@/lib/classStaffUi";
 
 type Kind = "event" | "class" | "private";
 
@@ -33,7 +37,26 @@ type CalItem = {
   staffIsOverride?: boolean;
   seriesStaffIds?: string[];
   date?: string;
+  // Class days of a club on the new coach scheduling (absent / false otherwise).
+  switched?: boolean;
+  staffRows?: RichStaffRow[];
+  needsCoverage?: boolean;
+  canceled?: boolean;
+  cancel?: { paid: boolean } | null;
 };
+
+/** Needs coverage / canceled / no-show — only for a class day on the new coach scheduling. */
+function stateOf(it: CalItem): ChipState | null {
+  return it.kind === "class" ? classDayState(it) : null;
+}
+/** A chip's outline when its class day needs attention (token colours, never hex). */
+function stateOutline(st: ChipState | null): React.CSSProperties {
+  if (!st) return {};
+  if (st.tone === "canceled") return { opacity: 0.6 };
+  if (st.tone === "late" || st.tone === "noshow") return { boxShadow: "inset 0 0 0 2px var(--color-danger-text)" };
+  if (st.tone === "warn") return { boxShadow: "inset 0 0 0 2px var(--color-warn-border)" };
+  return {};
+}
 
 type CalFeed = {
   from: string;
@@ -121,6 +144,8 @@ export default function CalendarPage() {
   // Bumped after a coach change so the feed (and the open detail) refetch.
   const [reloadTick, setReloadTick] = useState(0);
   const [flash, setFlash] = useState<string | null>(null);
+  // The class-day sheet (new coach scheduling): coaches, call-outs, canceling.
+  const [daySheet, setDaySheet] = useState<{ classId: string; date: string } | null>(null);
 
   useEffect(() => {
     // A refetch after an edit keeps the grid on screen; only month changes show the skeleton.
@@ -128,9 +153,13 @@ export default function CalendarPage() {
     // Pull a 3-month window centered on the visible month so prev/next nav is snappy.
     const start = new Date(year, month - 1, 1);
     const end = new Date(year, month + 2, 0, 23, 59, 59, 999);
-    fetch(`/api/calendar?from=${start.toISOString()}&to=${end.toISOString()}`, { cache: "no-store" })
+    // Canceled class days are asked for so a club on the new coach scheduling
+    // sees them struck through (and can bring them back). A club that is not
+    // on it keeps the calendar it always had: its canceled days stay hidden.
+    fetch(`/api/calendar?from=${start.toISOString()}&to=${end.toISOString()}&includeCanceled=1`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: CalFeed | null) => {
+      .then((raw: CalFeed | null) => {
+        const d = raw ? { ...raw, items: (raw.items ?? []).filter((it) => !(it.canceled && !it.switched)) } : null;
         setFeed(d);
         setLoading(false);
         // Keep the open detail in step with what was just saved.
@@ -406,18 +435,20 @@ export default function CalendarPage() {
                         <div className="space-y-1">
                           {dayItems.slice(0, VISIBLE).map((it) => {
                             const c = colorFor(it);
+                            const st = stateOf(it);
                             return (
                               <button
                                 key={`${it.kind}-${it.id}`}
                                 onClick={() => setSelected(selected?.id === it.id && selected.kind === it.kind ? null : it)}
                                 className="w-full text-left text-xs leading-tight px-1.5 py-1 rounded font-medium truncate hover:opacity-90"
-                                style={{ background: c.bg, color: c.fg }}
-                                title={it.name}
+                                style={{ background: c.bg, color: c.fg, ...stateOutline(st) }}
+                                title={st ? `${it.name} — ${st.label}` : it.name}
                               >
                                 <span className="opacity-80 mr-0.5 tabular-nums">
                                   {fmtTime(it.startsAt, { utc: kindIsWallClockUTC(it.kind) })}
                                 </span>
-                                {it.name}
+                                <span className={st?.strike ? "line-through" : undefined}>{it.name}</span>
+                                {st && <span className="block truncate font-semibold">{st.label}</span>}
                               </button>
                             );
                           })}
@@ -493,18 +524,20 @@ export default function CalendarPage() {
                           <div className="space-y-1.5 ml-13">
                             {dayItems.map((it) => {
                               const c = colorFor(it);
+                              const st = stateOf(it);
                               return (
                                 <button
                                   key={`${it.kind}-${it.id}`}
                                   onClick={() => setSelected(selected?.id === it.id && selected.kind === it.kind ? null : it)}
                                   className="w-full text-left text-xs px-2.5 py-1.5 min-h-[44px] rounded-md font-medium hover:opacity-90 flex items-center gap-2"
-                                  style={{ background: c.bg, color: c.fg }}
-                                  title={it.name}
+                                  style={{ background: c.bg, color: c.fg, ...stateOutline(st) }}
+                                  title={st ? `${it.name} — ${st.label}` : it.name}
                                 >
                                   <span className="opacity-80 tabular-nums flex-shrink-0">
                                     {fmtTime(it.startsAt, { utc: kindIsWallClockUTC(it.kind) })}
                                   </span>
-                                  <span className="truncate">{it.name}</span>
+                                  <span className={`truncate ${st?.strike ? "line-through" : ""}`}>{it.name}</span>
+                                  {st && <span className="ml-auto flex-shrink-0 font-semibold">{st.label}</span>}
                                 </button>
                               );
                             })}
@@ -569,6 +602,11 @@ export default function CalendarPage() {
           </div>
           {selected.kind === "event" && <EventDetails eventId={selected.refId} reloadKey={reloadTick} />}
           {(() => {
+            // New coach scheduling: one place changes a class day — the class-day sheet.
+            if (selected.kind === "class" && selected.switched && selected.date) {
+              const date = selected.date;
+              return <ClassDayCoaches day={selected} onOpen={() => setDaySheet({ classId: selected.refId, date })} />;
+            }
             const target = coachTargetFor(selected);
             return target ? (
               <CoachAssignments
@@ -673,7 +711,24 @@ export default function CalendarPage() {
                               <span className="text-xs px-2 py-0.5 rounded-full bg-app-bg text-text-muted">
                                 {KIND_SINGULAR_LABEL[it.kind]}
                               </span>
-                              <span className="text-sm font-semibold text-text-primary">{it.name}</span>
+                              <span className={`text-sm font-semibold text-text-primary ${stateOf(it)?.strike ? "line-through" : ""}`}>{it.name}</span>
+                              {(() => {
+                                const st = stateOf(it);
+                                if (!st) return null;
+                                const danger = st.tone === "late" || st.tone === "noshow";
+                                return (
+                                  <span
+                                    className="text-xs px-2 py-0.5 rounded-full font-medium"
+                                    style={st.tone === "canceled"
+                                      ? { background: "var(--color-chip-surface)", color: "var(--color-chip-text)" }
+                                      : danger
+                                        ? { background: "var(--color-danger-surface)", color: "var(--color-danger-text)" }
+                                        : { background: "var(--color-warn-surface)", color: "var(--color-warn-text)" }}
+                                  >
+                                    {st.label}
+                                  </span>
+                                );
+                              })()}
                             </div>
                             <p className="text-xs text-text-muted">
                               {tStart} – {tEnd}
@@ -702,12 +757,23 @@ export default function CalendarPage() {
                               </p>
                             )}
                           </div>
-                          <Link
-                            href={editHref}
-                            className="flex-shrink-0 inline-flex items-center min-h-[44px] md:min-h-0 text-xs px-3 py-1.5 rounded-md bg-brand text-white font-medium hover:bg-brand-hover"
-                          >
-                            Edit
-                          </Link>
+                          <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
+                            {it.kind === "class" && it.switched && it.date && (
+                              <button
+                                type="button"
+                                onClick={() => setDaySheet({ classId: it.refId, date: it.date! })}
+                                className="inline-flex items-center min-h-[44px] md:min-h-0 text-xs px-3 py-1.5 rounded-md border border-app-border text-text-primary font-medium hover:bg-app-bg"
+                              >
+                                Coaches &amp; canceling
+                              </button>
+                            )}
+                            <Link
+                              href={editHref}
+                              className="inline-flex items-center min-h-[44px] md:min-h-0 text-xs px-3 py-1.5 rounded-md bg-brand text-white font-medium hover:bg-brand-hover"
+                            >
+                              {it.kind === "class" && it.switched ? "Edit time or note" : "Edit"}
+                            </Link>
+                          </div>
                         </div>
                       </div>
                     );
@@ -717,6 +783,17 @@ export default function CalendarPage() {
           </div>
         );
       })()}
+
+      {daySheet && (
+        <ClassDaySheet
+          key={`${daySheet.classId}:${daySheet.date}`}
+          classId={daySheet.classId}
+          date={daySheet.date}
+          staffOptions={feed?.staffOptions && feed.staffOptions.length > 0 ? feed.staffOptions : undefined}
+          onClose={() => setDaySheet(null)}
+          onChanged={coachesChanged}
+        />
+      )}
     </div>
   );
 }

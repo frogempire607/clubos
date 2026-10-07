@@ -8,6 +8,7 @@ import ImageUpload from "@/components/ImageUpload";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonCard } from "@/components/LoadingSkeleton";
 import { mapsDirectionsUrl } from "@/lib/maps";
+import SchedulingSection from "@/components/settings/SchedulingSection";
 
 type Club = {
   id: string;
@@ -124,7 +125,7 @@ export default function SettingsPage() {
   // full editor with mailing address, public/admin contact, hours,
   // social links, etc.). The nav item below is a Link, not an in-hub
   // section, so we default the in-hub section to "identity" instead.
-  const [section, setSection] = useState<"identity" | "plan" | "app" | "memberPortal" | "locations" | "notifications" | "security" | "legal" | "danger">("identity");
+  const [section, setSection] = useState<"identity" | "plan" | "app" | "memberPortal" | "locations" | "scheduling" | "notifications" | "security" | "legal" | "danger">("identity");
   // ?section=plan is where Stripe sends the owner back after an AthletixOS plan
   // checkout or the billing portal (B20: the plan lives here only).
   const params = useSearchParams();
@@ -132,7 +133,7 @@ export default function SettingsPage() {
   const upgradeCanceled = params.get("canceled") === "true";
   useEffect(() => {
     const wanted = params.get("section");
-    const valid = ["identity", "plan", "app", "memberPortal", "locations", "notifications", "security", "legal", "danger"] as const;
+    const valid = ["identity", "plan", "app", "memberPortal", "locations", "scheduling", "notifications", "security", "legal", "danger"] as const;
     if (wanted && (valid as readonly string[]).includes(wanted)) setSection(wanted as (typeof valid)[number]);
   }, [params]);
   const [club, setClub] = useState<Club | null>(null);
@@ -162,6 +163,7 @@ export default function SettingsPage() {
     { id: "app", label: "Mobile app" },
     { id: "memberPortal", label: "Member Portal" },
     { id: "locations", label: "Locations" },
+    { id: "scheduling", label: "Scheduling" },
     { id: "notifications", label: "Notifications" },
     { id: "security", label: "Security" },
     { id: "legal", label: "Business & Legal" },
@@ -253,6 +255,7 @@ export default function SettingsPage() {
           {section === "app" && club && <BrandedAppSection club={club} onSaved={loadClub} />}
           {section === "memberPortal" && club && <MemberPortalSection club={club} onSaved={loadClub} />}
           {section === "locations" && <LocationsSection locations={locations} onSaved={loadLocations} />}
+          {section === "scheduling" && <SchedulingSection />}
           {section === "notifications" && club && <NotificationsSection prefs={club.notificationPrefs} />}
           {section === "security" && <SecuritySection />}
           {section === "legal" && <LegalSection />}

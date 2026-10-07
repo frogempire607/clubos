@@ -8,6 +8,9 @@ import { asIdList } from "@/lib/staffAssignments";
 import { ASSIGNMENT_DENY_MESSAGE } from "@/lib/staffSelf";
 import { z } from "zod";
 import { syncFutureSessions } from "@/lib/classSessionSync";
+import { currentRuleStaffIds } from "@/lib/classStaff";
+import { applySeriesListChange, loadClassRules, seriesChangeDate } from "@/lib/classStaffServer";
+import { STAFF_TX, classStaffErrorResponse, seriesStaffPayload } from "@/lib/classStaffApi";
 
 const TIME_REGEX = /^\d{2}:\d{2}$/;
 const dayOverrideSchema = z.object({
@@ -62,7 +65,13 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     },
   });
   if (!cls) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(cls);
+  // Who coaches it, at series level. For a club switched on to the new coach
+  // assignments that is the RULES: `staffRules` + `currentStaff`, and
+  // `assignedStaffIds` (what older screens show and send back) is those
+  // coaches' ids. The stored column is frozen as the pre-switch record and
+  // returned as `legacyAssignedStaffIds`.
+  const staff = (await seriesStaffPayload(session.user.clubId, [cls])).get(cls.id);
+  return NextResponse.json({ ...cls, ...(staff ?? {}) });
 }
 
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -89,12 +98,22 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   // is not rewritten.
   let staffWrite: string[] | undefined;
   let selfRemoved = false;
+  let rulesFrom: string | null = null;
+  let staffBefore: string[] = [];
   if (requestedStaff !== undefined) {
-    const check = await checkAssignmentChange(session, session.user.clubId, asIdList(cls.assignedStaffIds), requestedStaff);
+    // Switched-on club: "who coaches it now" is the rules, not the frozen
+    // legacy column (which is also what the GET above hands the editor).
+    const sw = await seriesChangeDate(session.user.clubId);
+    rulesFrom = sw.from;
+    staffBefore = rulesFrom
+      ? currentRuleStaffIds(await loadClassRules(prisma, cls.id), rulesFrom)
+      : asIdList(cls.assignedStaffIds);
+    const check = await checkAssignmentChange(session, session.user.clubId, staffBefore, requestedStaff);
     if (check.verdict === "deny") {
       return NextResponse.json({ error: ASSIGNMENT_DENY_MESSAGE, code: "ASSIGNMENT_FORBIDDEN" }, { status: 403 });
     }
     if (check.verdict !== "none") staffWrite = check.after;
+    staffBefore = check.before;
     selfRemoved = check.verdict === "self_remove";
   }
 
@@ -105,16 +124,37 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     ? incomingOverrides.filter((o) => effectiveDaysOfWeek.includes(o.dayOfWeek))
     : undefined;
 
-  const updated = await prisma.recurringClass.update({
-    where: { id: params.id },
-    data: {
-      ...rest,
-      ...(staffWrite !== undefined ? { assignedStaffIds: staffWrite } : {}),
-      ...(cleanOverrides !== undefined ? { dayOverrides: cleanOverrides } : {}),
-      ...(recurrenceStartDate !== undefined ? { recurrenceStartDate: new Date(recurrenceStartDate) } : {}),
-      ...(recurrenceEndDate !== undefined ? { recurrenceEndDate: recurrenceEndDate ? new Date(recurrenceEndDate) : null } : {}),
-    },
-  });
+  const classData = {
+    ...rest,
+    ...(cleanOverrides !== undefined ? { dayOverrides: cleanOverrides } : {}),
+    ...(recurrenceStartDate !== undefined ? { recurrenceStartDate: new Date(recurrenceStartDate) } : {}),
+    ...(recurrenceEndDate !== undefined ? { recurrenceEndDate: recurrenceEndDate ? new Date(recurrenceEndDate) : null } : {}),
+  };
+  let updated: Awaited<ReturnType<typeof prisma.recurringClass.update>>;
+  if (rulesFrom && staffWrite !== undefined) {
+    // Switched on: the coach change becomes rule changes from today (people no
+    // longer listed come off, new people go on every class day, everyone else
+    // — weekday-only coaches and roles included — is left alone), in the SAME
+    // transaction as the class details. assignedStaffIds is not written.
+    const from = rulesFrom;
+    const after = staffWrite;
+    try {
+      updated = await prisma.$transaction(async (tx) => {
+        const row = await tx.recurringClass.update({ where: { id: params.id }, data: classData });
+        await applySeriesListChange(tx, { clubId: session.user.clubId, classId: params.id, date: from, before: staffBefore, after, byUserId: session.user.id });
+        return row;
+      }, STAFF_TX);
+    } catch (err) {
+      const res = classStaffErrorResponse(err);
+      if (res) return res;
+      throw err;
+    }
+  } else {
+    updated = await prisma.recurringClass.update({
+      where: { id: params.id },
+      data: { ...classData, ...(staffWrite !== undefined ? { assignedStaffIds: staffWrite } : {}) },
+    });
+  }
 
   // Bring future sessions in line when scheduling-relevant fields change. The
   // series is RECONCILED BY DATE, not deleted and regenerated: a member's

@@ -219,6 +219,9 @@ model Club {
   privateCreditLedger            PrivateCreditLedger[]
   recurringClasses               RecurringClass[]
   classSessions                  ClassSession[]
+  classStaffRules                ClassStaffRule[]
+  classSessionStaff              ClassSessionStaff[]
+  scheduleSettings               ClubScheduleSettings?
   attendanceRecords              AttendanceRecord[]
   memberRelationships            MemberRelationship[]
   staffCompensations             StaffCompensation[]
@@ -484,6 +487,8 @@ model User {
   availabilityExceptions     StaffAvailabilityException[]
   eventAssignments           EventStaffAssignment[]
   coachBookings              PrivateBooking[]             @relation("CoachBookings")
+  classStaffRules            ClassStaffRule[]             @relation("ClassStaffRuleUser")
+  classSessionStaff          ClassSessionStaff[]          @relation("ClassSessionStaffUser")
   privateLessonPayRates      PrivateLessonPayRate[]
   attendanceAdded            AttendanceRecord[]           @relation("AttendanceAddedBy")
   documentSignatures         DocumentSignature[]
@@ -3638,6 +3643,9 @@ model RecurringClass {
   club     Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
   location Location?      @relation(fields: [locationId], references: [id])
   sessions ClassSession[]
+  // Recurring coach assignments (migration 20261008000000_class_staff_assignments).
+  // assignedStaffIds above stays, dual-written, as the legacy mirror.
+  staffRules ClassStaffRule[]
 
   @@index([clubId])
   @@map("recurring_classes")
@@ -3663,15 +3671,131 @@ model ClassSession {
   overridden    Boolean  @default(false)
   createdAt     DateTime @default(now())
 
+  // ── Staff scheduling overhaul, Migration A (20261008000000) ──────────────
+  // Cancellation audit. `canceled` above stays the flag every reader uses;
+  // these say who/when/why, who was told, and whether pay was preserved.
+  canceledAt           DateTime?
+  canceledByUserId     String?
+  cancelReason         String?
+  cancelNotifyAudience String? // BOOKED | CLASS_MEMBERS | BOTH | NONE — what was chosen that time
+  cancelNotifiedCount  Int?
+  cancelPaid           Boolean   @default(false) // "cancelled — paid" (needs finances:full)
+  cancelPaidByUserId   String?
+  cancelPaidAt         DateTime?
+  staffFrozenAt        DateTime? // reserved (history freeze was declined 2026-10-07); never written
+  // True once this day's coach list was edited by hand (or carried a legacy
+  // staffOverride at switch-on). Recurring rules never refill a manual day.
+  staffManual          Boolean   @default(false)
+
   recurringClass RecurringClass     @relation(fields: [classId], references: [id], onDelete: Cascade)
   club           Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)
   attendance     AttendanceRecord[]
+  // Who is on THIS class day (the truth for days on/after
+  // ClubScheduleSettings.assignmentsStartOn). staffOverride above stays,
+  // dual-written, as the legacy mirror.
+  staff          ClassSessionStaff[]
 
   @@index([classId])
   @@index([clubId])
   @@index([date])
   @@map("class_sessions")
   @@unique([classId, date])
+}
+
+/// Recurring coach assignment on a class ("every week"). Rules only GENERATE
+/// the future: lib/classStaffServer.syncSessionStaff turns them into
+/// ClassSessionStaff rows for class days from today forward that nobody edited
+/// by hand. Additive per coach: a coach is on a day when they hold a rule that
+/// is in force that day and whose dayOfWeek is null or that weekday.
+/// Dates are calendar days (the same wall-clock day ClassSession.date uses).
+model ClassStaffRule {
+  id              String    @id @default(cuid())
+  clubId          String
+  classId         String
+  userId          String
+  roleName        String? // free text; null shows as "Coach". Standard list: lib/classStaff.CLASS_STAFF_ROLES
+  dayOfWeek       Int? // null = every class day; 0–6 = that weekday only
+  effectiveFrom   DateTime  @db.Date
+  effectiveTo     DateTime? @db.Date // inclusive last day; null = open-ended
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  club           Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  recurringClass RecurringClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  user           User           @relation("ClassStaffRuleUser", fields: [userId], references: [id], onDelete: NoAction)
+
+  @@index([classId, effectiveFrom])
+  @@index([clubId, userId])
+  @@map("class_staff_rules")
+}
+
+/// One coach on one class day — the record of who was on it. Written only for
+/// class days on/after ClubScheduleSettings.assignmentsStartOn; earlier days
+/// keep reading RecurringClass.assignedStaffIds / ClassSession.staffOverride.
+/// "Coaching that day" = status SCHEDULED (a substitute is its own SCHEDULED row).
+model ClassSessionStaff {
+  id                     String    @id @default(cuid())
+  clubId                 String
+  sessionId              String
+  userId                 String
+  roleName               String?
+  kind                   String    @default("REGULAR") // REGULAR | SUBSTITUTE
+  replacesStaffId        String? // SUBSTITUTE → the ClassSessionStaff row it covers (scalar, no FK)
+  status                 String    @default("SCHEDULED") // SCHEDULED | NEEDS_COVERAGE | REPLACED | NO_SHOW | REMOVED
+  source                 String    @default("RULE") // RULE | MANUAL | BACKFILL
+  ruleId                 String? // the ClassStaffRule that generated it (scalar, no FK — rules can be deleted)
+  // coverage
+  calledOutAt            DateTime?
+  calledOutByUserId      String? // the coach, or a manager on their behalf
+  calloutReason          String?
+  lateCallout            Boolean   @default(false) // called out < 2 hours before start; never blocked
+  coverageFilledAt       DateTime?
+  coverageFilledByUserId String? // must hold schedule:edit
+  // occurrence-level pay override — COLUMNS ONLY here; the pay logic is Branch 2
+  payOverrideCents       Int? // null = use the coach's plan
+  payOverrideReason      String?
+  payOverrideByUserId    String? // must hold finances:full; never the coach themself
+  payOverrideAt          DateTime?
+  note                   String?
+  changedByUserId        String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  club    Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User         @relation("ClassSessionStaffUser", fields: [userId], references: [id], onDelete: NoAction)
+
+  @@unique([sessionId, userId])
+  @@index([clubId, userId])
+  @@index([clubId, status])
+  @@map("class_session_staff")
+}
+
+/// One row per club: owner-configurable defaults for coverage + cancellation,
+/// and the two cut-over dates. No row = the defaults (lib/classStaff.DEFAULT_SCHEDULE_SETTINGS).
+model ClubScheduleSettings {
+  clubId                   String    @id
+  // who hears "Needs coverage" (any combination)
+  coverageNotifyOwners     Boolean   @default(true)
+  coverageNotifyManagers   Boolean   @default(true) // everyone with schedule:edit
+  coverageNotifyClassStaff Boolean   @default(true) // other coaches on that class day
+  coverageNotifyRoleNames  Json      @default("[]") // e.g. ["Head Coach"] — matches assignment role names
+  coverageNotifyUserIds    Json      @default("[]") // specific staff
+  coverageChannels         Json      @default("[\"IN_APP\",\"EMAIL\"]") // PUSH can be added later
+  // default audience when a class day is cancelled; the canceller can override it each time
+  classCancelNotifyDefault String    @default("BOOKED") // BOOKED | CLASS_MEMBERS | BOTH | NONE
+  payLedgerStartsOn        DateTime? @db.Date // Branch 2: set once, at the pay-ledger cut-over
+  // The switch-on date: ClassSessionStaff rows are the truth for class days on
+  // or after it. null = not switched on (every reader uses the legacy lists).
+  // Set by scripts/switch-on-class-assignments.ts, never by the app.
+  assignmentsStartOn       DateTime? @db.Date
+  updatedByUserId          String?
+  updatedAt                DateTime  @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@map("club_schedule_settings")
 }
 
 // ── Attendance ────────────────────────────────────────────────────────────────
