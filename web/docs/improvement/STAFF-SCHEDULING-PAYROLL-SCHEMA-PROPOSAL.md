@@ -339,3 +339,50 @@ over a pay period) · `lib/payroll.ts` (report total = old calculation before th
 **Verified.** Migration applied twice on a scratch Postgres 16 (applies, idempotent, backfill correct, only Frog
 Empire's ledger date set). Not provable here: a real `next build`, layout/CSS, and the Prisma queries against
 the real database (they are type-checked and run against the in-memory fake).
+
+## Build notes — Branch 3: calendar feeds, schedule/payroll UI, final QA (2026-10-07)
+
+**Schema.** One additive migration, `20261014000000_staff_calendar_feeds`: table `staff_calendar_feeds`
+(one row per staff member: `userId` unique, `token` unique, rotated/last-used stamps, RLS `tenant_isolation`).
+Nothing else changed — private-lesson pay lines and the CSV use `pay_lines` as it is (`sourceType`
+`PRIVATE_LESSON`). The ledger start date was not touched and no line is written before it.
+
+**Decisions.**
+- ONE editor per class day: `components/staff/schedule/ClassDaySheet.tsx` now also holds "Change time or note"
+  (`POST /api/classes/[id]/occurrence`) and "Pay for this day". On a switched-on club the pencil is gone from
+  Staff → Schedule and the profile's Schedule tab; a club that is not switched on keeps its old screen. Days
+  before the switch-on date are read-only in the sheet.
+- Private lessons on the schedule are the `PrivateBooking` rows (PENDING_COACH / CONFIRMED / COMPLETED with a set
+  time) — nothing is copied. A coach without `schedule:view` sees only their own; the athlete's name needs
+  `members:view` (or being the coach). A chip opens `/dashboard/privates?booking=<id>`.
+- Conflicts: `lib/activityType.findOverlaps` over real instants per coach (classes they are SCHEDULED on, their
+  event parts, their confirmed lessons). Shown as a "Conflict" badge with what it overlaps. A pending lesson
+  and a class the coach was covered on do not count.
+- Activity types and colours: ONE mapping, `lib/activityType.ts` (class type from the class NAME, event type from
+  EventType). States (needs coverage, late call-out, substitute, canceled, conflict, no-show, covered) are text
+  badges with an icon — `components/staff/schedule/ScheduleBits.tsx`. Below `md` the week is one day at a time.
+- Calendar feed: `lib/staffCalendarFeed.ts`, `GET /api/public/staff-calendar/<token>[.ics]` (no session; the
+  token is 24 random bytes). Only that coach's SCHEDULED class days (substitute shifts as "(covering)"), assigned
+  events and CONFIRMED/COMPLETED lessons, −30/+180 days, never pay. A canceled or called-out day drops out. Only
+  the coach is ever shown the URL; an owner / `staff:full` can replace or turn it off
+  (`/api/staff/[id]/calendar-feed`). Removing a staff member deletes the row, and the feed 404s for a removed user.
+- Private-lesson pay: a finished CONFIRMED/COMPLETED lesson dated on/after the ledger start → one line from the
+  coach's rate for that lesson type (`PrivateLessonPayRate`: flat, or % of `pricePaid`). No rate, or % with no
+  price → NEEDS_REVIEW, no amount. Rates are edited on the profile's Pay tab ("Private lesson pay");
+  `/api/staff/[id]/pay-rates` now checks the staff member and lesson type belong to the club, audits, and re-syncs.
+- One-day pay: unchanged storage (`ClassSessionStaff.payOverride*`, Branch 2). The sheet reads
+  `GET /api/classes/sessions/[sessionId]/pay` (finances:view): plan amount, override who/when/why, history from
+  the audit log, "Match <regular coach>'s rate" for a substitute. `canEdit` = finances:full, on the ledger, not
+  paid, not your own day.
+- CSV: `GET /api/payroll/ledger/export?from&to[&userId]` (finances:view), clamped to the ledger start, formula-safe.
+- Member schedule: a canceled class day stays, marked "Canceled" and not bookable; the reason shows only when the
+  cancellation was announced to families.
+- The old (pre-ledger) calculation ignores `CLASS_DAY` bonuses, which exist only for the ledger.
+
+**Verified.** `scripts/schedule-feeds-pay-tests.ts` (in the build gate). Migration applied twice on a scratch
+Postgres 16. Not provable here: a real `next build`, CSS/layout on a real phone, a real calendar app
+subscribing, and the queries against the real database.
+
+**Left for later.** A pending private lesson is not conflict-checked; a pay plan bonus scoped to a private
+lesson type AND a private lesson rate would both pay (set one or the other); the member schedule change is
+checked at source level, not clicked through.

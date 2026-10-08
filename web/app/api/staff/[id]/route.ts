@@ -366,6 +366,8 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
     where: { id: params.id },
     data: { deletedAt: new Date(), resetToken: null, resetExpires: null },
   });
+  // Their personal calendar link dies with their access (the feed also refuses a removed user).
+  await prisma.staffCalendarFeed.deleteMany({ where: { clubId: session.user.clubId, userId: params.id } }).catch(() => {});
   invalidatePermissionCache(params.id);
   await recordStaffActivity({
     clubId: session.user.clubId,

@@ -1629,6 +1629,22 @@ export default function PrivatesPage() {
     }
   }
 
+  // Deep link from Staff → Schedule: /dashboard/privates?booking=<id> opens
+  // that lesson once the list is in (the list is already limited to what this
+  // person may see, so an id they can't see simply opens nothing).
+  const [deepLinked, setDeepLinked] = useState(false);
+  useEffect(() => {
+    if (deepLinked || loading) return;
+    const id = new URLSearchParams(window.location.search).get("booking");
+    if (!id) return setDeepLinked(true);
+    const hit = bookings.find((b) => b.id === id);
+    if (hit) {
+      setTab("bookings");
+      setViewBooking(hit);
+    }
+    setDeepLinked(true);
+  }, [bookings, loading, deepLinked]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {

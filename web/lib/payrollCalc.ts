@@ -157,7 +157,7 @@ export type StoredComp = {
   effectiveFrom?: Date | string | null;
   archivedAt?: Date | string | null;
   createdAt?: Date | string | null;
-  bonuses: { id: string; bonusType: string; amount: unknown; minThreshold: number | null; maxThreshold: number | null }[];
+  bonuses: { id: string; bonusType: string; amount: unknown; minThreshold: number | null; maxThreshold: number | null; countPer?: string | null }[];
   assignments: { bonusId: string | null; scopeType: string; scopeId: string }[];
 };
 
@@ -200,6 +200,16 @@ export function legacyPlans<T extends StoredComp>(comps: readonly T[] | null | u
     })
     .sort((a, b) => stamp(a) - stamp(b) || a.id.localeCompare(b.id));
   return old.slice(0, 1);
+}
+
+/**
+ * A plan as the OLD period calculator saw it: a bonus counted "each class day"
+ * did not exist before the pay ledger (it is paid from pay lines), so it is
+ * left out — otherwise a bonus set up for the ledger would inflate an old
+ * period's number.
+ */
+export function toLegacyCompPlan(comp: StoredComp): CompPlan {
+  return toCompPlan({ ...comp, bonuses: comp.bonuses.filter((b) => b.countPer !== "CLASS_DAY") });
 }
 
 /** Several plans' results as one breakdown (a coach with one plan gets exactly that plan's result). */
@@ -262,7 +272,7 @@ export async function computePayroll(
   const result = staff.map((s) => {
     const plans = legacyPlans(s.compensations as unknown as StoredComp[], ledgerStart);
     const ctx = contextFor(inputs, s.id);
-    const payout = combinePayouts(plans.map((c) => computeStaffPayout(toCompPlan(c), ctx)));
+    const payout = combinePayouts(plans.map((c) => computeStaffPayout(toLegacyCompPlan(c), ctx)));
     return {
       id: s.id,
       firstName: s.firstName,
@@ -312,7 +322,7 @@ export async function computeLegacyPayrollTotal(clubId: string, from: Date | nul
     const plans = legacyPlans(s.compensations as unknown as StoredComp[], ledgerStart);
     if (plans.length === 0) return sum;
     const ctx = contextFor(inputs, s.id);
-    return sum + plans.reduce((a, c) => a + computeStaffPayout(toCompPlan(c), ctx).total, 0);
+    return sum + plans.reduce((a, c) => a + computeStaffPayout(toLegacyCompPlan(c), ctx).total, 0);
   }, 0);
   return +total.toFixed(2);
 }

@@ -10,6 +10,7 @@ import Link from "next/link";
 import { ArrowRight, Lock } from "lucide-react";
 import PayScheduleCard from "@/components/staff/pay/PayScheduleCard";
 import PayPlansPanel from "@/components/staff/pay/PayPlansPanel";
+import PrivateLessonPayCard from "@/components/staff/pay/PrivateLessonPayCard";
 import type { StaffTabProps } from "@/components/staff/types";
 
 export default function PayTab({ data, reload, setDirty }: StaffTabProps) {
@@ -48,6 +49,7 @@ export default function PayTab({ data, reload, setDirty }: StaffTabProps) {
       <div className="grid gap-4 md:grid-cols-[1.55fr_1fr]">
         <div className="min-w-0">
           <PayPlansPanel staffId={staff.id} onChanged={() => void reload()} />
+          <PrivateLessonPayCard staffId={staff.id} first={first} isSelf={viewer.isSelf} />
         </div>
 
         <div className="flex min-w-0 flex-col gap-4">
@@ -61,7 +63,7 @@ export default function PayTab({ data, reload, setDirty }: StaffTabProps) {
           <section className="rounded-xl border border-app-border bg-surface p-4 sm:p-5">
             <h2 className="text-[15px] font-semibold text-text-primary">How pay is worked out</h2>
             <p className="mt-2 text-[13px] text-text-primary">
-              A class day pays once it has ended, from the plan that best fits that class and role. Salary pays once per pay period. A substitute is paid from their own plan.
+              A class day pays once it has ended, from the plan that best fits that class and role. Salary pays once per pay period. A substitute is paid from their own plan. A private lesson pays once it has finished, from the private lesson pay below the plans.
             </p>
             <p className="mt-2 text-[12.5px] text-text-muted">
               These are the plans, not an amount owed. Payroll shows what is owed, line by line.

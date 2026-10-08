@@ -226,6 +226,7 @@ model Club {
   memberRelationships            MemberRelationship[]
   staffCompensations             StaffCompensation[]
   payLines                       PayLine[]
+  staffCalendarFeeds             StaffCalendarFeed[]
   plaidConnections               PlaidConnection[]
   plaidTransactions              PlaidTransaction[]
   plaidSyncCursors               PlaidSyncCursor[]
@@ -3556,11 +3557,32 @@ model Payout {
   @@map("payouts")
 }
 
+/// A coach's personal calendar subscription (Branch 3). One row per staff
+/// member; `token` is the unguessable secret in the ICS link. Regenerating
+/// replaces the token (the old link stops working at once); revoking deletes
+/// the row. The feed shows ONLY that person's own obligations and never pay.
+model StaffCalendarFeed {
+  id              String    @id @default(cuid())
+  clubId          String
+  userId          String    @unique
+  token           String    @unique
+  createdAt       DateTime  @default(now())
+  rotatedAt       DateTime?
+  rotatedByUserId String?
+  lastAccessedAt  DateTime?
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId])
+  @@map("staff_calendar_feeds")
+}
+
 /// One payable thing for one staff member, saved with the rate that priced it —
 /// the pay ledger (Branch 2). Written only for work on/after
 /// ClubScheduleSettings.payLedgerStartsOn; nothing earlier ever gets a line.
 ///   CLASS_SESSION  sourceId = ClassSessionStaff.id   (a class day worked)
 ///   EVENT          sourceId = EventStaffAssignment.id (an event worked)
+///   PRIVATE_LESSON sourceId = PrivateBooking.id      (a private lesson coached)
 ///   SALARY         sourceId = "<planId>|<periodEnd>"  (one per pay period)
 ///   BONUS          sourceId = "<planId>|<periodEnd>" (plan bonus over a pay
 ///                  period) or a generated id (a bonus added by hand)

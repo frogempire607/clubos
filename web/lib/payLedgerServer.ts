@@ -26,7 +26,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeStaffPayout } from "@/lib/compensation";
 import { contextFor, loadPayrollInputs, toCompPlan, type StoredComp } from "@/lib/payrollCalc";
-import { classHasEnded, clubTodayYmd, toYmd, ymdToDate } from "@/lib/classStaff";
+import { classHasEnded, clubTodayYmd, roleLabel, toYmd, ymdToDate } from "@/lib/classStaff";
 import { addDays, paydaysInRange, previousPayday, isPayFrequency, ymdFromDate } from "@/lib/paySchedule";
 import {
   SYNC_WINDOW_DAYS,
@@ -46,7 +46,9 @@ import {
   type LedgerBonus,
   type LedgerClassRow,
   type LedgerEventRow,
+  type LedgerExportRow,
   type LedgerLineView,
+  type LedgerPrivateRow,
   type LedgerPeriod,
   type LedgerPlan,
   type LedgerTotals,
@@ -413,6 +415,39 @@ export async function syncPayLines(clubId: string, opts: { now?: Date; userIds?:
     }));
   }
 
+  // Private lessons that have ended, with the coach's rate for that lesson type.
+  const lessons = await prisma.privateBooking.findMany({
+    where: {
+      clubId, coachId: opts.userIds ? { in: [...opts.userIds] } : { not: null },
+      status: { in: ["CONFIRMED", "COMPLETED"] }, confirmedEndAt: { gte: ymdToDate(from), lte: now },
+    },
+    select: {
+      id: true, coachId: true, status: true, confirmedEndAt: true, pricePaid: true, lessonTypeId: true,
+      lessonType: { select: { title: true } }, member: { select: { firstName: true, lastName: true } },
+    },
+  });
+  let privateRows: LedgerPrivateRow[] = [];
+  if (lessons.length > 0) {
+    const coachIds = Array.from(new Set(lessons.map((l) => l.coachId).filter((x): x is string => !!x)));
+    const [rates, ownerRows] = await Promise.all([
+      prisma.privateLessonPayRate.findMany({ where: { clubId, userId: { in: coachIds } }, select: { userId: true, lessonTypeId: true, payType: true, payValue: true } }),
+      prisma.user.findMany({ where: { clubId, id: { in: coachIds }, role: "OWNER" }, select: { id: true } }),
+    ]);
+    const rateOf = new Map(rates.map((r) => [`${r.userId}|${r.lessonTypeId}`, { payType: r.payType, payValue: Number(r.payValue) }]));
+    const rated = new Set(rates.map((r) => r.userId));
+    const owners = new Set(ownerRows.map((u) => u.id));
+    privateRows = lessons
+      // Same rule as classes: an owner with no pay setup at all is not on the ledger.
+      .filter((l) => l.coachId && l.confirmedEndAt && !(owners.has(l.coachId) && !planned.has(l.coachId) && !rated.has(l.coachId)))
+      .map((l) => ({
+        bookingId: l.id, userId: l.coachId!, lessonTitle: l.lessonType.title,
+        athleteName: `${l.member.firstName} ${l.member.lastName}`.trim(),
+        dateYmd: clubTodayYmd(tz, l.confirmedEndAt!), ended: l.confirmedEndAt!.getTime() <= now.getTime(), status: l.status,
+        pricePaidCents: l.pricePaid === null ? null : Math.round(Number(l.pricePaid) * 100),
+        rate: rateOf.get(`${l.coachId}|${l.lessonTypeId}`) ?? null,
+      }));
+  }
+
   // Pay periods that have started, per coach with a pay schedule.
   const planUserIds = new Set(plans.map((p) => p.userId));
   const periods: LedgerPeriod[] = [];
@@ -453,7 +488,7 @@ export async function syncPayLines(clubId: string, opts: { now?: Date; userIds?:
   }
 
   const { desired, unpaidReasons } = planPayLines({
-    fromYmd: from, ledgerStart, plans, classRows, eventRows, periods,
+    fromYmd: from, ledgerStart, plans, classRows, eventRows, privateRows, periods,
     periodOf: (userId, workDate) => {
       const s = schedules.get(userId);
       return s ? periodOfDay(s, workDate) : null;
@@ -599,6 +634,56 @@ export async function loadLedger(clubId: string, args: { fromYmd: string; toYmd:
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Every pay line with a work day in [fromYmd, toYmd], flattened for the CSV export (voided lines left out). */
+export async function loadLedgerExport(clubId: string, args: { fromYmd: string; toYmd: string; userId?: string | null }): Promise<LedgerExportRow[]> {
+  const lines = await prisma.payLine.findMany({
+    where: {
+      clubId, status: { not: "VOID" }, ...(args.userId ? { userId: args.userId } : {}),
+      workDate: { gte: ymdToDate(args.fromYmd), lte: ymdToDate(args.toYmd) },
+    },
+    select: LINE_SELECT,
+    orderBy: [{ workDate: "asc" }, { createdAt: "asc" }],
+  });
+  if (lines.length === 0) return [];
+  const rowIds = lines.filter((l) => l.sourceType === "CLASS_SESSION").map((l) => l.sourceId);
+  const payoutIds = Array.from(new Set(lines.map((l) => l.payoutId).filter((x): x is string => !!x)));
+  const [users, rows, payouts] = await Promise.all([
+    prisma.user.findMany({ where: { clubId, id: { in: Array.from(new Set(lines.map((l) => l.userId))) } }, select: { id: true, firstName: true, lastName: true } }),
+    rowIds.length ? prisma.classSessionStaff.findMany({ where: { clubId, id: { in: rowIds } }, select: { id: true, roleName: true, kind: true } }) : Promise.resolve([]),
+    payoutIds.length ? prisma.payout.findMany({ where: { clubId, id: { in: payoutIds } }, select: { id: true, status: true, paidAt: true, method: true } }) : Promise.resolve([]),
+  ]);
+  const nameOf = new Map(users.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
+  const roleOf = new Map(rows.map((r) => [r.id, `${roleLabel(r.roleName)}${r.kind === "SUBSTITUTE" && (r.roleName ?? "").toLowerCase() !== "substitute" ? " (substitute)" : ""}`]));
+  const payoutOf = new Map(payouts.map((p) => [p.id, p]));
+  return lines
+    .map((l) => {
+      const p = l.payoutId ? payoutOf.get(l.payoutId) : undefined;
+      return {
+        coach: nameOf.get(l.userId) ?? "Former staff member",
+        workDate: toYmd(l.workDate),
+        sourceType: l.sourceType,
+        description: l.description,
+        role: l.sourceType === "CLASS_SESSION" ? roleOf.get(l.sourceId) ?? null : null,
+        planName: l.planName,
+        rateCents: l.rateCents,
+        units: Number(l.units),
+        planAmountCents: l.planAmountCents,
+        amountCents: l.amountCents,
+        rateSource: l.rateSource,
+        reason: l.rateSource === "OVERRIDE" ? l.overrideReason : l.status === "NEEDS_REVIEW" ? l.reviewReason : null,
+        status: l.status,
+        payoutId: l.payoutId,
+        payoutStatus: p?.status ?? null,
+        payoutDate: p?.paidAt ? p.paidAt.toISOString().slice(0, 10) : null,
+        payoutMethod: p?.method ?? null,
+        periodStart: ymdOrNull(l.periodStart),
+        periodEnd: ymdOrNull(l.periodEnd),
+        lineId: l.id,
+      };
+    })
+    .sort((a, b) => a.coach.localeCompare(b.coach) || a.workDate.localeCompare(b.workDate));
+}
+
 // ── Overrides ───────────────────────────────────────────────────────────────
 
 const MAX_CENTS = 100_000_000;
@@ -654,17 +739,131 @@ export async function setAssignmentOverride(args: {
   return { userId: row.userId, before: row.payOverrideCents, after: args.cents, className: row.session.recurringClass.name, dateYmd: toYmd(row.session.date) };
 }
 
+// ── "Pay for this day" on the class-day sheet ───────────────────────────────
+
+export type DayPayRow = {
+  staffRowId: string;
+  userId: string;
+  name: string;
+  roleLabel: string;
+  kind: string;
+  status: string;
+  /** What their own pay plan works out to for this class day (null = no plan covers it). */
+  planCents: number | null;
+  planName: string | null;
+  /** Why there is no plan amount ("covered by salary", "no plan", "two plans match"). */
+  planNote: string | null;
+  overrideCents: number | null;
+  overrideReason: string | null;
+  overrideByName: string | null;
+  overrideAt: string | null;
+  /** For a substitute: what the coach they cover would have been paid. */
+  matchRegular: { name: string; cents: number } | null;
+  /** PAID or on a payout — the amount can no longer be changed here. */
+  locked: boolean;
+  lockedWhy: string | null;
+  /** Their row is one that earns pay at all (scheduled; not called out / replaced / no-show). */
+  payable: boolean;
+  history: { at: string; byName: string; action: "set" | "cleared"; cents: number | null; reason: string | null }[];
+};
+
+export type DayPay = { onLedger: boolean; ledgerStart: string | null; date: string; rows: DayPayRow[] };
+
+/** What each coach on one class day is paid for it, and any one-day override with its history. null = no such class day. */
+export async function loadDayPay(clubId: string, sessionId: string): Promise<DayPay | null> {
+  const session = await prisma.classSession.findFirst({
+    where: { id: sessionId, clubId },
+    select: {
+      id: true, classId: true, date: true, startsAt: true, endsAt: true,
+      staff: {
+        select: {
+          id: true, userId: true, roleName: true, kind: true, status: true, replacesStaffId: true,
+          payOverrideCents: true, payOverrideReason: true, payOverrideByUserId: true, payOverrideAt: true,
+        },
+      },
+    },
+  });
+  if (!session) return null;
+  const date = toYmd(session.date);
+  const ledgerStart = await getLedgerStart(clubId);
+  const onLedger = !!ledgerStart && date >= ledgerStart;
+  const rows = session.staff.filter((r) => r.status !== "REMOVED" || r.payOverrideCents !== null);
+  if (rows.length === 0) return { onLedger, ledgerStart, date, rows: [] };
+  const rowIds = rows.map((r) => r.id);
+  const userIds = Array.from(new Set(rows.map((r) => r.userId)));
+  const [plans, lines, audits] = await Promise.all([
+    listPlans(clubId, userIds),
+    prisma.payLine.findMany({
+      where: { clubId, sourceType: "CLASS_SESSION", sourceId: { in: rowIds }, component: "BASE" },
+      select: { sourceId: true, status: true, payoutId: true },
+    }),
+    prisma.billingAuditLog.findMany({
+      where: { clubId, action: { in: ["PAY_LINE_OVERRIDE_SET", "PAY_LINE_OVERRIDE_CLEARED"] } },
+      orderBy: { createdAt: "desc" },
+      take: 400,
+      select: { action: true, actorUserId: true, after: true, createdAt: true },
+    }),
+  ]);
+  const people = Array.from(new Set([...userIds, ...rows.map((r) => r.payOverrideByUserId), ...audits.map((a) => a.actorUserId)].filter((x): x is string => !!x)));
+  const users = await prisma.user.findMany({ where: { clubId, id: { in: people } }, select: { id: true, firstName: true, lastName: true } });
+  const nameOf = (id: string | null | undefined) => {
+    const u = users.find((x) => x.id === id);
+    return u ? `${u.firstName} ${u.lastName}`.trim() : "Someone";
+  };
+  const minutes = Math.max(0, (session.endsAt.getTime() - session.startsAt.getTime()) / 60000);
+  const planFor = (userId: string, roleName: string | null) => {
+    const m = matchClassPlan(plans.filter((p) => p.userId === userId), { dateYmd: date, classId: session.classId, roleName });
+    if (m.kind === "plan") return { cents: planClassAmount(m.plan, minutes).amountCents, name: m.plan.name, note: null as string | null };
+    if (m.kind === "salary") return { cents: 0, name: m.plan.name, note: "Covered by their salary" };
+    if (m.kind === "tie") return { cents: null, name: null, note: `Two pay plans match equally: ${m.plans.map((p) => p.name).join(" and ")}` };
+    return { cents: null, name: null, note: "No pay plan covers this class and role" };
+  };
+  const lineOf = new Map(lines.map((l) => [l.sourceId, l]));
+  const byId = new Map(session.staff.map((r) => [r.id, r]));
+  return {
+    onLedger, ledgerStart, date,
+    rows: rows.map((r) => {
+      const plan = planFor(r.userId, r.roleName);
+      const line = lineOf.get(r.id);
+      const covered = r.kind === "SUBSTITUTE" && r.replacesStaffId ? byId.get(r.replacesStaffId) : undefined;
+      const regular = covered ? planFor(covered.userId, covered.roleName) : null;
+      const locked = !!line && lineLocked(line);
+      return {
+        staffRowId: r.id, userId: r.userId, name: nameOf(r.userId), roleLabel: roleLabel(r.roleName), kind: r.kind, status: r.status,
+        planCents: plan.cents, planName: plan.name, planNote: plan.note,
+        overrideCents: r.payOverrideCents, overrideReason: r.payOverrideReason,
+        overrideByName: r.payOverrideByUserId ? nameOf(r.payOverrideByUserId) : null,
+        overrideAt: r.payOverrideAt ? r.payOverrideAt.toISOString() : null,
+        matchRegular: covered && regular && regular.cents !== null && regular.cents > 0 ? { name: nameOf(covered.userId).split(" ")[0], cents: regular.cents } : null,
+        locked,
+        lockedWhy: locked ? (line!.status === "PAID" ? "Already paid" : "On a payout") : null,
+        payable: r.status === "SCHEDULED",
+        history: audits
+          .filter((a) => (a.after as { staffRowId?: string } | null)?.staffRowId === r.id)
+          .map((a) => {
+            const after = (a.after ?? {}) as { overrideCents?: number | null; reason?: string | null };
+            return {
+              at: a.createdAt.toISOString(), byName: nameOf(a.actorUserId),
+              action: a.action === "PAY_LINE_OVERRIDE_SET" ? ("set" as const) : ("cleared" as const),
+              cents: typeof after.overrideCents === "number" ? after.overrideCents : null, reason: after.reason ?? null,
+            };
+          }),
+      };
+    }),
+  };
+}
+
 /** Override (cents) or clear the override (null) on one generated pay line that has not been paid. */
 export async function setLineOverride(args: {
   clubId: string; lineId: string; cents: number | null; reason?: string | null; byUserId: string | null; now?: Date;
-}): Promise<{ userId: string; description: string; before: number | null; after: number | null }> {
+}): Promise<{ userId: string; description: string; before: number | null; after: number | null; staffRowId?: string | null }> {
   const l = await readLine(args.clubId, args.lineId);
   requireOpen(l);
   if (l.rateSource === "MANUAL") throw new PayLedgerError("BAD_STATE", "This line was added by hand — edit it instead.", 409);
   if (l.status === "VOID") throw new PayLedgerError("BAD_STATE", "This line is no longer payable.", 409);
   if (l.sourceType === "CLASS_SESSION" && l.component === "BASE") {
     const res = await setAssignmentOverride({ clubId: args.clubId, staffRowId: l.sourceId, cents: args.cents, reason: args.reason, byUserId: args.byUserId, now: args.now });
-    return { userId: l.userId, description: l.description, before: l.rateSource === "OVERRIDE" ? l.amountCents : null, after: res.after };
+    return { userId: l.userId, description: l.description, before: l.rateSource === "OVERRIDE" ? l.amountCents : null, after: res.after, staffRowId: l.sourceId };
   }
   const reason = (args.reason ?? "").trim().slice(0, 500);
   if (args.cents !== null) {

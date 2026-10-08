@@ -8,7 +8,7 @@
 // locked. Read-only without Financials & payroll: full, and on your own pay.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Download } from "lucide-react";
 import Sheet from "@/components/Sheet";
 import {
   SOURCE_LABELS,
@@ -252,6 +252,14 @@ export default function LedgerView({ refreshKey = 0, focusUserId = null }: { ref
             <input type="date" value={to} min={ledgerStart} onChange={(e) => e.target.value && setRange({ from, to: e.target.value })} className="min-h-[44px] rounded border border-app-border bg-surface px-2 text-sm md:min-h-[34px]" />
           </label>
         </div>
+        <a
+          href={`/api/payroll/ledger/export?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`}
+          download
+          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-app-border px-3.5 text-[13px] font-medium text-text-primary hover:bg-app-bg md:ml-auto md:min-h-[34px]"
+          title="One row per pay line in these dates: coach, date, what it was for, role, plan and rate, calculated amount, any change, final amount, and whether it has been paid."
+        >
+          <Download className="h-4 w-4" aria-hidden /> Export CSV
+        </a>
         <p className="basis-full text-[12.5px] text-text-muted">
           Pay lines start on {fmtYmdYear(ledgerStart)}. Nothing before that date is here — use “Before {fmtYmd(ledgerStart)}” for the old calculation.
         </p>

@@ -94,19 +94,22 @@ export type Viewer = {
   canCancel: boolean;
   /** finances:full — may choose "cancelled, paid" (the self rule is applied per day). */
   hasFinancesFull: boolean;
+  /** finances:view — may see what each coach is paid for a class day. */
+  hasFinancesView?: boolean;
   isOwner: boolean;
 };
 
 /** The caller's powers, read LIVE (database, 20s cache) — never from the token. */
 export async function viewerFor(session: Sess): Promise<Viewer> {
-  const [seesAll, canManage, canCancel, hasFinancesFull, isOwner] = await Promise.all([
+  const [seesAll, canManage, canCancel, hasFinancesFull, hasFinancesView, isOwner] = await Promise.all([
     hasPermissionLive(session, "schedule", "view"),
     hasPermissionLive(session, "schedule", "edit"),
     hasPermissionLive(session, "classes", "edit"),
     hasPermissionLive(session, "finances", "full"),
+    hasPermissionLive(session, "finances", "view"),
     isOwnerLive(session),
   ]);
-  return { userId: session?.user?.id ?? "", seesAll, canManage, canCancel, hasFinancesFull, isOwner };
+  return { userId: session?.user?.id ?? "", seesAll, canManage, canCancel, hasFinancesFull, hasFinancesView, isOwner };
 }
 
 /** id → "First Last" for the given ids — removed staff included (history keeps their name). */
@@ -306,6 +309,8 @@ export type StaffingView = {
     myStatus: StaffStatus | null;
     canCallOut: boolean;
     canUndoCallOut: boolean;
+    /** finances:view — the sheet may load "Pay for this day" (GET /api/classes/sessions/[id]/pay). */
+    canSeePay?: boolean;
   };
 };
 
@@ -419,6 +424,7 @@ export async function loadStaffingView(
       myStatus: mine?.status ?? null,
       canCallOut: switched && !!session && !canceled && !hasEnded && mine?.status === "SCHEDULED",
       canUndoCallOut: switched && !!session && mine?.status === "NEEDS_COVERAGE",
+      canSeePay: !!viewer.hasFinancesView && switched && !!session,
     },
   };
   return { view, forbidden: !viewer.seesAll && !isOnDay };

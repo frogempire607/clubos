@@ -13,7 +13,8 @@ import {
 } from "@/lib/staffAssignments";
 import { listScheduleStaff } from "@/lib/staffAssignmentsServer";
 import { loadSessionStaffResolver } from "@/lib/classStaffServer";
-import { clubTodayYmd, currentRuleStaffIds, maxYmd, richStaffRows, type RichStaffRow, type StaffRule } from "@/lib/classStaff";
+import { clubTodayYmd, currentRuleStaffIds, maxYmd, proposedSlot, richStaffRows, type RichStaffRow, type StaffRule } from "@/lib/classStaff";
+import { classActivityType, eventActivityType, findOverlaps, type Busy } from "@/lib/activityType";
 import { cancelSummary, type CancelSummary } from "@/lib/classStaffApi";
 import { loadClassRules } from "@/lib/classStaffServer";
 
@@ -57,7 +58,9 @@ export async function GET(req: Request) {
 
   const clubId = session.user.clubId;
 
-  const [staff, availability, exceptions, classes, events, sessionRows] = await Promise.all([
+  // Athlete names on OTHER coaches' private lessons need members:view; a coach always sees their own.
+  const seesMembers = await hasPermissionLive(session, "members", "view");
+  const [staff, availability, exceptions, classes, events, sessionRows, lessons] = await Promise.all([
     listScheduleStaff(clubId),
     prisma.staffAvailability.findMany({
       where: { clubId, active: true, ...(seesAll ? {} : { userId: me }) },
@@ -116,6 +119,19 @@ export async function GET(req: Request) {
         cancelNotifiedCount: true, cancelPaid: true, cancelPaidByUserId: true, cancelPaidAt: true,
       },
     }),
+    // Private lessons with a set time — the existing booking rows, nothing copied.
+    prisma.privateBooking.findMany({
+      where: {
+        clubId, status: { in: ["PENDING_COACH", "CONFIRMED", "COMPLETED"] }, coachId: seesAll ? { not: null } : me,
+        confirmedStartAt: { gte: win.from, lte: win.to },
+      },
+      select: {
+        id: true, coachId: true, status: true, confirmedStartAt: true, confirmedEndAt: true,
+        lessonType: { select: { title: true, durationMin: true } },
+        member: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { confirmedStartAt: "asc" },
+    }),
   ]);
 
   // Legacy lists before the club's assignment start date; on/after it the
@@ -128,6 +144,8 @@ export async function GET(req: Request) {
   type Occ = ClassOccurrence & {
     /** On/after the switch-on date: staffRows are real rows and the new actions apply. */
     switched: boolean;
+    /** What kind of activity this is — one mapping for every screen (lib/activityType.ts). */
+    activityType: string;
     staffRows: RichStaffRow[];
     needsCoverage: boolean;
     cancel: CancelSummary | null;
@@ -153,6 +171,7 @@ export async function GET(req: Request) {
       const row = occ.sessionId ? sessionById.get(occ.sessionId) : undefined;
       classInstances.push({
         ...occ,
+        activityType: classActivityType(c.name),
         switched,
         staffRows,
         needsCoverage: switched && staffRows.some((r) => r.status === "NEEDS_COVERAGE"),
@@ -167,6 +186,7 @@ export async function GET(req: Request) {
     id: e.id,
     name: e.name,
     type: e.type,
+    activityType: eventActivityType(String(e.type), e.name),
     startsAt: iso(e.startsAt),
     endsAt: iso(e.endsAt),
     sessions: e.sessions.map((s) => ({ startsAt: iso(s.startsAt), endsAt: iso(s.endsAt) })),
@@ -203,7 +223,54 @@ export async function GET(req: Request) {
   };
   const onDay = (c: Occ, userId: string) => c.staffIds.includes(userId) || c.staffRows.some((r) => r.userId === userId && r.status !== "REMOVED");
 
-  const result = visibleStaff.map((s) => ({
+  // Private lessons per coach. The athlete's name goes to the coach themself
+  // and to anyone who may see members; otherwise it is just "Private lesson".
+  const privatesFor = (userId: string) =>
+    lessons
+      .filter((l) => l.coachId === userId && l.confirmedStartAt)
+      .map((l) => {
+        const startsAt = l.confirmedStartAt!;
+        const endsAt = l.confirmedEndAt ?? new Date(startsAt.getTime() + (l.lessonType.durationMin || 60) * 60_000);
+        const showName = userId === me || seesMembers;
+        return {
+          id: l.id,
+          title: l.lessonType.title,
+          athlete: showName ? `${l.member.firstName} ${l.member.lastName}`.trim() : null,
+          status: l.status,
+          startsAt: iso(startsAt),
+          endsAt: iso(endsAt),
+          activityType: "PRIVATE",
+        };
+      });
+
+  // Overlaps on one person's own schedule (classes they are coaching, events,
+  // confirmed private lessons), compared as real instants.
+  const tz = staffOn.timezone ?? (await prisma.club.findUnique({ where: { id: clubId }, select: { timezone: true } }))?.timezone ?? null;
+  const overlapsFor = (userId: string, cls: Occ[], evs: typeof eventsInRange, privs: ReturnType<typeof privatesFor>) => {
+    const busy: Busy[] = [];
+    for (const c of cls) {
+      if (c.canceled || mine(c, userId).myStatus !== "SCHEDULED") continue;
+      const slot = proposedSlot(c.date, c.startTime, c.endTime, tz);
+      busy.push({ key: `c:${c.classId}:${c.date}`, startMs: slot.startMs, endMs: slot.endMs, label: c.name });
+    }
+    for (const e of evs) {
+      const parts = e.sessions.length > 0 ? e.sessions : [{ startsAt: e.startsAt, endsAt: e.endsAt }];
+      for (const p of parts) busy.push({ key: `e:${e.id}`, startMs: p.startsAt.getTime(), endMs: p.endsAt.getTime(), label: e.name });
+    }
+    for (const p of privs) {
+      if (p.status === "PENDING_COACH") continue;
+      busy.push({ key: `p:${p.id}`, startMs: Date.parse(p.startsAt), endMs: Date.parse(p.endsAt), label: p.athlete ? `Private lesson with ${p.athlete}` : "Private lesson" });
+    }
+    return findOverlaps(busy);
+  };
+
+  const result = visibleStaff.map((s) => {
+    const myClasses = classInstances.filter((c) => onDay(c, s.id));
+    const myEvents = eventsInRange.filter((e) => e.staffAssignments.some((a) => a.userId === s.id));
+    const myPrivates = privatesFor(s.id);
+    const overlaps = overlapsFor(s.id, myClasses, myEvents, myPrivates);
+    const uniq = (list: string[] | undefined) => Array.from(new Set(list ?? []));
+    return {
     id: s.id,
     firstName: s.firstName,
     lastName: s.lastName,
@@ -221,12 +288,22 @@ export async function GET(req: Request) {
         endTime: e.endTime,
         note: e.note,
       })),
-    classes: classInstances
-      .filter((c) => onDay(c, s.id))
-      .map((c) => ({ ...ownOnly(c), ...mine(c, s.id) }))
+    classes: myClasses
+      .map((c) => {
+        const hit = uniq(overlaps.get(`c:${c.classId}:${c.date}`));
+        return { ...ownOnly(c), ...mine(c, s.id), conflict: hit.length > 0, conflictWith: hit };
+      })
       .sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime)),
-    events: eventsInRange.filter((e) => e.staffAssignments.some((a) => a.userId === s.id)).map(eventOut),
-  }));
+    events: myEvents.map((e) => {
+      const hit = uniq(overlaps.get(`e:${e.id}`));
+      return { ...eventOut(e), conflict: hit.length > 0, conflictWith: hit };
+    }),
+    privates: myPrivates.map((p) => {
+      const hit = uniq(overlaps.get(`p:${p.id}`));
+      return { ...p, conflict: hit.length > 0, conflictWith: hit };
+    }),
+    };
+  });
 
   // Everything in range, so the schedule UI can offer "assign to this
   // event/class on this day" — not just show pre-assigned ones.

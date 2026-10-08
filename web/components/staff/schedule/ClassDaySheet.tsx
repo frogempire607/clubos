@@ -1,6 +1,10 @@
 "use client";
 
-// ONE class on ONE day — the "Class day" sheet (Branch 1 stage 3).
+// ONE class on ONE day — the ONE editor for a class day (Branch 1 stage 3;
+// Branch 3 made it the only one: time and note, coaches and roles, the three
+// "which class days" scopes, call-outs and coverage, cancelling, and — for
+// people with Financials — what each coach is paid for that day. There is no
+// separate "Edit" and "Change coaches" any more: tap the class, edit here.
 // Fed by GET /api/classes/[id]/staffing?date=; every action is one request to
 // the stage-2 API and the server decides who may do what (`viewer`):
 //   schedule manager  change coaches (three scopes → Review → Save), find a
@@ -13,7 +17,8 @@
 // Words live in lib/classStaffUi.ts. Times display 12-hour.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Sheet from "@/components/Sheet";
-import { range12h } from "@/lib/time12";
+import { range12h, to12h } from "@/lib/time12";
+import { fmtCents } from "@/lib/payLedger";
 import { SUBSTITUTE_ROLE_NAME, fmtDayLong, type CancelAudience, type ChangeScope, type RichStaffRow } from "@/lib/classStaff";
 import type { StaffingView } from "@/lib/classStaffApi";
 import {
@@ -75,8 +80,27 @@ type Preview = {
 };
 type CancelPreview = { counts: AudienceCounts; defaultAudience: CancelAudience; canSetPaid: boolean };
 
+/** One coach's pay for this class day (GET /api/classes/sessions/[id]/pay). */
+type PayRow = {
+  staffRowId: string; userId: string; name: string; roleLabel: string; kind: string; status: string;
+  planCents: number | null; planName: string | null; planNote: string | null;
+  overrideCents: number | null; overrideReason: string | null; overrideByName: string | null; overrideAt: string | null;
+  matchRegular: { name: string; cents: number } | null;
+  locked: boolean; lockedWhy: string | null; payable: boolean; canEdit: boolean;
+  history: { at: string; byName: string; action: "set" | "cleared"; cents: number | null; reason: string | null }[];
+};
+type DayPay = { onLedger: boolean; ledgerStart: string | null; rows: PayRow[] };
+type DetailScope = "occurrence" | "following" | "series";
+const DETAIL_SCOPES: { value: DetailScope; label: string; hint: string }[] = [
+  { value: "occurrence", label: "Just this day", hint: "Only this one date" },
+  { value: "following", label: "This day and after", hint: "This date and every later class day" },
+  { value: "series", label: "Every week", hint: "The class itself — future class days move to the new time" },
+];
+
 type Mode =
   | { k: "main" }
+  | { k: "details" }
+  | { k: "pay"; row: PayRow }
   | { k: "edit" }
   | { k: "review"; preview: Preview }
   | { k: "fill"; row: RichStaffRow }
@@ -88,7 +112,7 @@ type Mode =
   | { k: "uncancel" };
 
 type Answer = { ok: boolean; status: number; data: Record<string, unknown> };
-async function send(url: string, body?: unknown, method: "POST" | "PATCH" = "POST"): Promise<Answer> {
+async function send(url: string, body?: unknown, method: "POST" | "PATCH" | "PUT" = "POST"): Promise<Answer> {
   try {
     const res = await fetch(url, {
       method,
@@ -257,6 +281,34 @@ export default function ClassDaySheet({
   const [paid, setPaid] = useState(false);
   const [cancelInfo, setCancelInfo] = useState<CancelPreview | null>(null);
 
+  // ── time & note ───────────────────────────────────────────────────────────
+  const [dScope, setDScope] = useState<DetailScope>("occurrence");
+  const [dStart, setDStart] = useState("");
+  const [dEnd, setDEnd] = useState("");
+  const [dNote, setDNote] = useState("");
+
+  // ── pay for this day (Financials only) ────────────────────────────────────
+  const [pay, setPay] = useState<DayPay | null>(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [payReason, setPayReason] = useState("");
+  const [showHistory, setShowHistory] = useState<string | null>(null);
+  const paySessionId = view?.viewer.canSeePay ? view.day.sessionId : null;
+  const loadPay = useCallback(async () => {
+    if (!paySessionId) {
+      setPay(null);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/classes/sessions/${paySessionId}/pay`, { cache: "no-store" });
+      setPay(res.ok ? ((await res.json()) as DayPay) : null);
+    } catch {
+      setPay(null);
+    }
+  }, [paySessionId]);
+  useEffect(() => {
+    loadPay();
+  }, [loadPay, view]);
+
   function go(next: Mode) {
     setError(null);
     setNote(null);
@@ -296,6 +348,46 @@ export default function ClassDaySheet({
   const liveDay = !!day && day.switched && day.exists && !day.canceled;
   // "When" lines (called out at, canceled at) read on the CLUB's clock, like the class times next to them.
   const clubTz = view?.class.timezone ?? undefined;
+
+  function openDetails() {
+    if (!day) return;
+    setDScope("occurrence");
+    setDStart(day.startTime);
+    setDEnd(day.endTime);
+    setDNote(day.note ?? "");
+    go({ k: "details" });
+  }
+  async function saveDetails() {
+    if (!day) return;
+    if (!dStart || !dEnd) return setError("Choose a start and an end time.");
+    if (dEnd <= dStart) return setError("The end time has to be after the start time.");
+    const body: Record<string, unknown> = { date, scope: dScope };
+    if (dStart !== day.startTime) body.startTime = dStart;
+    if (dEnd !== day.endTime) body.endTime = dEnd;
+    if (dScope !== "series") body.note = dNote.trim() ? dNote.trim() : null;
+    const a = await act(() => send(`/api/classes/${classId}/occurrence`, body), "Couldn't save the time or note.");
+    if (a) await done(`${className} updated — saved.`);
+  }
+  function openPay(row: PayRow) {
+    setPayAmount(row.overrideCents !== null ? (row.overrideCents / 100).toFixed(2) : "");
+    setPayReason(row.overrideCents !== null ? row.overrideReason ?? "" : "");
+    go({ k: "pay", row });
+  }
+  async function savePay(row: PayRow, clear: boolean) {
+    let amount: number | null = null;
+    if (!clear) {
+      const t = payAmount.trim().replace(/[$,]/g, "");
+      if (t === "" || !/^\d*(\.\d{0,2})?$/.test(t) || t === ".") return setError("Enter the amount to pay for this class day.");
+      amount = Number(t);
+      if (!payReason.trim()) return setError("Say why this class day is paid differently.");
+    }
+    const a = await act(
+      () => send(`/api/classes/session-staff/${row.staffRowId}/pay-override`, { amount, reason: clear ? null : payReason.trim() }, "PUT"),
+      "Couldn't save the pay for this class day.",
+    );
+    if (!a) return;
+    await done(clear ? `${row.name} is back on their pay plan for this class day — saved.` : `${row.name} is paid ${fmtCents(Math.round((amount ?? 0) * 100))} for this class day — saved.`);
+  }
 
   async function review() {
     const a = await act(() => send(`/api/classes/${classId}/staffing/preview`, staffingBody(false)), "Couldn't check that change.");
@@ -444,6 +536,9 @@ export default function ClassDaySheet({
   } else if (mode.k === "main") {
     const rows = day.rows.map((r) => ({ r, st: rowState(r) })).filter((x): x is { r: RichStaffRow; st: NonNullable<ReturnType<typeof rowState>> } => !!x.st);
     const canEditCoaches = viewer.canManage && day.switched && !day.canceled && (day.exists || day.runsOnThisDay);
+    // Days before the new scheduling started are shown as recorded — nothing to edit here.
+    const canEditDetails = day.switched && (viewer.canManage && !day.canceled && (day.exists || day.runsOnThisDay));
+    const payRows = pay?.rows ?? [];
     body = (
       <div className="space-y-4">
         {note && (
@@ -500,10 +595,30 @@ export default function ClassDaySheet({
           </div>
         )}
 
-        {day.note && <p className="text-[13px] text-text-muted">Note for this day: {day.note}</p>}
+        <section aria-label="When" className="rounded-lg border border-app-border px-3 py-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">When</p>
+              <p className="text-[14px] text-text-primary">{fmtDayLong(date)} · {range12h(day.startTime, day.endTime)}</p>
+              {day.note && <p className="mt-0.5 text-[13px] text-text-muted">Note for this day: {day.note}</p>}
+            </div>
+            {canEditDetails && (
+              <button type="button" disabled={busy} onClick={openDetails} className={small}>
+                {day.note ? "Change time or note" : "Change time or add a note"}
+              </button>
+            )}
+          </div>
+        </section>
 
         <section aria-label="Coaches">
-          <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">Coaches</p>
+          <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-text-muted">Coaches</p>
+            {canEditCoaches && (
+              <button type="button" disabled={busy} onClick={() => openEditor(view)} className={small}>
+                Change coaches
+              </button>
+            )}
+          </div>
           {rows.length === 0 ? (
             <p className="text-[13px] text-text-muted">Nobody is assigned to this class day.</p>
           ) : (
@@ -622,22 +737,178 @@ export default function ClassDaySheet({
           </section>
         )}
 
-        {(canEditCoaches || (viewer.canCancel && liveDay)) && (
-          <div className="flex flex-wrap gap-2">
-            {canEditCoaches && (
-              <button type="button" disabled={busy} onClick={() => openEditor(view)} className={primary}>
-                Change coaches
-              </button>
+        {pay && payRows.length > 0 && (
+          <section aria-label="Pay for this day">
+            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">Pay for this day</p>
+            {!pay.onLedger ? (
+              <p className="rounded-lg border border-app-border px-3 py-2 text-[13px] text-text-muted">
+                {pay.ledgerStart ? `This class day is before the pay ledger started (${pay.ledgerStart}), so it is not paid from here.` : "The pay ledger has not been started for this club."}
+              </p>
+            ) : (
+              <ul className="divide-y divide-app-border rounded-lg border border-app-border">
+                {payRows.map((r) => {
+                  const over = r.overrideCents !== null;
+                  return (
+                    <li key={r.staffRowId} className="px-3 py-2.5">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                        <span className="text-[14px] font-medium text-text-primary">{r.name} <span className="font-normal text-text-muted">· {r.roleLabel}</span></span>
+                        <span className="text-[14px] font-semibold text-text-primary">
+                          {!r.payable ? "Not paid" : over ? fmtCents(r.overrideCents) : r.planCents !== null ? fmtCents(r.planCents) : "Needs review"}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-[13px] text-text-muted">
+                        {!r.payable
+                          ? "Not coaching this class day."
+                          : over
+                            ? `Set for this day${r.overrideByName ? ` by ${r.overrideByName}` : ""}${r.overrideAt ? `, ${fmtInstant(r.overrideAt, clubTz)}` : ""}${r.overrideReason ? ` — “${r.overrideReason}”` : ""}. ${r.planCents !== null ? `Their plan would pay ${fmtCents(r.planCents)}.` : "No pay plan covers it."}`
+                            : r.planCents !== null
+                              ? `${r.planNote ?? `From their pay plan “${r.planName}”`}.`
+                              : `${r.planNote}. Set the pay for this day, or add a pay plan.`}
+                        {r.locked ? ` ${r.lockedWhy} — locked.` : ""}
+                      </p>
+                      {(r.canEdit || r.history.length > 0) && (
+                        <div className="mt-1.5 flex flex-wrap gap-2">
+                          {r.canEdit && (
+                            <button type="button" disabled={busy} onClick={() => openPay(r)} className={small}>
+                              {over ? "Change pay for this day" : "Set pay for this day"}
+                            </button>
+                          )}
+                          {r.canEdit && over && (
+                            <button type="button" disabled={busy} onClick={() => savePay(r, true)} className={small}>
+                              Back to their plan
+                            </button>
+                          )}
+                          {r.history.length > 0 && (
+                            <button type="button" onClick={() => setShowHistory(showHistory === r.staffRowId ? null : r.staffRowId)} className={small} aria-expanded={showHistory === r.staffRowId}>
+                              {showHistory === r.staffRowId ? "Hide history" : `History (${r.history.length})`}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {showHistory === r.staffRowId && (
+                        <ul className="mt-1.5 space-y-0.5 text-xs text-text-muted">
+                          {r.history.map((h, i) => (
+                            <li key={i}>
+                              {fmtInstant(h.at, clubTz)} · {h.byName} {h.action === "set" ? `set it to ${fmtCents(h.cents)}` : "put it back to the plan"}
+                              {h.reason ? ` — “${h.reason}”` : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             )}
-            {viewer.canCancel && liveDay && (
-              <button type="button" disabled={busy} onClick={openCancel} className={ghost}>
-                Cancel this class day
-              </button>
-            )}
-          </div>
+            <p className="mt-1 text-xs text-text-muted">A class day is paid once it has ended. Setting the pay here changes this one day only — no pay plan is changed.</p>
+          </section>
+        )}
+
+        {viewer.canCancel && liveDay && (
+          <section aria-label="Cancel" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-app-border px-3 py-2.5">
+            <p className="text-[13px] text-text-muted">Not running this day?</p>
+            <button type="button" disabled={busy} onClick={openCancel} className={ghost}>
+              Cancel this class day
+            </button>
+          </section>
         )}
         {errorBox}
       </div>
+    );
+  } else if (mode.k === "details") {
+    title = `Time and note — ${className}`;
+    body = (
+      <div className="space-y-4">
+        <fieldset className="space-y-2">
+          <legend className="mb-1.5 text-xs font-medium uppercase tracking-wide text-text-muted">Which class days?</legend>
+          {(day.hasEnded ? DETAIL_SCOPES.slice(0, 1) : DETAIL_SCOPES).map((sc) => (
+            <label key={sc.value} className={radioRow}>
+              <input type="radio" name="detail-scope" className="mt-1" checked={dScope === sc.value} onChange={() => setDScope(sc.value)} />
+              <span>
+                <span className="block text-[14px] text-text-primary">{sc.label}</span>
+                <span className="block text-xs text-text-muted">{sc.hint}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label htmlFor="detail-start" className="mb-1 block text-xs font-medium uppercase tracking-wide text-text-muted">Start</label>
+            <input id="detail-start" type="time" value={dStart} onChange={(e) => setDStart(e.target.value)} className={field} />
+            <p className="mt-0.5 text-xs text-text-muted">{dStart ? to12h(dStart) : ""}</p>
+          </div>
+          <div>
+            <label htmlFor="detail-end" className="mb-1 block text-xs font-medium uppercase tracking-wide text-text-muted">End</label>
+            <input id="detail-end" type="time" value={dEnd} onChange={(e) => setDEnd(e.target.value)} className={field} />
+            <p className="mt-0.5 text-xs text-text-muted">{dEnd ? to12h(dEnd) : ""}</p>
+          </div>
+        </div>
+        {dScope !== "series" ? (
+          <div>
+            <label htmlFor="detail-note" className="mb-1 block text-xs font-medium uppercase tracking-wide text-text-muted">Note for this day</label>
+            <textarea id="detail-note" value={dNote} onChange={(e) => setDNote(e.target.value)} rows={2} maxLength={2000}
+              className="w-full rounded-lg border border-app-border bg-surface px-3 py-2 text-[14px] text-text-primary" placeholder="e.g. Use the back room today" />
+          </div>
+        ) : (
+          <p className="text-xs text-text-muted">Changes the class itself. Future class days move to the new time; bookings and one-day changes are kept.</p>
+        )}
+        <p className="text-xs text-text-muted">Coaches, cancelling and pay are changed from the previous screen.</p>
+        {errorBox}
+      </div>
+    );
+    footer = (
+      <>
+        {back}
+        <button type="button" onClick={saveDetails} disabled={busy} className={primary}>
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </>
+    );
+  } else if (mode.k === "pay") {
+    const row = mode.row;
+    title = `Pay for this day — ${firstName(row.name)}`;
+    body = (
+      <div className="space-y-4">
+        <p className="text-[13px] text-text-primary">
+          What {row.name} is paid for {className} on {fmtDayLong(date)} only. Their pay plan is not changed.
+        </p>
+        <p className="rounded-lg border border-app-border px-3 py-2 text-[13px] text-text-muted">
+          {row.planCents !== null ? `Their plan${row.planName ? ` “${row.planName}”` : ""} would pay ${fmtCents(row.planCents)}${row.planNote ? ` (${row.planNote.toLowerCase()})` : ""}.` : `${row.planNote}.`}
+        </p>
+        <div>
+          <label htmlFor="pay-amount" className="mb-1 block text-xs font-medium uppercase tracking-wide text-text-muted">Pay for this day</label>
+          <div className="relative max-w-[220px]">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[14px] text-text-muted">$</span>
+            <input id="pay-amount" type="text" inputMode="decimal" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0.00" className={`${field} pl-7`} />
+          </div>
+        </div>
+        {row.matchRegular && (
+          <button
+            type="button"
+            className={ghost}
+            onClick={() => {
+              setPayAmount((row.matchRegular!.cents / 100).toFixed(2));
+              if (!payReason.trim()) setPayReason(`Paid ${row.matchRegular!.name}'s rate for covering`);
+            }}
+          >
+            Match {row.matchRegular.name}&apos;s rate ({fmtCents(row.matchRegular.cents)})
+          </button>
+        )}
+        <div>
+          <label htmlFor="pay-reason" className="mb-1 block text-xs font-medium uppercase tracking-wide text-text-muted">Why</label>
+          <input id="pay-reason" value={payReason} onChange={(e) => setPayReason(e.target.value)} maxLength={500} placeholder="e.g. Ran the class alone" className={field} />
+          <p className="mt-1 text-xs text-text-muted">Saved with your name and the time.</p>
+        </div>
+        {errorBox}
+      </div>
+    );
+    footer = (
+      <>
+        {back}
+        <button type="button" onClick={() => savePay(row, false)} disabled={busy} className={primary}>
+          {busy ? "Saving…" : "Set pay for this day"}
+        </button>
+      </>
     );
   } else if (mode.k === "edit") {
     title = `Change coaches — ${className}`;

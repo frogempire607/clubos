@@ -47,7 +47,7 @@ export const EVENT_TYPE_LABELS: Record<string, string> = {
   CLASS: "Class event", PRIVATE: "Private", CLINIC: "Clinic", CAMP: "Camp", TOURNAMENT: "Tournament", OTHER: "Other event",
 };
 
-export const LINE_SOURCE_TYPES = ["CLASS_SESSION", "EVENT", "SALARY", "BONUS", "ADJUSTMENT"] as const;
+export const LINE_SOURCE_TYPES = ["CLASS_SESSION", "EVENT", "PRIVATE_LESSON", "SALARY", "BONUS", "ADJUSTMENT"] as const;
 export type LineSourceType = (typeof LINE_SOURCE_TYPES)[number];
 export const LINE_STATUSES = ["ESTIMATED", "NEEDS_REVIEW", "PAID", "VOID"] as const;
 export type LineStatus = (typeof LINE_STATUSES)[number];
@@ -266,6 +266,26 @@ export type LedgerEventRow = {
   hasEventComp: boolean;
 };
 
+/** One private lesson for its coach, as the ledger sees it. */
+export type LedgerPrivateRow = {
+  bookingId: string;
+  userId: string; // the coach
+  lessonTitle: string;
+  athleteName: string;
+  dateYmd: string; // the club's calendar day it ended
+  ended: boolean;
+  status: string; // CONFIRMED | COMPLETED | CANCELED | …
+  /** What the client paid for it, in cents (null = nothing recorded). */
+  pricePaidCents: number | null;
+  /** The coach's pay rate for this lesson type (profile → Pay), or null when none is set. */
+  rate: { payType: string; payValue: number } | null;
+};
+
+/** A private lesson earns pay once it has ended and was not cancelled or declined. */
+export function privateRowPayable(r: Pick<LedgerPrivateRow, "status" | "ended">): boolean {
+  return r.ended && (r.status === "CONFIRMED" || r.status === "COMPLETED");
+}
+
 export type LedgerPeriod = { userId: string; periodStart: string; periodEnd: string };
 
 /** Does this class-day row earn pay? (worked = scheduled on a day that has ended and was not cancelled-unpaid) */
@@ -309,6 +329,7 @@ export type PlanLinesInput = {
   plans: readonly LedgerPlan[];
   classRows: readonly LedgerClassRow[];
   eventRows?: readonly LedgerEventRow[];
+  privateRows?: readonly LedgerPrivateRow[];
   /** Pay periods (from each coach's pay schedule) that have started. */
   periods?: readonly LedgerPeriod[];
   /** The period a work day falls in, for a coach with a pay schedule. */
@@ -432,6 +453,41 @@ export function planPayLines(input: PlanLinesInput): PlanLinesResult {
         ...base, units: 1, rateCents: null, amountCents: null, rateSource: "PLAN", planId: null, planName: null,
         planAmountCents: null, status: "NEEDS_REVIEW",
         reviewReason: `Two per-event pay plans match this event equally: ${m.plans.map((p) => p.name).join(" and ")}.`,
+      });
+    }
+  }
+
+  // Private lessons: paid from the coach's rate for that lesson type (a flat
+  // amount, or a percentage of what the client paid). No rate = needs review.
+  for (const r of input.privateRows ?? []) {
+    if (r.dateYmd < start || !privateRowPayable(r)) continue;
+    const period = periodOf(r.userId, r.dateYmd);
+    const base = {
+      userId: r.userId, sourceType: "PRIVATE_LESSON", sourceId: r.bookingId, component: "BASE", workDate: r.dateYmd,
+      periodStart: period?.periodStart ?? null, periodEnd: period?.periodEnd ?? null, planId: null, ...blank,
+    };
+    const what = `Private lesson · ${r.lessonTitle}${r.athleteName ? ` · ${r.athleteName}` : ""}`;
+    const review = (reason: string): DesiredLine => ({
+      ...base, description: what, units: 1, rateCents: null, amountCents: null, rateSource: "PLAN", planName: null,
+      planAmountCents: null, status: "NEEDS_REVIEW", reviewReason: reason,
+    });
+    if (!r.rate) {
+      desired.push(review(`No private-lesson pay rate is set for “${r.lessonTitle}”. Set one on their profile → Pay, or set the pay for this line.`));
+    } else if (r.rate.payType === "PERCENT") {
+      if (r.pricePaidCents === null) {
+        desired.push(review("This coach is paid a percentage of the lesson price, and no price was recorded for this lesson. Set the pay for this line."));
+      } else {
+        const cents = Math.round((r.pricePaidCents * r.rate.payValue) / 100);
+        desired.push({
+          ...base, description: `${what} (${r.rate.payValue}% of ${fmtCents(r.pricePaidCents)})`, units: 1, rateCents: cents, amountCents: cents,
+          rateSource: "PLAN", planName: "Private lesson rate", planAmountCents: cents, status: "ESTIMATED",
+        });
+      }
+    } else {
+      const cents = toCents(r.rate.payValue);
+      desired.push({
+        ...base, description: what, units: 1, rateCents: cents, amountCents: cents, rateSource: "PLAN",
+        planName: "Private lesson rate", planAmountCents: cents, status: "ESTIMATED",
       });
     }
   }
@@ -579,6 +635,8 @@ export function reconcileLines(
         ? "The salary plan is no longer in force for this pay period"
         : cur.sourceType === "EVENT"
           ? "No longer payable from a per-event plan"
+          : cur.sourceType === "PRIVATE_LESSON"
+            ? "The private lesson was cancelled, moved, or given to another coach"
           : "The bonus no longer applies";
     out.voids.push({ id: cur.id, reason });
   }
@@ -648,7 +706,7 @@ export function lineMath(l: Pick<LedgerLineView, "units" | "rateCents" | "source
 }
 
 export const SOURCE_LABELS: Record<string, string> = {
-  CLASS_SESSION: "Class", EVENT: "Event", SALARY: "Salary", BONUS: "Bonus", ADJUSTMENT: "Adjustment",
+  CLASS_SESSION: "Class", EVENT: "Event", PRIVATE_LESSON: "Private lesson", SALARY: "Salary", BONUS: "Bonus", ADJUSTMENT: "Adjustment",
 };
 
 // ── Plan input: validation + words ──────────────────────────────────────────
@@ -764,4 +822,79 @@ export function planWarnings(args: { plans: readonly LedgerPlan[]; hasSchedule: 
   }
   if (active.filter((p) => p.baseType === "SALARY").length > 1) out.push("Has more than one salary plan in force — each one pays every pay period.");
   return out;
+}
+
+
+// ── CSV export ──────────────────────────────────────────────────────────────
+
+/** One pay line, flattened for accounting. */
+export type LedgerExportRow = {
+  coach: string;
+  workDate: string;
+  sourceType: string;
+  description: string;
+  role: string | null;
+  planName: string | null;
+  rateCents: number | null;
+  units: number;
+  planAmountCents: number | null;
+  amountCents: number | null;
+  rateSource: string;
+  reason: string | null;
+  status: string;
+  payoutId: string | null;
+  payoutStatus: string | null;
+  payoutDate: string | null;
+  payoutMethod: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  lineId: string;
+};
+
+export const EXPORT_HEADERS = [
+  "Coach", "Date", "Type", "Item", "Role", "Pay plan", "Rate", "Units", "Calculated amount", "Override / adjustment",
+  "Reason", "Final amount", "Status", "Payout status", "Payout date", "Payout method", "Pay period start", "Pay period end", "Line ID",
+] as const;
+
+const money = (cents: number | null | undefined) => (cents === null || cents === undefined ? "" : (cents / 100).toFixed(2));
+const STATUS_WORDS: Record<string, string> = { UNPAID: "Unpaid", REVIEW: "Needs review", ON_PAYOUT: "On a pending payout", PAID: "Paid", VOID: "Not payable" };
+
+/** A cell that a spreadsheet will not run as a formula, quoted for CSV. */
+export function csvCell(value: string | number | null | undefined): string {
+  let v = value === null || value === undefined ? "" : String(value);
+  if (/^[=+\-@\t\r]/.test(v) && !/^-?\d+(\.\d+)?$/.test(v)) v = `'${v}`;
+  return `"${v.replace(/"/g, '""')}"`;
+}
+
+export function exportCells(r: LedgerExportRow): string[] {
+  const bucket = lineBucket({ status: r.status, payoutId: r.payoutId, payoutStatus: r.payoutStatus });
+  const changed = r.rateSource === "OVERRIDE" || r.rateSource === "MANUAL";
+  return [
+    r.coach,
+    r.workDate,
+    SOURCE_LABELS[r.sourceType] ?? r.sourceType,
+    r.description,
+    r.role ?? "",
+    r.rateSource === "MANUAL" ? "Added by hand" : r.planName ?? "",
+    r.rateSource === "MANUAL" ? "" : money(r.rateCents),
+    r.rateSource === "MANUAL" ? "" : String(r.units),
+    r.rateSource === "MANUAL" ? "" : money(r.planAmountCents),
+    changed ? money(r.amountCents) : "",
+    r.reason ?? "",
+    bucket === "VOID" ? "0.00" : money(r.amountCents),
+    STATUS_WORDS[bucket],
+    r.payoutStatus ? r.payoutStatus.charAt(0) + r.payoutStatus.slice(1).toLowerCase() : "",
+    r.payoutDate ?? "",
+    r.payoutMethod ? r.payoutMethod.charAt(0) + r.payoutMethod.slice(1).toLowerCase() : "",
+    r.periodStart ?? "",
+    r.periodEnd ?? "",
+    r.lineId,
+  ];
+}
+
+/** The whole file: a header row, one row per pay line, CRLF line ends (what Excel expects). */
+export function ledgerCsv(rows: readonly LedgerExportRow[]): string {
+  const lines = [EXPORT_HEADERS.map(csvCell).join(",")];
+  for (const r of rows) lines.push(exportCells(r).map(csvCell).join(","));
+  return lines.join("\r\n") + "\r\n";
 }

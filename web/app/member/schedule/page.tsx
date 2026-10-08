@@ -66,6 +66,9 @@ type ScheduleItem = {
   bookingStatus: string | null;
   color: string | null;
   textColor: string | null;
+  /** A cancelled class day stays on the schedule, clearly marked, and cannot be booked. */
+  canceled?: boolean;
+  cancelReason?: string | null;
   bookingTier?: "MEMBERSHIP" | "MEMBER" | "NON_MEMBER" | "DROP_IN" | null;
   bookingLabel?: string | null;
   athletes?: ItemAthlete[];
@@ -142,6 +145,8 @@ function priceLabel(item: ScheduleItem, family = false) {
 }
 
 function itemColors(item: ScheduleItem) {
+  // Canceled: greyed out everywhere it appears (the word "Canceled" is always printed too).
+  if (item.canceled) return { background: "#E7E5E4", color: "#78716C" };
   return {
     background: item.color || (item.kind === "class" ? "#1C1917" : "#F5F5F4"),
     color: item.textColor || (item.kind === "class" ? "#FFFFFF" : "#44403C"),
@@ -171,10 +176,13 @@ function ItemCard({ item, onClick, family = false }: { item: ScheduleItem; onCli
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <h3 className="text-sm font-semibold text-stone-900">{item.title}</h3>
+            <h3 className={`text-sm font-semibold ${item.canceled ? "text-stone-500 line-through" : "text-stone-900"}`}>{item.title}</h3>
             <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={c}>
               {item.typeLabel}
             </span>
+            {item.canceled && (
+              <span className="text-[12px] px-1.5 py-0.5 rounded font-semibold bg-red-50 text-red-700 border border-red-200">Canceled</span>
+            )}
           </div>
           <p className="text-xs text-stone-500">
             {formatLongDate(item)}
@@ -183,11 +191,12 @@ function ItemCard({ item, onClick, family = false }: { item: ScheduleItem; onCli
             {item.location ? ` · ${item.location}` : ""}
             {item.capacity ? ` · ${Math.max(item.capacity - item.filled, 0)} spots left` : ""}
           </p>
-          {item.description && (
+          {item.canceled && item.cancelReason && <p className="text-xs text-red-700 mt-1">Canceled: {item.cancelReason}</p>}
+          {!item.canceled && item.description && (
             <p className="text-xs text-stone-600 mt-1 line-clamp-2 whitespace-pre-wrap">{item.description}</p>
           )}
         </div>
-        <span className="text-xs text-stone-600 flex-shrink-0">{priceLabel(item, family)}</span>
+        <span className="text-xs text-stone-600 flex-shrink-0">{item.canceled ? "Canceled" : priceLabel(item, family)}</span>
       </div>
     </button>
   );
@@ -399,7 +408,7 @@ function ScheduleInner() {
         const c = itemColors(item);
         return {
           id: item.id,
-          title: item.title,
+          title: item.canceled ? `Canceled: ${item.title}` : item.title,
           startsAt: item.startsAt,
           kind: item.kind,
           color: c.background,
@@ -684,13 +693,13 @@ function ScheduleInner() {
                               </span>
                             </span>
                             <span className="min-w-0">
-                              <span className="block text-[12.5px] font-semibold text-stone-900 truncate">{item.title}</span>
+                              <span className={`block text-[12.5px] font-semibold truncate ${item.canceled ? "text-stone-500 line-through" : "text-stone-900"}`}>{item.title}</span>
                               <span className="block text-[11.5px] text-stone-500 truncate">
                                 {friendlyDate(item.startsAt, { relative: true }, kindIsWallClockUTC(item.kind))}
                                 {" "}
                                 {friendlyTime(item.startsAt, kindIsWallClockUTC(item.kind))}
                                 {" · "}
-                                {priceLabel(item, family)}
+                                {item.canceled ? "Canceled" : priceLabel(item, family)}
                               </span>
                             </span>
                           </button>
@@ -822,6 +831,12 @@ function ScheduleInner() {
                 </button>
               </div>
               <div className="p-5 space-y-4">
+                {selected.canceled && (
+                  <div role="status" className="rounded-xl border border-red-200 bg-red-50 p-4">
+                    <p className="text-sm font-semibold text-red-700">This class is cancelled</p>
+                    <p className="text-sm text-red-700">{selected.cancelReason ? selected.cancelReason : "It will not run on this day."}</p>
+                  </div>
+                )}
                 <div className="rounded-xl border border-stone-200 p-4">
                   <p className="text-sm font-medium text-stone-900">{formatLongDate(selected)}</p>
                   <p className="text-sm text-stone-600">{formatTimeRange(selected)}</p>

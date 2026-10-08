@@ -8,20 +8,28 @@
 // Times display 12-hour (lib/time12); storage stays "HH:mm".
 //
 // A club switched on to the new coach scheduling (feed.assignmentsStartOn):
-// a class chip shows the coach's role and state and opens the ONE class-day
-// sheet (components/staff/schedule/ClassDaySheet.tsx) — coaches, call-outs,
-// coverage, cancelling all happen there. The pencil is then only "time or
-// note". A club that is not switched on keeps the screen it always had.
+// a class chip shows the activity type, the coach's role and its state, and
+// tapping it opens the ONE editor for that class day
+// (components/staff/schedule/ClassDaySheet.tsx) — time and note, coaches and
+// roles, call-outs, coverage, cancelling and (with Financials) that day's pay.
+// There is no second "pencil" editor. Private lessons sit on the coach's row
+// beside classes and events (the booking rows themselves, nothing copied) and
+// open the private-lesson screen. Colours come from ONE mapping
+// (lib/activityType.ts); states are text badges with an icon, never colour
+// alone. Below md the week becomes one day at a time.
+// A club that is not switched on keeps the screen it always had.
 // Deep link: ?date=YYYY-MM-DD&class=<classId>&session=<sessionId> (Action Items, emails).
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { ChevronLeft, ChevronRight, Pencil, X } from "lucide-react";
+import { CalendarPlus, ChevronLeft, ChevronRight, Pencil, X } from "lucide-react";
 import Sheet from "@/components/Sheet";
 import { range12h, to12h } from "@/lib/time12";
 import { classTimesForDay, eventDaysInRange } from "@/lib/staffAssignments";
 import { localHhmm, localYmd, weekDates } from "@/lib/staffScheduleFit";
-import { fmtDayShort, type RichStaffRow, type StaffKind, type StaffStatus } from "@/lib/classStaff";
+import { fmtDayShort, roleLabel, type RichStaffRow, type StaffKind, type StaffStatus } from "@/lib/classStaff";
+import { badgeText, classStates } from "@/lib/activityType";
+import { ScheduleLegend, StateBadges, TypeTag, stripeOf } from "@/components/staff/schedule/ScheduleBits";
 import { chipState, openCoverage, type OpenCoverageItem, type StateTone } from "@/lib/classStaffUi";
 import ClassDaySheet from "@/components/staff/schedule/ClassDaySheet";
 import AwaySheet from "@/components/staff/schedule/AwaySheet";
@@ -50,12 +58,23 @@ type ClassInstance = {
   myRoleName?: string | null;
   myKind?: StaffKind | null;
   myLateCallout?: boolean;
+  activityType?: string;
+  /** Overlaps something else on this person's own schedule. */
+  conflict?: boolean;
+  conflictWith?: string[];
+};
+type PrivateLesson = {
+  id: string; title: string; athlete: string | null; status: string; startsAt: string; endsAt: string;
+  activityType?: string; conflict?: boolean; conflictWith?: string[];
 };
 /** Which class day the class-day sheet is open on. */
 type DayTarget = { classId: string; date: string; start?: "edit"; addUserId?: string };
 type StaffLite = { id: string; firstName: string; lastName: string };
 type EventPart = { startsAt: string; endsAt: string };
-type EventAssignment = { id: string; name: string; type: string; startsAt: string; endsAt: string; sessions?: EventPart[] };
+type EventAssignment = {
+  id: string; name: string; type: string; startsAt: string; endsAt: string; sessions?: EventPart[];
+  activityType?: string; conflict?: boolean; conflictWith?: string[];
+};
 
 type StaffSchedule = {
   id: string;
@@ -67,6 +86,7 @@ type StaffSchedule = {
   exceptions: Exception[];
   classes: ClassInstance[];
   events: EventAssignment[];
+  privates?: PrivateLesson[];
 };
 
 type AllEvent = EventAssignment & { date: string; assignedUserIds: string[] };
@@ -220,6 +240,25 @@ export default function StaffSchedulePage() {
   const switchedOn = !!feed?.assignmentsStartOn;
   const staffOptions = useMemo(() => allStaff.map((x) => ({ id: x.id, name: `${x.firstName} ${x.lastName}`.trim() })), [allStaff]);
   const iAmOnTheSchedule = !!feed && staff.some((x) => x.id === feed.viewer.userId);
+  // The activity types on screen this week → the legend.
+  const legendTypes = useMemo(() => {
+    const set = new Set<string>();
+    for (const x of staff) {
+      for (const c of x.classes) set.add(c.activityType ?? "CLASS");
+      for (const e of x.events) set.add(e.activityType ?? "ADMIN");
+      if ((x.privates ?? []).length > 0) set.add("PRIVATE");
+    }
+    return Array.from(set);
+  }, [staff]);
+  // Phones show one day: today when it is in this week, else the week's first day.
+  const [phoneDayPick, setPhoneDay] = useState<string | null>(null);
+  const todayYmd = feed?.today ?? localYmd(new Date());
+  const phoneDay = phoneDayPick && weekDays.includes(phoneDayPick) ? phoneDayPick : weekDays.includes(todayYmd) ? todayYmd : weekDays[0];
+  // The signed-in person first, then everyone else as listed.
+  const phoneStaff = useMemo(() => {
+    const me = feed?.viewer.userId;
+    return [...staff].sort((a, b) => Number(b.id === me) - Number(a.id === me));
+  }, [staff, feed?.viewer.userId]);
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
@@ -227,11 +266,17 @@ export default function StaffSchedulePage() {
         <div>
           <h1 className="text-2xl font-semibold text-text-primary">Schedule</h1>
           <p className="text-sm text-text-muted mt-1">
-            Everyone&apos;s availability, classes and events for the week.
+            Everyone&apos;s availability, classes, events and private lessons for the week.
+            {switchedOn ? " Tap a class to see or change it." : ""}
             {feed?.viewer.canAssign ? " Use + Assign on a day to add someone." : ""}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {iAmOnTheSchedule && feed && (
+            <Link href={`/dashboard/staff/${feed.viewer.userId}?tab=schedule`} className={`${btn} gap-1.5 border border-app-border text-text-primary hover:bg-app-bg`}>
+              <CalendarPlus className="h-4 w-4" aria-hidden /> Subscribe to my schedule
+            </Link>
+          )}
           {switchedOn && iAmOnTheSchedule && (
             <button onClick={() => setAway(true)} className={`${btn} border border-app-border text-text-primary hover:bg-app-bg`}>I&apos;m out for several days</button>
           )}
@@ -289,6 +334,8 @@ export default function StaffSchedulePage() {
         </section>
       )}
 
+      {!loading && staff.length > 0 && <ScheduleLegend types={legendTypes} showStates={switchedOn} />}
+
       {loading ? (
         <p className="text-sm text-text-muted text-center py-16">Loading…</p>
       ) : staff.length === 0 ? (
@@ -299,7 +346,47 @@ export default function StaffSchedulePage() {
           </p>
         </div>
       ) : (
-        <div className="bg-surface border border-app-border rounded-xl overflow-hidden">
+        <>
+        {/* Phones: one day at a time — the week table needs 1,200px. */}
+        <div className="md:hidden">
+          <div role="tablist" aria-label="Day" className="mb-3 grid grid-cols-7 gap-1">
+            {weekDays.map((d) => {
+              const on = d === phoneDay;
+              return (
+                <button key={d} type="button" role="tab" aria-selected={on} onClick={() => setPhoneDay(d)}
+                  className={`flex min-h-[52px] flex-col items-center justify-center rounded-lg border text-[12px] ${on ? "border-brand bg-brand/10 font-semibold text-brand" : "border-app-border bg-surface text-text-muted"}`}>
+                  <span>{DAY_LABELS[ymdToUtc(d).getUTCDay()]}</span>
+                  <span className="text-[15px] text-text-primary">{ymdToUtc(d).getUTCDate()}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="mb-2 text-[13px] font-medium text-text-primary">{dayLabel(phoneDay, { weekday: "long", month: "long", day: "numeric" })}</p>
+          <ul className="space-y-2">
+            {phoneStaff.map((s) => (
+              <li key={s.id} className="rounded-xl border border-app-border bg-surface p-3">
+                <p className="mb-1.5 text-[14px] font-medium text-text-primary">
+                  <Link href={`/dashboard/staff/${s.id}`} className="hover:underline">{s.firstName} {s.lastName}</Link>
+                  {s.id === feed!.viewer.userId && <span className="ml-1.5 text-[12px] font-normal text-text-muted">you</span>}
+                </p>
+                <DayCell
+                  as="div"
+                  staff={s}
+                  dateStr={phoneDay}
+                  allEvents={feed!.allEvents}
+                  allClasses={feed!.allClasses}
+                  allStaff={allStaff}
+                  report={report}
+                  canManage={feed!.viewer.canAssign}
+                  isMe={s.id === feed!.viewer.userId}
+                  switchedOn={switchedOn}
+                  openDay={setDaySheet}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="hidden bg-surface border border-app-border rounded-xl overflow-hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -344,6 +431,7 @@ export default function StaffSchedulePage() {
             </table>
           </div>
         </div>
+        </>
       )}
 
       <p className="text-xs text-text-muted mt-3">
@@ -385,7 +473,10 @@ function DayCell({
   isMe,
   switchedOn,
   openDay,
+  as = "td",
 }: {
+  /** "div" on phones (a card per person), "td" in the week table. */
+  as?: "td" | "div";
   staff: StaffSchedule;
   dateStr: string;
   allEvents: AllEvent[];
@@ -410,6 +501,9 @@ function DayCell({
   const events = staff.events.flatMap((e) =>
     eventDaysInRange(e, [dateStr], localYmd).map((p) => ({ ...e, part: p })),
   );
+  // Private lessons are real instants too: shown on the viewer's local day.
+  const privates = (staff.privates ?? []).filter((p) => localYmd(new Date(p.startsAt)) === dateStr);
+  const Cell = as;
   const isUnavailable = exception?.type === "UNAVAILABLE";
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -502,7 +596,7 @@ function DayCell({
   }
 
   return (
-    <td className="px-2 py-3 align-top">
+    <Cell className={as === "td" ? "px-2 py-3 align-top" : ""}>
       {isUnavailable ? (
         <div className="text-xs rounded px-1.5 py-1" style={danger}>
           Unavailable{exception?.note ? ` — ${exception.note}` : ""}
@@ -524,32 +618,33 @@ function DayCell({
 
           {classes.map((c, i) => {
             if (switchedOn) {
-              // New coach scheduling: the chip says the role + state and opens the class-day sheet.
+              // One tap = the one editor for this class day. The chip says what
+              // kind of activity it is, the coach's role, and any state.
               const st = chipState(c);
               const rich = !!c.switched;
+              const states = rich ? classStates(c) : c.canceled ? (["CANCELLED"] as const) : [];
+              const muted = c.canceled || c.myStatus === "REPLACED";
               return (
-                <div
+                <button
                   key={`c-${c.classId}-${i}`}
-                  className={`mb-1 text-xs rounded leading-tight flex items-start justify-between gap-1 ${CHIP_CLASS[st.tone]}`}
-                  style={CHIP_STYLE[st.tone]}
+                  type="button"
+                  onClick={() => openDay({ classId: c.classId, date: c.date })}
+                  aria-label={`${c.name}, ${dayText} — ${st.label}. Open this class day`}
+                  title={c.conflict && c.conflictWith?.length ? `Overlaps ${c.conflictWith.join(", ")}` : undefined}
+                  className={`mb-1 block min-h-[44px] w-full rounded border-l-[3px] bg-app-bg px-1.5 py-1 text-left text-xs leading-tight hover:brightness-95 md:min-h-0 ${muted ? "opacity-70" : ""}`}
+                  style={stripeOf(c.activityType)}
                 >
-                  <button
-                    type="button"
-                    onClick={() => openDay({ classId: c.classId, date: c.date })}
-                    aria-label={`${c.name}, ${dayText} — ${st.label}. Open this class day`}
-                    className="min-h-[44px] min-w-0 flex-1 rounded px-1.5 py-1 text-left hover:opacity-80 md:min-h-0"
-                  >
-                    <span className={`font-medium block truncate ${st.strike ? "line-through" : ""}`}>{c.name}</span>
-                    <span className="block opacity-80">{range12h(c.startTime, c.endTime)}</span>
-                    <span className="block">{rich ? st.label : c.canceled ? "Canceled" : c.isSubstitute ? "Changed for this day" : "Coach"}</span>
-                    {c.note && <span className="block opacity-80 truncate" title={c.note}>Note: {c.note}</span>}
-                  </button>
-                  {canManage && !c.canceled && (
-                    <button onClick={() => setEditingOcc(c)} disabled={busy} aria-label={`Change the time or note for ${c.name} on ${dayText}`} className={iconBtn}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
+                  <TypeTag type={c.activityType} />
+                  <span className={`block truncate text-[13px] font-medium text-text-primary ${st.strike ? "line-through" : ""}`}>{c.name}</span>
+                  <span className="block text-text-muted">{range12h(c.startTime, c.endTime)}</span>
+                  {!c.canceled && (!rich || c.myStatus === "SCHEDULED") && !(c.myKind === "SUBSTITUTE" && roleLabel(c.myRoleName ?? null).toLowerCase() === "substitute") && (
+                    <span className="block text-text-muted">
+                      {rich ? roleLabel(c.myRoleName ?? null) : c.isSubstitute ? "Changed for this day" : "Coach"}
+                    </span>
                   )}
-                </div>
+                  <StateBadges states={states} text={badgeText(states, rich || c.canceled ? st.label : null)} detail={c.conflictWith?.length ? `Overlaps ${c.conflictWith.join(", ")}` : null} />
+                  {c.note && <span className="block truncate text-text-muted" title={c.note}>Note: {c.note}</span>}
+                </button>
               );
             }
             return (
@@ -584,10 +679,16 @@ function DayCell({
           })}
 
           {events.map((e) => (
-            <div key={`${e.id}-${e.part.startsAt.getTime()}`} className="mb-1 text-xs rounded px-1.5 py-1 leading-tight flex items-start justify-between gap-1" style={{ background: "var(--color-pending-surface)", color: "var(--color-pending-text)" }}>
+            <div key={`${e.id}-${e.part.startsAt.getTime()}`} className="mb-1 flex items-start justify-between gap-1 rounded border-l-[3px] bg-app-bg px-1.5 py-1 text-xs leading-tight" style={stripeOf(e.activityType ?? "ADMIN")}>
               <span className="min-w-0 py-0.5">
-                <span className="font-medium block truncate">{e.name}</span>
-                <span className="block opacity-80">{range12h(localHhmm(e.part.startsAt), localHhmm(e.part.endsAt))}</span>
+                <TypeTag type={e.activityType ?? "ADMIN"} />
+                {canManage ? (
+                  <Link href={`/dashboard/events?event=${encodeURIComponent(e.id)}`} className="block truncate text-[13px] font-medium text-text-primary hover:underline" aria-label={`${e.name} — open this event`}>{e.name}</Link>
+                ) : (
+                  <span className="block truncate text-[13px] font-medium text-text-primary">{e.name}</span>
+                )}
+                <span className="block text-text-muted">{range12h(localHhmm(e.part.startsAt), localHhmm(e.part.endsAt))}</span>
+                <StateBadges states={e.conflict ? ["CONFLICT"] : []} detail={e.conflictWith?.length ? `Overlaps ${e.conflictWith.join(", ")}` : null} />
               </span>
               {(canManage || isMe) && (
                 <button onClick={() => setConfirm({ kind: "event", id: e.id, name: e.name })} disabled={busy} aria-label={selfOnly ? `Remove me from ${e.name}` : `Remove ${who} from ${e.name}`} className={iconBtn}>
@@ -597,7 +698,24 @@ function DayCell({
             </div>
           ))}
 
-          {slots.length === 0 && classes.length === 0 && events.length === 0 && !exception && (
+          {privates.map((p) => (
+            <Link
+              key={`p-${p.id}`}
+              href={`/dashboard/privates?booking=${encodeURIComponent(p.id)}`}
+              aria-label={`Private lesson${p.athlete ? ` with ${p.athlete}` : ""}, ${dayText} — open this lesson`}
+              title={p.conflict && p.conflictWith?.length ? `Overlaps ${p.conflictWith.join(", ")}` : undefined}
+              className="mb-1 block min-h-[44px] rounded border-l-[3px] bg-app-bg px-1.5 py-1 text-xs leading-tight hover:brightness-95 md:min-h-0"
+              style={stripeOf("PRIVATE")}
+            >
+              <TypeTag type="PRIVATE" />
+              <span className="block truncate text-[13px] font-medium text-text-primary">{p.athlete ?? "Private lesson"}</span>
+              <span className="block text-text-muted">{range12h(localHhmm(new Date(p.startsAt)), localHhmm(new Date(p.endsAt)))}</span>
+              <span className="block truncate text-text-muted">{p.title}{p.status === "PENDING_COACH" ? " · waiting for the coach to accept" : ""}</span>
+              <StateBadges states={p.conflict ? ["CONFLICT"] : []} detail={p.conflictWith?.length ? `Overlaps ${p.conflictWith.join(", ")}` : null} />
+            </Link>
+          ))}
+
+          {slots.length === 0 && classes.length === 0 && events.length === 0 && privates.length === 0 && !exception && (
             <div className="text-xs text-text-muted mb-1">Off</div>
           )}
 
@@ -687,7 +805,7 @@ function DayCell({
           onSaved={(text) => { setEditingOcc(null); report("ok", text); }}
         />
       )}
-    </td>
+    </Cell>
   );
 }
 

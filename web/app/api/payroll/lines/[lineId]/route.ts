@@ -58,14 +58,14 @@ export async function PATCH(req: Request, context: { params: Promise<{ lineId: s
       await recordPayChange({
         ...who, action: "PAY_LINE_OVERRIDE_SET",
         summary: `Set the pay for "${res.description}" to ${fmtCents(cents)} — ${body.reason}`,
-        before: { lineId, overrideCents: res.before }, after: { lineId, overrideCents: cents, reason: body.reason },
+        before: { lineId, overrideCents: res.before }, after: { lineId, staffRowId: res.staffRowId ?? null, overrideCents: cents, reason: body.reason },
       });
     } else if (body.action === "clearOverride") {
       const res = await setLineOverride({ clubId, lineId, cents: null, byUserId });
       if (res.before !== null) {
         await recordPayChange({
           ...who, action: "PAY_LINE_OVERRIDE_CLEARED", summary: `Put "${res.description}" back to the pay plan's amount`,
-          before: { lineId, overrideCents: res.before }, after: { lineId, overrideCents: null },
+          before: { lineId, overrideCents: res.before }, after: { lineId, staffRowId: res.staffRowId ?? null, overrideCents: null },
         });
       }
     } else if (body.action === "edit") {

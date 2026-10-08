@@ -37,6 +37,9 @@ import type { StaffTabProps } from "@/components/staff/types";
 import type { RichStaffRow, StaffKind, StaffStatus } from "@/lib/classStaff";
 import { chipState } from "@/lib/classStaffUi";
 import ClassDaySheet from "@/components/staff/schedule/ClassDaySheet";
+import CalendarFeedCard from "@/components/staff/schedule/CalendarFeedCard";
+import { badgeText, classStates } from "@/lib/activityType";
+import { StateBadges, TypeTag, stripeOf } from "@/components/staff/schedule/ScheduleBits";
 
 // ── feed shapes (GET /api/staff/schedule) ───────────────────────────────────
 type ClassInstance = {
@@ -60,7 +63,11 @@ type ClassInstance = {
   myRoleName?: string | null;
   myKind?: StaffKind | null;
   myLateCallout?: boolean;
+  activityType?: string;
+  conflict?: boolean;
+  conflictWith?: string[];
 };
+type PrivateLesson = { id: string; title: string; athlete: string | null; status: string; startsAt: string; endsAt: string; conflict?: boolean; conflictWith?: string[] };
 type FeedException = { id: string; date: string; type: string; startTime: string | null; endTime: string | null; note: string | null };
 type FeedPerson = {
   id: string;
@@ -69,7 +76,8 @@ type FeedPerson = {
   availability: { dayOfWeek: number; startTime: string; endTime: string }[];
   exceptions: FeedException[];
   classes: ClassInstance[];
-  events: { id: string; name: string; type: string; startsAt: string; endsAt: string; sessions?: { startsAt: string; endsAt: string }[] }[];
+  events: { id: string; name: string; type: string; startsAt: string; endsAt: string; sessions?: { startsAt: string; endsAt: string }[]; activityType?: string; conflict?: boolean; conflictWith?: string[] }[];
+  privates?: PrivateLesson[];
 };
 type AllEvent = { id: string; name: string; type: string; startsAt: string; endsAt: string; sessions?: { startsAt: string; endsAt: string }[]; date: string; assignedUserIds: string[] };
 type AllClass = { id: string; name: string; daysOfWeek: number[]; startTime: string; endTime: string; dayOverrides?: { dayOfWeek: number; startTime: string; endTime: string }[]; assignedStaffIds: string[] };
@@ -85,7 +93,8 @@ type Exception = { id: string; date: string; type: string; startTime: string | n
 
 type Item =
   | { kind: "class"; key: string; name: string; date: string; startTime: string; endTime: string; inst: ClassInstance; inSeries: boolean }
-  | { kind: "event"; key: string; name: string; date: string; startTime: string; endTime: string; eventId: string };
+  | { kind: "event"; key: string; name: string; date: string; startTime: string; endTime: string; eventId: string; activityType: string; conflict: boolean; conflictWith: string[] }
+  | { kind: "private"; key: string; name: string; date: string; startTime: string; endTime: string; lesson: PrivateLesson };
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -220,8 +229,15 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
     // A multi-day event shows on every day of this week it touches.
     for (const ev of me.events) {
       for (const part of eventDaysInRange(ev, days, localYmd)) {
-        out.push({ kind: "event", key: `e-${ev.id}-${part.date}-${part.startsAt.getTime()}`, name: ev.name, date: part.date, startTime: localHhmm(part.startsAt), endTime: localHhmm(part.endsAt), eventId: ev.id });
+        out.push({ kind: "event", key: `e-${ev.id}-${part.date}-${part.startsAt.getTime()}`, name: ev.name, date: part.date, startTime: localHhmm(part.startsAt), endTime: localHhmm(part.endsAt), eventId: ev.id, activityType: ev.activityType ?? "ADMIN", conflict: !!ev.conflict, conflictWith: ev.conflictWith ?? [] });
       }
+    }
+    // Private lessons: the booking rows themselves, on the viewer's local day.
+    for (const p of me.privates ?? []) {
+      const a = new Date(p.startsAt);
+      const date = localYmd(a);
+      if (!days.includes(date)) continue;
+      out.push({ kind: "private", key: `p-${p.id}`, name: p.athlete ?? "Private lesson", date, startTime: localHhmm(a), endTime: localHhmm(new Date(p.endsAt)), lesson: p });
     }
     return out.sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
   }, [feed, staffId, days]);
@@ -289,7 +305,7 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
     setFlash(`Assigned ${first} to ${name}${kind === "class" ? " (every week it runs)" : `, ${shortDate(date)}`} — saved`);
     loadWeek();
   }
-  async function unassign(item: Item) {
+  async function unassign(item: Exclude<Item, { kind: "private" }>) {
     setBusy(true);
     setWeekError(null);
     const url =
@@ -458,7 +474,7 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
         </div>
         <p className="mt-1.5 text-[12.5px] text-text-muted">
           Green = when {whoIs} available. Orange = assigned outside those hours, or time off. {rangeCap}.
-          {switchedOn && (self ? " Tap a class to see its coaches or to say you can’t make it." : " Tap a class to see its coaches and what it needs.")}
+          {switchedOn && (self ? " Tap a class to see its coaches or to say you can’t make it." : " Tap a class to see or change it.")}
         </p>
 
         {(flash || weekError) && (
@@ -502,44 +518,54 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
                         const style = canceled ? tint.chip : outside ? tint.warn : tint.pending;
                         const sub = it.kind === "class" && it.inst.isSubstitute && !canceled;
                         // New coach scheduling: the class opens the class-day sheet and says its state.
+                        if (it.kind === "private") {
+                          const p = it.lesson;
+                          const overlap = p.conflictWith?.length ? `Overlaps ${p.conflictWith.join(", ")}` : null;
+                          return (
+                            <a
+                              key={it.key}
+                              href={`/dashboard/privates?booking=${encodeURIComponent(p.id)}`}
+                              aria-label={`Private lesson${p.athlete ? ` with ${p.athlete}` : ""}, ${shortDate(d)} — open this lesson`}
+                              className="block min-h-[44px] min-w-0 rounded-lg border-l-[3px] bg-app-bg px-2 py-1 text-[13px] leading-snug hover:brightness-95 md:min-h-0"
+                              style={{ ...stripeOf("PRIVATE"), ...(outside ? { boxShadow: "inset 0 0 0 1px var(--color-warn-border)" } : {}) }}
+                            >
+                              <TypeTag type="PRIVATE" />
+                              <span className="block truncate font-medium text-text-primary">{it.name}</span>
+                              <small className="block text-[12px] text-text-muted">
+                                {range12h(it.startTime, it.endTime)}
+                                {outside && " · outside hours"}
+                                {p.status === "PENDING_COACH" && " · waiting to be accepted"}
+                              </small>
+                              <StateBadges states={p.conflict ? ["CONFLICT"] : []} detail={overlap} />
+                            </a>
+                          );
+                        }
+                        // New coach scheduling: one tap opens the one editor for this class day.
                         if (switchedOn && it.kind === "class") {
                           const inst = it.inst;
                           const st = inst.switched ? chipState(inst) : null;
-                          const tone = st?.tone ?? "normal";
-                          const stStyle =
-                            tone === "warn" ? { ...tint.warn, boxShadow: "inset 0 0 0 1px var(--color-warn-border)" }
-                            : tone === "late" ? { ...tint.danger, boxShadow: "inset 0 0 0 1px var(--color-danger-text)" }
-                            : tone === "noshow" ? tint.danger
-                            : tone === "canceled" || canceled ? tint.chip
-                            : { ...style, ...(outside ? { boxShadow: "inset 0 0 0 1px var(--color-warn-border)" } : {}) };
                           const label = st ? st.label : canceled ? "Canceled" : sub ? "Changed for this day" : "Coach";
+                          const states = inst.switched ? classStates(inst) : canceled ? (["CANCELLED"] as const) : [];
+                          const quiet = canceled || inst.myStatus === "REPLACED";
+                          const overlap = inst.conflictWith?.length ? `Overlaps ${inst.conflictWith.join(", ")}` : null;
                           return (
-                            <div key={it.key} className="flex min-w-0 items-center gap-0.5 rounded-lg py-1 pl-1 pr-1" style={stStyle}>
-                              <button
-                                type="button"
-                                onClick={() => setDaySheet({ classId: inst.classId, date: inst.date })}
-                                aria-label={`${it.name}, ${shortDate(d)} — ${label}. Open this class day`}
-                                className="min-h-[44px] min-w-0 flex-1 rounded-md px-1.5 text-left text-[13px] font-medium leading-snug hover:opacity-80 md:min-h-0"
-                              >
-                                <span className={`block truncate ${canceled ? "line-through" : ""}`}>{it.name}</span>
-                                <small className="block text-[12px] font-normal opacity-90">
-                                  {range12h(it.startTime, it.endTime)}
-                                  {outside && " · outside hours"}
-                                </small>
-                                <small className={`block text-[12px] ${tone === "normal" ? "font-normal opacity-90" : "font-semibold"}`}>{label}</small>
-                              </button>
-                              {viewer.canAssign && !canceled && (
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => setEditing(inst)}
-                                  aria-label={`Change the time or note for ${it.name} on ${shortDate(d)}`}
-                                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md opacity-70 hover:opacity-100 md:h-7 md:w-7"
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                            </div>
+                            <button
+                              key={it.key}
+                              type="button"
+                              onClick={() => setDaySheet({ classId: inst.classId, date: inst.date })}
+                              aria-label={`${it.name}, ${shortDate(d)} — ${label}. Open this class day`}
+                              className={`block min-h-[44px] w-full min-w-0 rounded-lg border-l-[3px] bg-app-bg px-2 py-1 text-left text-[13px] leading-snug hover:brightness-95 md:min-h-0 ${quiet ? "opacity-70" : ""}`}
+                              style={{ ...stripeOf(inst.activityType), ...(outside ? { boxShadow: "inset 0 0 0 1px var(--color-warn-border)" } : {}) }}
+                            >
+                              <TypeTag type={inst.activityType} />
+                              <span className={`block truncate font-medium text-text-primary ${canceled ? "line-through" : ""}`}>{it.name}</span>
+                              <small className="block text-[12px] text-text-muted">
+                                {range12h(it.startTime, it.endTime)}
+                                {outside && " · outside hours"}
+                              </small>
+                              {!canceled && (states.length === 0 || states[0] === "CONFLICT") && <small className="block text-[12px] text-text-muted">{label}</small>}
+                              <StateBadges states={states} text={badgeText(states, label)} detail={overlap} />
+                            </button>
                           );
                         }
                         return (
@@ -552,6 +578,7 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
                               <span className="block truncate">
                                 {it.name}
                                 {it.kind === "event" && <span className="font-normal"> · event</span>}
+                                {it.kind === "event" && it.conflict && <span className="font-semibold" title={it.conflictWith.length ? `Overlaps ${it.conflictWith.join(", ")}` : undefined}> · conflict</span>}
                               </span>
                               <small className="block text-[12px] font-normal opacity-90">
                                 {range12h(it.startTime, it.endTime)}
@@ -621,6 +648,9 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
           </div>
         )}
       </section>
+
+      {/* ── Subscribe to my schedule (the card hides itself when the viewer may not manage it) ── */}
+      <CalendarFeedCard staffId={staffId} firstName={first} self={self} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.55fr_1fr]">
         {/* ── Weekly hours ───────────────────────────────────────────────── */}

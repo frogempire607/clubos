@@ -240,8 +240,10 @@ export function buildIcs(
   scope: FeedScope,
   items: FeedItem[],
   timezone?: string | null,
+  /** Overrides the calendar's display name (a coach's personal feed). */
+  nameOverride?: string | null,
 ): string {
-  const calName = scope === "STAFF" ? `${clubName} — staff calendar` : `${clubName} calendar`;
+  const calName = nameOverride || (scope === "STAFF" ? `${clubName} — staff calendar` : `${clubName} calendar`);
   const stamp = icsDate(new Date());
   const lines: string[] = [
     "BEGIN:VCALENDAR",

@@ -208,7 +208,8 @@ export async function GET(req: Request) {
     prisma.classSession.findMany({
       where: {
         clubId,
-        canceled: false,
+        // A CANCELLED class day stays on the schedule, marked "Canceled" and
+        // not bookable (it used to vanish, which read as "the app is broken").
         // endsAt (not startsAt) so an in-progress class stays visible — its
         // check-in window is still open.
         endsAt: { gte: wallNow },
@@ -524,7 +525,22 @@ export async function GET(req: Request) {
         ...evalFor(stateById.get(a.id)!),
       }));
 
-      const ctxEval = ctxState ? evalFor(ctxState) : null;
+      const isCanceled = !!sessionItem.canceled;
+      // The reason is shown only when the cancellation was announced to families
+      // (audience other than NONE) — otherwise it stays a staff-side note.
+      const reasonShared = !!sessionItem.cancelNotifyAudience && sessionItem.cancelNotifyAudience !== "NONE";
+      const cancelNote = reasonShared && typeof sessionItem.cancelReason === "string" && sessionItem.cancelReason.trim() ? sessionItem.cancelReason.trim() : null;
+      if (isCanceled) {
+        // Nobody can book it, whatever their membership says.
+        for (const a of athletes) {
+          a.canBook = false;
+          a.statusText = "Canceled";
+          a.price = null;
+          a.bookingLabel = null;
+        }
+      }
+      const rawEval = ctxState ? evalFor(ctxState) : null;
+      const ctxEval = rawEval && isCanceled ? { ...rawEval, canBook: false, statusText: "Canceled", price: null, bookingLabel: null } : rawEval;
       const price = ctxEval?.price ?? null;
       const coachNames = staffNames(
         staffOn.forSession(sessionItem, sessionItem.recurringClass.assignedStaffIds).staffIds,
@@ -544,8 +560,10 @@ export async function GET(req: Request) {
         capacity: sessionItem.recurringClass.capacity,
         filled: sessionItem._count.attendance,
         price,
-        statusText: ctxEval?.statusText ?? "Ask staff to book",
-        canBook: !!ctxEval && ctxEval.canBook,
+        statusText: isCanceled ? "Canceled" : ctxEval?.statusText ?? "Ask staff to book",
+        canceled: isCanceled,
+        cancelReason: isCanceled ? cancelNote : null,
+        canBook: !isCanceled && !!ctxEval && ctxEval.canBook,
         bookingStatus: ctxEval?.bookingStatus ?? null,
         athletes,
         color: sessionItem.recurringClass.color ?? null,
