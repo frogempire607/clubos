@@ -7,5 +7,11 @@
   # cached ref) make git diff fail, so they always build.
   ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)docs'"
 
+[build.environment]
+  # The type check in `next build` outgrew Node's default ~2 GB heap
+  # (2026-10-07: "JavaScript heap out of memory" during "Checking validity of
+  # types"). Netlify build machines have 8 GB; give Node 6 GB.
+  NODE_OPTIONS = "--max-old-space-size=6144"
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
