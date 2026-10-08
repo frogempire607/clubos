@@ -3570,6 +3570,10 @@ model StaffCalendarFeed {
   rotatedAt       DateTime?
   rotatedByUserId String?
   lastAccessedAt  DateTime?
+  /// What the coach chose to sync (at least one is always on).
+  includeClasses  Boolean   @default(true)
+  includePrivates Boolean   @default(true)
+  includeEvents   Boolean   @default(true)
 
   club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
 

@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermissionLive, isOwnerLive, requirePermissionLive } from "@/lib/apiGuard";
 import { recordStaffActivity, actorFrom } from "@/lib/staffActivity";
-import { ensureFeed, feedStatus, regenerateFeed, revokeFeed, staffFeedUrls } from "@/lib/staffCalendarFeed";
+import { ensureFeed, feedStatus, regenerateFeed, revokeFeed, setFeedChoices, staffFeedUrls, validChoices } from "@/lib/staffCalendarFeed";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +16,8 @@ export const dynamic = "force-dynamic";
 //                         shown the link itself (it opens that coach's
 //                         schedule to whoever holds it).
 //   Anyone else         → 403.
+// What the link carries (classes / private lessons / events) is the coach's
+// own choice — only they can change it (PATCH); admins see it read-only.
 type Access = { self: boolean; admin: boolean };
 async function accessTo(session: Parameters<typeof hasPermissionLive>[0], targetId: string): Promise<Access> {
   const self = session?.user?.id === targetId;
@@ -43,13 +45,16 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     createdAt: st.createdAt,
     rotatedAt: st.rotatedAt,
     lastAccessedAt: st.lastAccessedAt,
+    choices: st.choices,
     // Only the coach is ever given the link.
     urls: access.self && st.token ? staffFeedUrls(st.token) : null,
     viewer: { isSelf: access.self, canManage: access.self || access.admin },
   });
 }
 
-const schema = z.object({ action: z.enum(["create", "regenerate"]) }).strict();
+const choicesSchema = z.object({ classes: z.boolean(), privates: z.boolean(), events: z.boolean() }).strict();
+const schema = z.object({ action: z.enum(["create", "regenerate"]), choices: choicesSchema.optional() }).strict();
+const NONE_CHOSEN = "Choose at least one thing to sync — or turn the link off.";
 
 // POST /api/staff/[id]/calendar-feed  { action: "create" | "regenerate" }
 //   create      the coach only — returns their link, making it the first time
@@ -73,7 +78,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!(await targetUser(clubId, id))) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (body.action === "create") {
     if (!access.self) return NextResponse.json({ error: "Only the staff member can set up their own calendar link." }, { status: 403 });
-    const token = await ensureFeed(clubId, id);
+    if (body.choices && !validChoices(body.choices)) return NextResponse.json({ error: NONE_CHOSEN, code: "BAD_INPUT" }, { status: 400 });
+    const token = await ensureFeed(clubId, id, body.choices);
     return NextResponse.json({ ok: true, enabled: true, urls: staffFeedUrls(token) });
   }
   const token = await regenerateFeed(clubId, id, session.user.id ?? null);
@@ -82,6 +88,28 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     summary: "Replaced the personal calendar link — the old link no longer works",
   });
   return NextResponse.json({ ok: true, enabled: true, urls: access.self ? staffFeedUrls(token) : null });
+}
+
+// PATCH /api/staff/[id]/calendar-feed  { classes, privates, events } — the coach only.
+// Takes effect the next time their calendar app checks the link (same link).
+export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const notStaff = await requirePermissionLive(session, "schedule", "none");
+  if (notStaff) return notStaff;
+  if (session.user.id !== id) return NextResponse.json({ error: "Only the staff member chooses what goes on their own calendar." }, { status: 403 });
+  let c: z.infer<typeof choicesSchema>;
+  try {
+    c = choicesSchema.parse(await req.json());
+  } catch {
+    return NextResponse.json({ error: "Invalid request body", code: "BAD_INPUT" }, { status: 400 });
+  }
+  if (!validChoices(c)) return NextResponse.json({ error: NONE_CHOSEN, code: "BAD_INPUT" }, { status: 400 });
+  const clubId = session.user.clubId;
+  if (!(await targetUser(clubId, id))) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!(await setFeedChoices(clubId, id, c))) return NextResponse.json({ error: "Set up your calendar link first.", code: "NO_LINK" }, { status: 409 });
+  return NextResponse.json({ ok: true, choices: c });
 }
 
 // DELETE /api/staff/[id]/calendar-feed — turn the link off (the coach, or an owner / staff:full).

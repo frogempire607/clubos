@@ -199,7 +199,7 @@ function sess(id: string): Sess {
   return { user: { id, clubId: u.clubId, name: `${u.firstName} ${u.lastName}`, email: u.email, role: u.role, permissions: u.staffProfile?.permissions ?? null } };
 }
 type Out = { status: number | null; body: any; text: string; threw?: unknown }; // eslint-disable-line @typescript-eslint/no-explicit-any
-async function call(route: string, verb: "GET" | "POST" | "PUT" | "DELETE", as: string | null, opts: { params?: Record<string, string>; body?: unknown; query?: string } = {}): Promise<Out> {
+async function call(route: string, verb: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", as: string | null, opts: { params?: Record<string, string>; body?: unknown; query?: string } = {}): Promise<Out> {
   CURRENT = as ? sess(as) : null;
   for (const u of fake.table("user")) guardLib.invalidatePermissionCache(u.id);
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -331,6 +331,31 @@ async function main() {
     check("the change is on the staff member's activity", fake.table("staffActivity").some((a) => a.staffUserId === "josh" && /calendar link/.test(a.summary as string)));
     eq("the owner turns it off", (await call(FEED, "DELETE", "owner", { params: { id: "josh" } })).body?.enabled, false);
     eq("…and the link stops working", (await call(ICS, "GET", null, { params: { token: token2 } })).status, 404);
+    section("2c. The coach chooses what to sync");
+    {
+      const bad = await call(FEED, "POST", "josh", { params: { id: "josh" }, body: { action: "create", choices: { classes: false, privates: false, events: false } } });
+      eq("nothing chosen → refused, no link made", [bad.status, fake.table("staffCalendarFeed").some((f) => f.userId === "josh")], [400, false]);
+      const mk = await call(FEED, "POST", "josh", { params: { id: "josh" }, body: { action: "create", choices: { classes: false, privates: true, events: false } } });
+      const tk = tokenOf(mk.body.urls.ics);
+      const only = (await call(ICS, "GET", null, { params: { token: tk } })).text;
+      check("privates only: the lessons, no classes, no events", /Private lesson/.test(only) && !only.includes("SUMMARY:Jr Frogs") && !only.includes("Fall Tournament"));
+      eq("the choice is reported back", (await call(FEED, "GET", "josh", { params: { id: "josh" } })).body.choices, { classes: false, privates: true, events: false });
+      const ch = await call(FEED, "PATCH", "josh", { params: { id: "josh" }, body: { classes: true, privates: false, events: true } });
+      eq("switching to classes + events", ch.status, 200);
+      const t2 = (await call(ICS, "GET", null, { params: { token: tk } })).text;
+      check("…same link, now classes and events, no lessons", t2.includes("SUMMARY:Jr Frogs") && t2.includes("Fall Tournament") && !/Private lesson/.test(t2));
+      eq("turning everything off is refused (that is 'Turn off')", (await call(FEED, "PATCH", "josh", { params: { id: "josh" }, body: { classes: false, privates: false, events: false } })).status, 400);
+      eq("only the coach chooses — not the owner, not staff:full, not another coach", [
+        (await call(FEED, "PATCH", "owner", { params: { id: "josh" }, body: { classes: true, privates: true, events: true } })).status,
+        (await call(FEED, "PATCH", "fin", { params: { id: "josh" }, body: { classes: true, privates: true, events: true } })).status,
+        (await call(FEED, "PATCH", "matt", { params: { id: "josh" }, body: { classes: true, privates: true, events: true } })).status,
+      ], [403, 403, 403]);
+      const adminSees = await call(FEED, "GET", "fin", { params: { id: "josh" } });
+      eq("staff:full sees the choice, read-only, still no link", [adminSees.body.choices, adminSees.body.urls], [{ classes: true, privates: false, events: true }, null]);
+      await call(FEED, "POST", "fin", { params: { id: "josh" }, body: { action: "regenerate" } });
+      eq("a new link keeps the coach's choice", (await call(FEED, "GET", "josh", { params: { id: "josh" } })).body.choices, { classes: true, privates: false, events: true });
+      eq("choosing before a link exists → 409", (await call(FEED, "PATCH", "viewer", { params: { id: "viewer" }, body: { classes: true, privates: true, events: true } })).status, 409);
+    }
     eq("a coach without the schedule permission still gets their own link", (await call(FEED, "POST", "kate", { params: { id: "kate" }, body: { action: "create" } })).status, 200);
     // A removed staff member's link answers nothing even if the row were left behind.
     const m = fake.table("user").find((u) => u.id === "matt")!;

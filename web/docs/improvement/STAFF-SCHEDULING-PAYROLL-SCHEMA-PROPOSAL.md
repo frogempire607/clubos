@@ -386,3 +386,8 @@ subscribing, and the queries against the real database.
 **Left for later.** A pending private lesson is not conflict-checked; a pay plan bonus scoped to a private
 lesson type AND a private lesson rate would both pay (set one or the other); the member schedule change is
 checked at source level, not clicked through.
+
+**Follow-up (2026-10-07): what to sync.** Migration `20261015000000_staff_calendar_feed_choices` (additive:
+`includeClasses` / `includePrivates` / `includeEvents`, default ON so existing links are unchanged). The coach
+ticks any mix on "Subscribe to my schedule" — never none (that is "Turn off"). Only the coach can change it
+(`PATCH /api/staff/[id]/calendar-feed`); admins see it read-only. Same link; "get a new link" keeps the choice.

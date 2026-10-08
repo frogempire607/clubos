@@ -10,9 +10,17 @@ import { useCallback, useEffect, useState } from "react";
 import { CalendarPlus, Copy } from "lucide-react";
 
 type Urls = { ics: string; webcal: string; google: string };
+type Choices = { classes: boolean; privates: boolean; events: boolean };
+const KINDS: { key: keyof Choices; label: string; hint: string }[] = [
+  { key: "classes", label: "Classes", hint: "Your practices — regular, one-day and substitute" },
+  { key: "privates", label: "Private lessons", hint: "Confirmed lessons you coach" },
+  { key: "events", label: "Events", hint: "Events you are assigned to" },
+];
+const ALL: Choices = { classes: true, privates: true, events: true };
 type Status = {
   enabled: boolean; createdAt: string | null; rotatedAt: string | null; lastAccessedAt: string | null;
   urls: Urls | null; viewer: { isSelf: boolean; canManage: boolean };
+  choices?: Choices;
 };
 
 const btn = "inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium md:min-h-[36px] disabled:opacity-50";
@@ -29,12 +37,16 @@ export default function CalendarFeedCard({ staffId, firstName, self }: { staffId
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [confirm, setConfirm] = useState<"regenerate" | "off" | null>(null);
+  // Before the link exists: what to put on it. After: the saved choice.
+  const [draft, setDraft] = useState<Choices>(ALL);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/staff/${staffId}/calendar-feed`, { cache: "no-store" });
     if (res.status === 403 || res.status === 404) return setHidden(true);
     if (!res.ok) return setMsg({ kind: "err", text: "Couldn't load the calendar link." });
-    setSt(await res.json());
+    const d: Status = await res.json();
+    setSt(d);
+    if (d.choices) setDraft(d.choices);
   }, [staffId]);
   useEffect(() => { load(); }, [load]);
 
@@ -45,7 +57,7 @@ export default function CalendarFeedCard({ staffId, firstName, self }: { staffId
       const res = await fetch(`/api/staff/${staffId}/calendar-feed`, {
         method,
         headers: action ? { "Content-Type": "application/json" } : undefined,
-        body: action ? JSON.stringify({ action }) : undefined,
+        body: action ? JSON.stringify(action === "create" ? { action, choices: draft } : { action }) : undefined,
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) return setMsg({ kind: "err", text: d.error || "That didn't save. Try again." });
@@ -57,6 +69,30 @@ export default function CalendarFeedCard({ staffId, firstName, self }: { staffId
           : action === "regenerate" ? (self ? "New link ready. The old one no longer works — subscribe again with the new one." : `Done. ${firstName}'s old link no longer works; they can get the new one from their own profile.`)
           : "Your calendar link is ready.",
       });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggle(key: keyof Choices) {
+    const next = { ...draft, [key]: !draft[key] };
+    if (!next.classes && !next.privates && !next.events) {
+      return setMsg({ kind: "err", text: "Keep at least one on. To stop syncing altogether, use Turn off." });
+    }
+    setDraft(next);
+    setMsg(null);
+    if (!st?.enabled) return; // saved when the link is set up
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/staff/${staffId}/calendar-feed`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDraft(draft);
+        return setMsg({ kind: "err", text: d.error || "That didn't save. Try again." });
+      }
+      setMsg({ kind: "ok", text: "Saved. Your calendar picks this up the next time it checks — same link, nothing to redo." });
     } finally {
       setBusy(false);
     }
@@ -82,7 +118,7 @@ export default function CalendarFeedCard({ staffId, firstName, self }: { staffId
       </h2>
       <p className="mt-1 text-[12.5px] text-text-muted">
         {self
-          ? "Put your classes, one-day and substitute assignments, events and private lessons on your phone's calendar. It updates by itself — a class you are taken off or that is cancelled disappears. It shows only your own schedule, never pay."
+          ? "Put your classes, private lessons and events — whichever you choose — on your phone's calendar. It updates by itself — a class you are taken off or that is cancelled disappears. It shows only your own schedule, never pay."
           : `A private link ${firstName} can add to their phone's calendar. Only ${firstName} can see the link. You can replace it or turn it off — for example if a phone is lost.`}
       </p>
 
@@ -92,6 +128,28 @@ export default function CalendarFeedCard({ staffId, firstName, self }: { staffId
           {msg.text}
         </p>
       )}
+
+      {st && (st.viewer.isSelf ? (
+        <fieldset className="mt-3" disabled={busy}>
+          <legend className="text-[13px] font-medium text-text-primary">What to sync</legend>
+          <div className="mt-1.5 grid gap-1.5 sm:grid-cols-3">
+            {KINDS.map((k) => (
+              <label key={k.key} className="flex min-h-[44px] cursor-pointer items-start gap-2 rounded-lg border border-app-border px-3 py-2 hover:bg-app-bg">
+                <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0" checked={draft[k.key]} onChange={() => toggle(k.key)} />
+                <span>
+                  <span className="block text-[13px] font-medium text-text-primary">{k.label}</span>
+                  <span className="block text-[12px] text-text-muted">{k.hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[12px] text-text-muted">Pick one or all. Already tracking privates or events somewhere else? Leave them off here.</p>
+        </fieldset>
+      ) : st.enabled && st.choices ? (
+        <p className="mt-2 text-[12.5px] text-text-muted">
+          Syncs: {KINDS.filter((k) => st.choices![k.key]).map((k) => k.label.toLowerCase()).join(", ")}. Only {firstName} can change this.
+        </p>
+      ) : null)}
 
       {!st ? (
         !msg && <p className="mt-3 text-[13px] text-text-muted">Loading…</p>

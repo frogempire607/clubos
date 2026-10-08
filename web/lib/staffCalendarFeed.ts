@@ -7,6 +7,10 @@
 //   shows up on its own; a class they are taken off, or that is cancelled,
 //   drops out.
 //
+// The coach chooses what it carries — classes, private lessons, events, any
+// mix but never none (some track privates or events on their own). The
+// choice lives on the link row and survives "get a new link".
+//
 // What is NEVER in it: pay of any kind, or anyone else's schedule.
 // The token is random (not derived from anything), stored on
 // staff_calendar_feeds, and replaced on "get a new link" — the old link stops
@@ -38,7 +42,16 @@ export function staffFeedUrls(token: string) {
   };
 }
 
-export type StaffFeedStatus = { enabled: boolean; createdAt: string | null; rotatedAt: string | null; lastAccessedAt: string | null };
+export type FeedChoices = { classes: boolean; privates: boolean; events: boolean };
+export const ALL_FEED_CHOICES: FeedChoices = { classes: true, privates: true, events: true };
+/** At least one kind has to stay on — an empty calendar link is just "turn off". */
+export function validChoices(c: FeedChoices): boolean {
+  return c.classes || c.privates || c.events;
+}
+const choicesOf = (row: { includeClasses: boolean; includePrivates: boolean; includeEvents: boolean } | null): FeedChoices =>
+  row ? { classes: row.includeClasses, privates: row.includePrivates, events: row.includeEvents } : ALL_FEED_CHOICES;
+
+export type StaffFeedStatus = { enabled: boolean; createdAt: string | null; rotatedAt: string | null; lastAccessedAt: string | null; choices: FeedChoices };
 
 export async function feedStatus(clubId: string, userId: string): Promise<StaffFeedStatus & { token: string | null }> {
   const row = await prisma.staffCalendarFeed.findFirst({ where: { clubId, userId } });
@@ -48,15 +61,30 @@ export async function feedStatus(clubId: string, userId: string): Promise<StaffF
     createdAt: row ? row.createdAt.toISOString() : null,
     rotatedAt: row?.rotatedAt ? row.rotatedAt.toISOString() : null,
     lastAccessedAt: row?.lastAccessedAt ? row.lastAccessedAt.toISOString() : null,
+    choices: choicesOf(row),
   };
 }
 
-/** The person's link, created the first time it is asked for. */
-export async function ensureFeed(clubId: string, userId: string): Promise<string> {
+/** Save what the coach wants on their calendar. false = refused (nothing on, or no link yet). */
+export async function setFeedChoices(clubId: string, userId: string, c: FeedChoices): Promise<boolean> {
+  if (!validChoices(c)) return false;
+  const hit = await prisma.staffCalendarFeed.updateMany({
+    where: { clubId, userId },
+    data: { includeClasses: c.classes, includePrivates: c.privates, includeEvents: c.events },
+  });
+  return hit.count > 0;
+}
+
+/** The person's link, created the first time it is asked for (with their first choice of what to sync). */
+export async function ensureFeed(clubId: string, userId: string, choices: FeedChoices = ALL_FEED_CHOICES): Promise<string> {
   const existing = await prisma.staffCalendarFeed.findFirst({ where: { clubId, userId }, select: { token: true } });
   if (existing) return existing.token;
   const token = newFeedToken();
-  await prisma.staffCalendarFeed.createMany({ data: [{ clubId, userId, token }], skipDuplicates: true });
+  const c = validChoices(choices) ? choices : ALL_FEED_CHOICES;
+  await prisma.staffCalendarFeed.createMany({
+    data: [{ clubId, userId, token, includeClasses: c.classes, includePrivates: c.privates, includeEvents: c.events }],
+    skipDuplicates: true,
+  });
   const row = await prisma.staffCalendarFeed.findFirst({ where: { clubId, userId }, select: { token: true } });
   return row?.token ?? token;
 }
@@ -79,7 +107,7 @@ export async function revokeFeed(clubId: string, userId: string): Promise<boolea
  * Everything on one coach's own schedule from 30 days back to 180 ahead.
  * null = no such current staff member.
  */
-export async function staffFeedItems(clubId: string, userId: string, now: Date = new Date()): Promise<{ clubName: string; timezone: string | null; name: string; items: FeedItem[] } | null> {
+export async function staffFeedItems(clubId: string, userId: string, now: Date = new Date(), choices: FeedChoices = ALL_FEED_CHOICES): Promise<{ clubName: string; timezone: string | null; name: string; items: FeedItem[] } | null> {
   const [club, user] = await Promise.all([
     prisma.club.findUnique({ where: { id: clubId }, select: { name: true, timezone: true } }),
     prisma.user.findFirst({ where: { id: userId, clubId, role: { in: ["OWNER", "STAFF"] }, deletedAt: null }, select: { firstName: true, lastName: true } }),
@@ -88,8 +116,9 @@ export async function staffFeedItems(clubId: string, userId: string, now: Date =
   const from = new Date(now.getTime() - FEED_DAYS_BACK * 86_400_000);
   const to = new Date(now.getTime() + FEED_DAYS_AHEAD * 86_400_000);
 
+  const none = Promise.resolve([] as never[]);
   const [sessions, assignments, lessons] = await Promise.all([
-    prisma.classSession.findMany({
+    !choices.classes ? none : prisma.classSession.findMany({
       // A cancelled class day is not an obligation: it drops out of the feed.
       where: { clubId, canceled: false, startsAt: { gte: from, lte: to }, recurringClass: { deletedAt: null } },
       select: {
@@ -97,7 +126,7 @@ export async function staffFeedItems(clubId: string, userId: string, now: Date =
         recurringClass: { select: { name: true, assignedStaffIds: true, location: { select: { name: true } } } },
       },
     }),
-    prisma.eventStaffAssignment.findMany({
+    !choices.events ? none : prisma.eventStaffAssignment.findMany({
       where: { clubId, userId, event: { deletedAt: null, startsAt: { lte: to }, endsAt: { gte: from } } },
       select: {
         event: {
@@ -108,7 +137,7 @@ export async function staffFeedItems(clubId: string, userId: string, now: Date =
         },
       },
     }),
-    prisma.privateBooking.findMany({
+    !choices.privates ? none : prisma.privateBooking.findMany({
       where: { clubId, coachId: userId, status: { in: ["CONFIRMED", "COMPLETED"] }, confirmedStartAt: { gte: from, lte: to } },
       select: {
         id: true, confirmedStartAt: true, confirmedEndAt: true,
@@ -163,9 +192,12 @@ export async function staffFeedItems(clubId: string, userId: string, now: Date =
 /** The ICS text for a token, or null when the link is unknown, revoked, or its owner is no longer staff. */
 export async function staffFeedIcs(token: string, now: Date = new Date()): Promise<string | null> {
   if (!token || token.length < 20 || token.length > 80) return null;
-  const feed = await prisma.staffCalendarFeed.findUnique({ where: { token }, select: { id: true, clubId: true, userId: true, lastAccessedAt: true } });
+  const feed = await prisma.staffCalendarFeed.findUnique({
+    where: { token },
+    select: { id: true, clubId: true, userId: true, lastAccessedAt: true, includeClasses: true, includePrivates: true, includeEvents: true },
+  });
   if (!feed) return null;
-  const data = await staffFeedItems(feed.clubId, feed.userId, now);
+  const data = await staffFeedItems(feed.clubId, feed.userId, now, choicesOf(feed));
   if (!data) return null;
   // "Last used" — at most one write an hour, and never a reason to fail the feed.
   if (!feed.lastAccessedAt || now.getTime() - feed.lastAccessedAt.getTime() > 3_600_000) {
