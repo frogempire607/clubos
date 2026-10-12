@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { sendClubEmail, type EmailKind } from "@/lib/sendClubEmail";
 import { dispatchAnnouncement } from "@/lib/announcementDispatch";
 
@@ -192,46 +193,77 @@ async function dispatchExistingRow(row: {
   relatedEventId: string | null;
   relatedMembershipId: string | null;
 }): Promise<{ status: "sent" | "failed" | "skipped"; error?: string }> {
-  // Delete the existing row and let sendClubEmail re-insert. Because we
-  // wrap in a transaction and the delete + insert use the same
-  // (sendBatchId, dedupeKey) tuple, this is safe: a concurrent worker
-  // trying to double-dispatch would P2002 on the insert. If the
-  // dispatch itself fails, the freshly-inserted row records the failure.
+  // Claim the row by deleting it, then let sendClubEmail re-insert it and
+  // dispatch. The delete is the claim: deleteMany on (id, QUEUED) removes it
+  // for exactly one worker — a second worker gets count 0 and skips.
   //
-  // We keep the delete-then-recreate approach (rather than mutating in
-  // place) so lifecycle timestamps (sentAt / providerMessageId / status)
-  // are always written by the single source of truth in sendClubEmail.
-  return await prisma.$transaction(async (tx) => {
-    await tx.emailSend.delete({ where: { id: row.id } });
-    const result = await sendClubEmail({
-      clubId: row.clubId,
-      kind: row.kind as EmailKind,
-      recipientEmail: row.recipientEmail,
-      recipientUserId: row.recipientUserId,
-      recipientMemberId: row.recipientMemberId,
-      subject: row.subject,
-      bodyHtml: row.bodyHtml,
-      bodyText: row.bodyText,
-      bodyJson: row.bodyJson,
-      fromName: row.fromName,
-      fromEmail: row.fromEmail,
-      replyTo: row.replyTo,
-      personalization: row.personalization,
-      sendBatchId: row.sendBatchId,
-      dedupeKey: row.dedupeKey,
-      idempotencyKey: row.idempotencyKey,
-      announcementId: row.announcementId,
-      campaignId: row.campaignId,
-      templateId: row.templateId,
-      sentByUserId: row.sentByUserId,
-      relatedEventId: row.relatedEventId,
-      relatedMembershipId: row.relatedMembershipId,
-    });
-    return {
-      status: result.status === "SENT" ? "sent" : result.status === "FAILED" ? "failed" : "skipped",
-      error: result.error ?? undefined,
-    };
-  });
+  // NOT inside a transaction (fixed 2026-10-12). It used to be: the delete
+  // ran in the transaction while sendClubEmail inserted through the normal
+  // client, so the insert waited on the transaction's own uncommitted
+  // delete until the 5-second transaction timeout — then every row failed
+  // with "Transaction already closed" and nothing was sent.
+  const claimed = await prisma.emailSend.deleteMany({ where: { id: row.id, status: "QUEUED" } });
+  if (claimed.count === 0) return { status: "skipped", error: "already taken by another worker" };
+  const input = {
+    clubId: row.clubId,
+    kind: row.kind as EmailKind,
+    recipientEmail: row.recipientEmail,
+    recipientUserId: row.recipientUserId,
+    recipientMemberId: row.recipientMemberId,
+    subject: row.subject,
+    bodyHtml: row.bodyHtml,
+    bodyText: row.bodyText,
+    bodyJson: row.bodyJson,
+    fromName: row.fromName,
+    fromEmail: row.fromEmail,
+    replyTo: row.replyTo,
+    personalization: row.personalization,
+    sendBatchId: row.sendBatchId,
+    dedupeKey: row.dedupeKey,
+    idempotencyKey: row.idempotencyKey,
+    announcementId: row.announcementId,
+    campaignId: row.campaignId,
+    templateId: row.templateId,
+    sentByUserId: row.sentByUserId,
+    relatedEventId: row.relatedEventId,
+    relatedMembershipId: row.relatedMembershipId,
+  };
+  let result: Awaited<ReturnType<typeof sendClubEmail>>;
+  try {
+    result = await sendClubEmail(input);
+  } catch (err) {
+    // Never lose the recipient: if nothing re-inserted the row, put it back
+    // as FAILED so it shows on the results page and can be retried.
+    const msg = err instanceof Error ? err.message : String(err);
+    const back = row.sendBatchId && row.dedupeKey
+      ? await prisma.emailSend.findFirst({ where: { sendBatchId: row.sendBatchId, dedupeKey: row.dedupeKey }, select: { id: true } })
+      : null;
+    if (!back) {
+      await prisma.emailSend.create({
+        data: { ...stripForCreate(row), status: "FAILED", error: msg },
+      });
+    }
+    return { status: "failed", error: msg };
+  }
+  return {
+    status: result.status === "SENT" ? "sent" : result.status === "FAILED" ? "failed" : "skipped",
+    error: result.error ?? undefined,
+  };
+}
+
+// The queued row's own columns, for putting it back after a crash.
+function stripForCreate(row: Parameters<typeof dispatchExistingRow>[0]) {
+  return {
+    id: row.id, clubId: row.clubId, kind: row.kind, recipientEmail: row.recipientEmail,
+    recipientUserId: row.recipientUserId, recipientMemberId: row.recipientMemberId,
+    subject: row.subject, bodyHtml: row.bodyHtml, bodyText: row.bodyText,
+    bodyJson: (row.bodyJson ?? undefined) as Prisma.InputJsonValue | undefined,
+    fromName: row.fromName, fromEmail: row.fromEmail, replyTo: row.replyTo,
+    personalization: (row.personalization ?? undefined) as Prisma.InputJsonValue | undefined,
+    sendBatchId: row.sendBatchId, dedupeKey: row.dedupeKey, idempotencyKey: row.idempotencyKey,
+    announcementId: row.announcementId, campaignId: row.campaignId, templateId: row.templateId,
+    sentByUserId: row.sentByUserId, relatedEventId: row.relatedEventId, relatedMembershipId: row.relatedMembershipId,
+  };
 }
 
 export async function POST(req: Request) {

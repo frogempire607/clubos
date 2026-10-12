@@ -181,7 +181,7 @@ export async function sendClubEmail(input: SendClubEmailInput): Promise<SendClub
     if (dispatcher === "resend") {
       const client = resend()!;
       const from = formatResendFrom(effectiveFromName, effectiveFromEmail);
-      const result = await client.emails.send({
+      const sendOnce = () => client.emails.send({
         from,
         to: recipientEmail,
         subject: input.subject,
@@ -195,6 +195,15 @@ export async function sendClubEmail(input: SendClubEmailInput): Promise<SendClub
             }
           : undefined,
       });
+      // Resend allows 10 requests a second per account. Space calls out
+      // (≈8/s) and, if Resend still answers "too many requests", wait and
+      // try again — a rate-limited request was not sent, so a retry can't
+      // double-send. (2026-10-07: 14 of a 37-person send failed this way.)
+      let result = await paced(sendOnce);
+      for (let attempt = 1; result.error && isRateLimited(result.error) && attempt <= 3; attempt++) {
+        await sleep(1100 * attempt);
+        result = await paced(sendOnce);
+      }
       if (result.error) {
         await prisma.emailSend.update({
           where: { id: row.id },
@@ -244,6 +253,22 @@ export async function sendClubEmail(input: SendClubEmailInput): Promise<SendClub
 }
 
 // ── Internals ─────────────────────────────────────────────────────────────
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const MIN_GAP_MS = 125; // ≤ 8 provider calls a second from one process
+let nextSlot = 0;
+async function paced<T>(fn: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const at = Math.max(now, nextSlot);
+  nextSlot = at + MIN_GAP_MS;
+  if (at > now) await sleep(at - now);
+  return fn();
+}
+export function isRateLimited(err: unknown): boolean {
+  const e = err as { name?: string; statusCode?: number; message?: string } | null;
+  if (!e) return false;
+  return e.statusCode === 429 || e.name === "rate_limit_exceeded" || /too many requests|rate limit/i.test(String(e.message ?? e));
+}
 
 interface WriteExtras {
   skippedReason?: string;
