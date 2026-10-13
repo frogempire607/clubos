@@ -72,6 +72,10 @@ type ScheduleItem = {
   bookingTier?: "MEMBERSHIP" | "MEMBER" | "NON_MEMBER" | "DROP_IN" | null;
   bookingLabel?: string | null;
   athletes?: ItemAthlete[];
+  /** A multi-session event: its sessions still ahead (one card per event). */
+  sessions?: { id: string; name: string | null; startsAt: string; endsAt: string }[];
+  /** The event's own links ("Register on USA Wrestling", "Hotel block", …). */
+  links?: { label: string; url: string }[];
 };
 
 type PrivateOffering = {
@@ -131,7 +135,7 @@ function withinWindow(startsAt: string, key: (typeof windows)[number]["key"]): b
 function priceLabel(item: ScheduleItem, family = false) {
   if (family && item.athletes?.length) {
     const booked = item.athletes.filter((a) => a.bookingStatus);
-    if (booked.length) return `Booked — ${booked.map((a) => a.firstName).join(" & ")}`;
+    if (booked.length) return `${item.kind === "event" ? "Registered" : "Booked"}: ${booked.map((a) => a.firstName).join(" & ")}`;
     const prices = Array.from(
       new Set(item.athletes.map((a) => (a.price ? `$${a.price}` : "")).filter(Boolean)),
     );
@@ -142,6 +146,30 @@ function priceLabel(item: ScheduleItem, family = false) {
   if (item.bookingStatus) return item.statusText;
   if (item.price) return `$${item.price}`;
   return item.statusText;
+}
+
+/** "Registered: Titus & Max" (or the one athlete in view), else null. */
+function registeredLine(item: ScheduleItem, contextFirstName: string | null): string | null {
+  const word = item.kind === "event" ? "Registered" : "Booked";
+  const booked = (item.athletes ?? []).filter((a) => a.bookingStatus);
+  if (booked.length) {
+    const wait = booked.every((a) => a.bookingStatus === "WAITLISTED");
+    return `${wait ? "Waitlisted" : word}: ${booked.map((a) => a.firstName).join(" & ")}`;
+  }
+  if (item.bookingStatus) {
+    const w = item.bookingStatus === "WAITLISTED" ? "Waitlisted" : word;
+    return contextFirstName ? `${w}: ${contextFirstName}` : w;
+  }
+  return null;
+}
+
+/** "Fri, Nov 6 – Mon, Nov 9" for an event that runs over several days. */
+function spanLabel(item: ScheduleItem): string | null {
+  if (item.kind !== "event") return null;
+  const a = new Date(item.startsAt), b = new Date(item.endsAt);
+  if (a.toDateString() === b.toDateString()) return null;
+  const f = (d: Date) => d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  return `${f(a)} – ${f(b)}`;
 }
 
 function itemColors(item: ScheduleItem) {
@@ -161,42 +189,51 @@ function sameDay(a: Date, b: Date): boolean {
   );
 }
 
-function ItemCard({ item, onClick, family = false }: { item: ScheduleItem; onClick: () => void; family?: boolean }) {
+function ItemCard({ item, onClick, family = false, contextFirstName = null }: { item: ScheduleItem; onClick: () => void; family?: boolean; contextFirstName?: string | null }) {
   const c = itemColors(item);
+  const reg = item.canceled ? null : registeredLine(item, contextFirstName);
+  const span = spanLabel(item);
+  const multi = (item.sessions?.length ?? 0) > 1;
   return (
     <button onClick={onClick} className="w-full text-left pcard pcard-hover p-4">
       <div className="flex items-start gap-4">
         <div className="w-14 rounded-lg py-2 flex flex-col items-center justify-center flex-shrink-0" style={c}>
-          <span className="text-[10px] uppercase font-medium opacity-80">
+          <span className="text-[12px] uppercase font-semibold opacity-80">
             {datePillParts(item.startsAt, kindIsWallClockUTC(item.kind)).month}
           </span>
-          <span className="text-xl font-bold leading-none">
+          <span className="text-2xl font-bold leading-none">
             {datePillParts(item.startsAt, kindIsWallClockUTC(item.kind)).day}
           </span>
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <h3 className={`text-sm font-semibold ${item.canceled ? "text-stone-500 line-through" : "text-stone-900"}`}>{item.title}</h3>
-            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={c}>
+            <h3 className={`text-base font-semibold leading-snug ${item.canceled ? "text-stone-500 line-through" : "text-stone-900"}`}>{item.title}</h3>
+            <span className="text-[12px] px-1.5 py-0.5 rounded font-medium" style={c}>
               {item.typeLabel}
             </span>
             {item.canceled && (
               <span className="text-[12px] px-1.5 py-0.5 rounded font-semibold bg-red-50 text-red-700 border border-red-200">Canceled</span>
             )}
           </div>
-          <p className="text-xs text-stone-500">
-            {formatLongDate(item)}
-            {" · "}
-            {formatTimeRange(item)}
+          <p className="text-sm text-stone-600">
+            {span ?? `${formatLongDate(item)} · ${formatTimeRange(item)}`}
+            {multi ? ` · ${item.sessions!.length} sessions` : ""}
             {item.location ? ` · ${item.location}` : ""}
             {item.capacity ? ` · ${Math.max(item.capacity - item.filled, 0)} spots left` : ""}
           </p>
-          {item.canceled && item.cancelReason && <p className="text-xs text-red-700 mt-1">Canceled: {item.cancelReason}</p>}
+          {reg && (
+            <span className="mt-1.5 inline-flex items-center rounded-full border border-green-200 bg-green-50 px-2.5 py-0.5 text-[13px] font-semibold text-green-800">
+              ✓ {reg}
+            </span>
+          )}
+          {item.canceled && item.cancelReason && <p className="text-sm text-red-700 mt-1">Canceled: {item.cancelReason}</p>}
           {!item.canceled && item.description && (
-            <p className="text-xs text-stone-600 mt-1 line-clamp-2 whitespace-pre-wrap">{item.description}</p>
+            <p className="text-sm text-stone-600 mt-1 line-clamp-2 whitespace-pre-wrap">{item.description}</p>
           )}
         </div>
-        <span className="text-xs text-stone-600 flex-shrink-0">{item.canceled ? "Canceled" : priceLabel(item, family)}</span>
+        {!reg && (
+          <span className="text-sm text-stone-600 flex-shrink-0">{item.canceled ? "Canceled" : priceLabel(item, family)}</span>
+        )}
       </div>
     </button>
   );
@@ -402,18 +439,17 @@ function ScheduleInner() {
     return list.filter((item) => (filter === "all" ? true : item.kind === filter));
   }, [data, filter]);
 
+  // The calendar still shows a multi-session event on each of its days: one
+  // tile per session, all opening the same event.
   const calItems: CalItem[] = useMemo(
     () =>
-      calendarItems.map((item) => {
+      calendarItems.flatMap((item) => {
         const c = itemColors(item);
-        return {
-          id: item.id,
-          title: item.canceled ? `Canceled: ${item.title}` : item.title,
-          startsAt: item.startsAt,
-          kind: item.kind,
-          color: c.background,
-          textColor: c.color,
-        };
+        const base = { title: item.canceled ? `Canceled: ${item.title}` : item.title, kind: item.kind, color: c.background, textColor: c.color };
+        if (item.sessions && item.sessions.length > 1) {
+          return item.sessions.map((s) => ({ ...base, id: `${item.id}::${s.id}`, startsAt: s.startsAt }));
+        }
+        return [{ ...base, id: item.id, startsAt: item.startsAt }];
       }),
     [calendarItems],
   );
@@ -430,7 +466,10 @@ function ScheduleInner() {
   const calDayItems = useMemo(() => {
     if (!calDay) return [];
     return calendarItems
-      .filter((item) => sameDay(new Date(item.startsAt), calDay))
+      .filter((item) =>
+        item.sessions && item.sessions.length > 1
+          ? item.sessions.some((s) => sameDay(new Date(s.startsAt), calDay))
+          : sameDay(new Date(item.startsAt), calDay))
       .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
   }, [calendarItems, calDay]);
 
@@ -665,7 +704,7 @@ function ScheduleInner() {
                   <WeekCalendar
                     items={calItems}
                     onSelect={(ci) => {
-                      const item = calendarItems.find((x) => x.id === ci.id);
+                      const item = calendarItems.find((x) => x.id === ci.id.split("::")[0]);
                       if (item) setSelected(item);
                     }}
                   />
@@ -720,7 +759,7 @@ function ScheduleInner() {
                         <p className="text-sm text-stone-400 px-0.5 pb-2">Nothing on this day.</p>
                       ) : (
                         calDayItems.map((item) => (
-                          <ItemCard key={item.id} item={item} family={family} onClick={() => setSelected(item)} />
+                          <ItemCard key={item.id} item={item} family={family} contextFirstName={data?.contextMember?.firstName ?? null} onClick={() => setSelected(item)} />
                         ))
                       )}
                     </>
@@ -737,7 +776,7 @@ function ScheduleInner() {
                     <div className="space-y-3">
                       {bookedUpcoming.map((item) => (
                         <div key={item.id}>
-                          <ItemCard item={item} family={family} onClick={() => setSelected(item)} />
+                          <ItemCard item={item} family={family} contextFirstName={data?.contextMember?.firstName ?? null} onClick={() => setSelected(item)} />
                           {withinCheckinWindow(item) && (
                             <div className="mt-1.5 flex justify-end">
                               {checkedIn.has(item.id) ? (
@@ -780,7 +819,7 @@ function ScheduleInner() {
                         <h2 className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">{group.label}</h2>
                         <div className="space-y-3">
                           {group.items.map((item) => (
-                            <ItemCard key={item.id} item={item} family={family} onClick={() => setSelected(item)} />
+                            <ItemCard key={item.id} item={item} family={family} contextFirstName={data?.contextMember?.firstName ?? null} onClick={() => setSelected(item)} />
                           ))}
                         </div>
                       </section>
@@ -837,25 +876,74 @@ function ScheduleInner() {
                     <p className="text-sm text-red-700">{selected.cancelReason ? selected.cancelReason : "It will not run on this day."}</p>
                   </div>
                 )}
+                {(() => {
+                  const reg = selected.canceled ? null : registeredLine(selected, data?.contextMember?.firstName ?? null);
+                  return reg ? (
+                    <div role="status" className="rounded-xl border border-green-200 bg-green-50 p-4">
+                      <p className="text-base font-semibold text-green-800">✓ {reg}</p>
+                      <p className="text-sm text-green-800">You&apos;re all set{selected.links?.length ? " here. If the event also needs the outside registration below, finish that too." : "."}</p>
+                    </div>
+                  ) : null;
+                })()}
+
                 <div className="rounded-xl border border-stone-200 p-4">
-                  <p className="text-sm font-medium text-stone-900">{formatLongDate(selected)}</p>
-                  <p className="text-sm text-stone-600">{formatTimeRange(selected)}</p>
+                  {selected.sessions && selected.sessions.length > 1 ? (
+                    <>
+                      <p className="text-base font-medium text-stone-900">{spanLabel(selected) ?? formatLongDate(selected)}</p>
+                      <ul className="mt-2 space-y-1.5">
+                        {selected.sessions.map((s) => (
+                          <li key={s.id} className="text-[15px] text-stone-700">
+                            <span className="font-medium text-stone-900">{friendlyDate(s.startsAt, { weekday: true }, false)}</span>
+                            {" · "}
+                            {friendlyTimeRange(s.startsAt, s.endsAt, false)}
+                            {s.name ? ` · ${s.name}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-base font-medium text-stone-900">{spanLabel(selected) ?? formatLongDate(selected)}</p>
+                      <p className="text-[15px] text-stone-600">{formatTimeRange(selected)}</p>
+                    </>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                  <Detail label="Coach" value={selected.coach} />
-                  <Detail label="Location" value={selected.location} />
-                  <Detail
-                    label="Capacity"
-                    value={selected.capacity ? `${selected.filled}/${selected.capacity} filled` : "No capacity limit listed"}
-                  />
-                  <Detail label="Price" value={selected.price ? `$${selected.price}` : selected.statusText} />
-                </div>
+                {selected.links && selected.links.length > 0 && (
+                  <div className="space-y-2">
+                    {selected.links.map((l) => (
+                      <a
+                        key={l.url}
+                        href={l.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex min-h-[48px] w-full items-center justify-center rounded-lg pbtn-accent px-4 text-base font-semibold"
+                      >
+                        {l.label} ↗
+                      </a>
+                    ))}
+                  </div>
+                )}
+
+                {(() => {
+                  // Only what is actually known — no "Not listed" boxes.
+                  const facts = [
+                    selected.coach ? { label: "Coach", value: selected.coach } : null,
+                    selected.location ? { label: "Location", value: selected.location } : null,
+                    selected.capacity ? { label: "Capacity", value: `${selected.filled}/${selected.capacity} filled` } : null,
+                    selected.price && !registeredLine(selected, null) ? { label: "Price", value: `$${selected.price}` } : null,
+                  ].filter((x): x is { label: string; value: string } => !!x);
+                  return facts.length ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {facts.map((f) => <Detail key={f.label} label={f.label} value={f.value} />)}
+                    </div>
+                  ) : null;
+                })()}
 
                 {selected.description && (
                   <div>
-                    <p className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-1">Details</p>
-                    <p className="text-sm text-stone-700 whitespace-pre-wrap">{selected.description}</p>
+                    <p className="text-[13px] uppercase tracking-wider text-stone-500 font-semibold mb-1">Details</p>
+                    <p className="text-base leading-relaxed text-stone-800 whitespace-pre-wrap">{selected.description}</p>
                   </div>
                 )}
 
@@ -867,8 +955,8 @@ function ScheduleInner() {
                       return (
                         <div key={a.memberId} className="flex items-center gap-3 p-3">
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold text-stone-900">{a.firstName}</p>
-                            <p className="text-xs text-stone-500">
+                            <p className="text-base font-semibold text-stone-900">{a.firstName}</p>
+                            <p className="text-sm text-stone-600">
                               {a.statusText}
                               {!booked && a.price ? ` — $${a.price}` : ""}
                             </p>
@@ -904,15 +992,16 @@ function ScheduleInner() {
                     })}
                   </div>
                 ) : (
+                (selected.bookingStatus ? null : (
                 <div className="rounded-xl bg-stone-50 border border-stone-200 p-4">
-                  <p className="text-sm font-semibold text-stone-900">{selected.statusText}</p>
+                  <p className="text-base font-semibold text-stone-900">{selected.statusText}</p>
                   {selected.kind === "class" && selected.bookingLabel && (
-                    <p className="text-xs text-stone-600 mt-1">
+                    <p className="text-sm text-stone-600 mt-1">
                       {selected.bookingLabel}
                       {selected.price ? ` — $${selected.price}` : ""}
                     </p>
                   )}
-                  <p className="text-xs text-stone-500 mt-1">
+                  <p className="text-sm text-stone-600 mt-1">
                     {selected.kind === "class"
                       ? selected.canBook
                         ? selected.bookingTier === "MEMBERSHIP"
@@ -921,10 +1010,12 @@ function ScheduleInner() {
                         : "Class booking is controlled by your club and membership rules."
                       : selected.canBook
                         ? "You can register for this event from this screen."
-                        : "Registration is not available from your account right now."}
+                        : selected.links?.length
+                          ? "Use the link above to register."
+                          : "Ask your club about registering for this event."}
                   </p>
                 </div>
-                )}
+                )))}
 
                 {selected.canBook && !!selected.price && (
                   <div>
@@ -949,7 +1040,7 @@ function ScheduleInner() {
                   >
                     Close
                   </button>
-                  {!family && selected.kind === "event" && data?.contextMember && (
+                  {!family && selected.kind === "event" && data?.contextMember && !selected.bookingStatus && (selected.canBook || !selected.links?.length) && (
                     <button
                       type="button"
                       disabled={!selected.canBook || busy === `${selected.id}:${data.contextMember.id}`}
@@ -1000,8 +1091,8 @@ function ScheduleInner() {
 function Detail({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="rounded-lg border border-stone-100 p-3">
-      <p className="text-[11px] uppercase tracking-wider text-stone-500 font-medium mb-1">{label}</p>
-      <p className="text-sm text-stone-800">{value || "Not listed"}</p>
+      <p className="text-[12px] uppercase tracking-wider text-stone-500 font-semibold mb-1">{label}</p>
+      <p className="text-[15px] text-stone-800">{value}</p>
     </div>
   );
 }

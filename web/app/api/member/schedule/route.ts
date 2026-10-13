@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { eventLinksForRead } from "@/lib/eventLinks";
 import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { cookies } from "next/headers";
 import { getServerSession } from "next-auth";
@@ -109,6 +110,11 @@ export async function GET(req: Request) {
   const days = Math.min(Math.max(Number(url.searchParams.get("days") || 45), 7), 120);
   const now = new Date();
   const to = new Date(now.getTime() + days * 86400000);
+  // Events are planned months ahead (tournaments, travel), so they look
+  // further out than classes: ~6 months. Classes keep the shorter window —
+  // a class runs every week and 180 days of them would swamp the list.
+  const EVENT_DAYS = 183;
+  const eventTo = new Date(now.getTime() + Math.max(days, EVENT_DAYS) * 86400000);
   const clubId = session.user.clubId;
 
   // Class sessions are wall-clock-UTC stamps: filter them against the club's
@@ -185,8 +191,10 @@ export async function GET(req: Request) {
       where: {
         clubId,
         deletedAt: null,
-        startsAt: { lte: to },
+        startsAt: { lte: eventTo },
         endsAt: { gte: now },
+        // Staff-only events stay private — on purpose, even for a family whose
+        // child is on the roster (owner's decision, 2026-10-13).
         visibility: { in: ["PUBLIC", "MEMBERS_ONLY"] },
         AND: [
           { OR: [{ publishAt: null }, { publishAt: { lte: now } }] },
@@ -345,7 +353,7 @@ export async function GET(req: Request) {
   // still have their own /member/events surface for registration detail).
   const INCLUDE_EVENTS_IN_SCHEDULE = true;
   const items = [
-    ...(INCLUDE_EVENTS_IN_SCHEDULE ? events : []).flatMap((event) => {
+    ...(INCLUDE_EVENTS_IN_SCHEDULE ? events : []).map((event) => {
       const acceptedMembershipIds = parsePricingOptions(event.pricingOptions)
         .filter((opt): opt is { type: "membership"; membershipId: string } => opt.type === "membership" && !!opt.membershipId)
         .map((opt) => opt.membershipId);
@@ -394,18 +402,30 @@ export async function GET(req: Request) {
       const bookedStatus = ctxEval?.bookingStatus ?? null;
       const statusText = ctxEval?.statusText ?? (isMembersOnly ? "Members only" : "Available");
 
-      const sessions = event.sessions.length
-        ? event.sessions.map((s) => ({ id: s.id, startsAt: s.startsAt, endsAt: s.endsAt }))
-        : [{ id: event.id, startsAt: event.startsAt, endsAt: event.endsAt }];
+      // ONE item per event (2026-10-13). A multi-session event used to be a
+      // card per session, which read as the same event listed three times;
+      // its sessions now ride inside the one item. startsAt / endsAt span
+      // the whole event so the list sorts and groups it by its first day.
+      const parts = event.sessions.length
+        ? event.sessions.map((s) => ({ id: s.id, name: s.name ?? null, startsAt: s.startsAt, endsAt: s.endsAt }))
+        : [{ id: event.id, name: null as string | null, startsAt: event.startsAt, endsAt: event.endsAt }];
+      const first = parts.reduce((m, p) => (p.startsAt < m ? p.startsAt : m), parts[0].startsAt);
+      const last = parts.reduce((m, p) => (p.endsAt > m ? p.endsAt : m), parts[0].endsAt);
+      // Only parts still ahead (or under way) are worth listing.
+      const upcomingParts = parts.filter((p) => p.endsAt >= now);
 
-      return sessions.map((sessionItem) => ({
-        id: event.sessions.length ? `${event.id}:${sessionItem.id}` : event.id,
+      return {
+        id: event.id,
         refId: event.id,
         kind: "event" as const,
         title: event.name,
         typeLabel: event.customEventType?.name ?? event.type.charAt(0) + event.type.slice(1).toLowerCase(),
-        startsAt: sessionItem.startsAt.toISOString(),
-        endsAt: sessionItem.endsAt.toISOString(),
+        startsAt: first.toISOString(),
+        endsAt: last.toISOString(),
+        sessions: event.sessions.length > 1
+          ? upcomingParts.map((p) => ({ id: p.id, name: p.name, startsAt: p.startsAt.toISOString(), endsAt: p.endsAt.toISOString() }))
+          : [],
+        links: eventLinksForRead(event),
         description: event.description,
         location: event.location?.name ?? null,
         coach: event.staffAssignments.map((a) => `${a.user.firstName} ${a.user.lastName}`).join(", ") || null,
@@ -418,7 +438,7 @@ export async function GET(req: Request) {
         athletes,
         color: event.customEventType?.color ?? null,
         textColor: event.customEventType?.textColor ?? null,
-      }));
+      };
     }),
     ...classes.map((sessionItem) => {
       const opts = parsePricingOptions(sessionItem.recurringClass.pricingOptions);
