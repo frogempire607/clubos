@@ -33,7 +33,7 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
           membershipStartDate: true, commitmentEndDate: true, requestedCancellationDate: true,
           requestedPaymentMethod: true, migrationMembershipId: true,
           legacyMembershipName: true, legacyMembershipPrice: true, legacyBillingFrequency: true,
-          migrationSelectedOption: true, migrationPriceOverride: true,
+          migrationSelectedOption: true, migrationPriceOverride: true, migrationDiscountCode: true,
           migrationFinalBillingDate: true, billingAnchorDate: true,
         },
       },

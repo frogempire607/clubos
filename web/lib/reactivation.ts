@@ -70,7 +70,11 @@ export type OfferMember = {
   legacyBillingFrequency: string | null;
   migrationSelectedOption: unknown;
   migrationPriceOverride: Prisma.Decimal | number | null;
-  migrationDiscountCode?: string | null;
+  // REQUIRED (2026-10-14): optional let the public offer page leave it out of
+  // its select, so every offer with a staff discount code rebuilt "current"
+  // without the discount and read as "updated by the club" — the link could
+  // never be opened. Required means a missing select no longer compiles.
+  migrationDiscountCode: string | null;
   responsiblePayerUserId: string | null;
 };
 
