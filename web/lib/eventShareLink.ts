@@ -87,6 +87,8 @@ export function shareUrl(baseUrl: string, token: string): string {
 
 // ── Access ──────────────────────────────────────────────────────────────────
 
+import { normalizeAudience } from "@/lib/eventAudience";
+
 export type LinkAccessEvent = {
   deletedAt?: Date | string | null;
   publishAt?: Date | string | null;
@@ -95,6 +97,8 @@ export type LinkAccessEvent = {
   signupAccess?: string | null;
   publicRegistration?: boolean | null;
   tournamentMode?: string | null;
+  /** lib/eventAudience — an event for some athletes only can't be checked for a stranger. */
+  audience?: unknown;
 };
 
 export type LinkAccess =
@@ -120,6 +124,9 @@ export function linkAccess(via: LinkVia, event: LinkAccessEvent | null | undefin
   if (deadline != null && deadline < t) return { ok: false, status: 403, error: "The registration deadline has passed" };
 
   if (via === "token") return { ok: true, canRegister: true };
+  // An event for some athletes only (memberships, ages…) is registered for from
+  // the member app, where we know who the athlete is — never the public link.
+  if (normalizeAudience(event.audience)) return { ok: true, canRegister: false };
   // Slice 2: signupAccess is the answer; STAFF_ONLY closes the public link even
   // on a hosted tournament, PUBLIC_LINK opens it. The legacy flag is kept in
   // sync by every write.

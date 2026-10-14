@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { athleteMatches, normalizeAudience } from "@/lib/eventAudience";
 import { quoteSessions } from "@/lib/eventPricingModel";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
@@ -212,6 +213,26 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         { error: "Your account isn't linked to a member profile yet. Contact your club to get added." },
         { status: 400 },
       );
+    }
+
+    // ── Who the event is for (lib/eventAudience.ts) ──────────────────────────
+    const audience = normalizeAudience(event.audience);
+    if (audience) {
+      const [facts, subs, plans] = await Promise.all([
+        prisma.member.findFirst({ where: { id: member.id, clubId: session.user.clubId }, select: { dateOfBirth: true, gender: true, tags: true } }),
+        prisma.memberSubscription.findMany({ where: { memberId: member.id, status: "active" }, select: { membershipId: true } }),
+        prisma.membership.findMany({ where: { clubId: session.user.clubId, id: { in: audience.membershipIds ?? [] } }, select: { id: true, name: true } }),
+      ]);
+      const verdict = athleteMatches(audience, {
+        dateOfBirth: facts?.dateOfBirth ?? null, gender: facts?.gender ?? null, tags: facts?.tags ?? null,
+        activeMembershipIds: subs.map((x) => x.membershipId),
+      }, event.startsAt, (id) => plans.find((p) => p.id === id)?.name ?? "selected");
+      if (!verdict.ok) {
+        return NextResponse.json(
+          { error: `This event isn't open to this athlete — ${verdict.missing.join(", ")}.`, code: "NOT_ELIGIBLE" },
+          { status: 403 },
+        );
+      }
     }
 
     // ── The event's questions ───────────────────────────────────────────────

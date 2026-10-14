@@ -76,6 +76,8 @@ type ScheduleItem = {
   sessions?: { id: string; name: string | null; startsAt: string; endsAt: string }[];
   /** The event's own links ("Register on USA Wrestling", "Hotel block", …). */
   links?: { label: string; url: string }[];
+  /** Who the event is for, when it isn't everyone ("Jr Frogs members · ages 8–12"). */
+  audienceLabel?: string | null;
 };
 
 type PrivateOffering = {
@@ -908,6 +910,10 @@ function ScheduleInner() {
                     </>
                   )}
                 </div>
+
+                {selected.audienceLabel && (
+                  <p className="text-[15px] text-stone-700"><span className="font-semibold text-stone-900">For:</span> {selected.audienceLabel}</p>
+                )}
 
                 {selected.links && selected.links.length > 0 && (
                   <div className="space-y-2">

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { eventLinksForRead } from "@/lib/eventLinks";
+import { athleteMatches, describeAudience, normalizeAudience } from "@/lib/eventAudience";
 import { guardianActionBlocked, CONSENT_BLOCK_BODY } from "@/lib/parentalConsent";
 import { cookies } from "next/headers";
 import { getServerSession } from "next-auth";
@@ -352,8 +353,30 @@ export async function GET(req: Request) {
   // page's Events filter chip was dead while this was false — events also
   // still have their own /member/events surface for registration detail).
   const INCLUDE_EVENTS_IN_SCHEDULE = true;
+  // Event audience (lib/eventAudience.ts): what each athlete in scope has on
+  // file, and the plan names for the "needs a … membership" wording.
+  const audienceEvents = events.filter((e) => normalizeAudience(e.audience));
+  const [athleteFacts, audiencePlans] = audienceEvents.length && scopeAthletes.length
+    ? await Promise.all([
+        prisma.member.findMany({ where: { id: { in: scopeAthletes.map((a) => a.id) }, clubId }, select: { id: true, dateOfBirth: true, gender: true, tags: true } }),
+        prisma.membership.findMany({ where: { clubId, id: { in: audienceEvents.flatMap((e) => normalizeAudience(e.audience)?.membershipIds ?? []) } }, select: { id: true, name: true } }),
+      ])
+    : [[], []];
+  const factsOf = new Map(athleteFacts.map((f) => [f.id, f]));
+  const planName = (id: string) => audiencePlans.find((p) => p.id === id)?.name ?? "selected";
   const items = [
     ...(INCLUDE_EVENTS_IN_SCHEDULE ? events : []).map((event) => {
+      const audience = normalizeAudience(event.audience);
+      const eligibility = (athleteId: string) => {
+        if (!audience) return { ok: true, missing: [] as string[] };
+        const f = factsOf.get(athleteId);
+        return athleteMatches(audience, {
+          dateOfBirth: f?.dateOfBirth ?? null, gender: f?.gender ?? null, tags: f?.tags ?? null,
+          activeMembershipIds: stateById.get(athleteId)?.membershipIds ?? [],
+        }, event.startsAt, planName);
+      };
+      // Hidden unless one athlete in view is someone it's for.
+      if (audience && !scopeAthletes.some((a) => eligibility(a.id).ok)) return null;
       const acceptedMembershipIds = parsePricingOptions(event.pricingOptions)
         .filter((opt): opt is { type: "membership"; membershipId: string } => opt.type === "membership" && !!opt.membershipId)
         .map((opt) => opt.membershipId);
@@ -367,6 +390,10 @@ export async function GET(req: Request) {
       const evalFor = (st: AthleteState) => {
         const covered = acceptedMembershipIds.some((id) => st.membershipIds.includes(id));
         const bookedStatus = st.eventStatus.get(event.id) ?? null;
+        const elig = eligibility(st.id);
+        if (!bookedStatus && !elig.ok) {
+          return { price: null, bookingStatus: null, canBook: false, statusText: `Not eligible — ${elig.missing.join(", ")}` };
+        }
         const p = covered
           ? null
           : money(event.memberPrice) ?? money(event.nonMemberPrice) ?? money(event.dropInFee);
@@ -426,6 +453,7 @@ export async function GET(req: Request) {
           ? upcomingParts.map((p) => ({ id: p.id, name: p.name, startsAt: p.startsAt.toISOString(), endsAt: p.endsAt.toISOString() }))
           : [],
         links: eventLinksForRead(event),
+        audienceLabel: describeAudience(audience, planName),
         description: event.description,
         location: event.location?.name ?? null,
         coach: event.staffAssignments.map((a) => `${a.user.firstName} ${a.user.lastName}`).join(", ") || null,
@@ -592,7 +620,9 @@ export async function GET(req: Request) {
         bookingLabel: ctxEval?.bookingLabel ?? null,
       };
     }),
-  ].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  ]
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 
   return NextResponse.json({
     contextMember: context,

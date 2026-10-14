@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
+import { normalizeAudience } from "@/lib/eventAudience";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { wallClockUTCToInstant } from "@/lib/datetime";
 
@@ -115,6 +116,7 @@ export async function feedItems(
         endsAt: true,
         location: { select: { name: true } },
         sessions: { select: { id: true, name: true, startsAt: true, endsAt: true } },
+        audience: true,
       },
     }),
     prisma.classSession.findMany({
@@ -152,6 +154,9 @@ export async function feedItems(
 
   const items: FeedItem[] = [];
   for (const e of events) {
+    // An event for some athletes only (lib/eventAudience) stays off the
+    // club-wide public / member feeds — those can't tell who is subscribed.
+    if (scope !== "STAFF" && normalizeAudience(e.audience)) continue;
     if (e.sessions.length > 0) {
       for (const s of e.sessions) {
         items.push({

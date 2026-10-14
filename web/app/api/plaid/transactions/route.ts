@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getTierFeatures } from "@/lib/tier";
 import { suggestExpenseCategory } from "@/lib/categoryMatcher";
 import type { Prisma } from "@prisma/client";
+import { bankEntityWhere, ensureBankAccounts } from "@/lib/bankAccounts";
 
 // GET /api/plaid/transactions?connectionId=&range=&from=&to=&page=&pageSize=&reviewed=
 //   - `connectionId`: scope to one bank; empty means every active bank.
@@ -48,6 +49,8 @@ export async function GET(req: Request) {
   const page = Math.max(1, Number(url.searchParams.get("page") || "1"));
   const pageSize = Math.min(500, Math.max(10, Number(url.searchParams.get("pageSize") || "50")));
   const reviewed = url.searchParams.get("reviewed") || "all";
+  // ?entity=<legalEntityId> | none | all — only that entity's bank accounts.
+  const entityParam = url.searchParams.get("entity");
 
   const allConnections = await prisma.plaidConnection.findMany({
     where: { clubId: session.user.clubId, deletedAt: null },
@@ -57,6 +60,7 @@ export async function GET(req: Request) {
       label: true,
       institutionName: true,
       accessToken: true,
+      kind: true,
       syncCursor: {
         select: {
           cursor: true,
@@ -76,6 +80,7 @@ export async function GET(req: Request) {
     id: c.id,
     label: c.label,
     institutionName: c.institutionName,
+    kind: c.kind,
   }));
 
   if (activeConnections.length === 0) {
@@ -93,8 +98,11 @@ export async function GET(req: Request) {
   // failures don't break the response.
   const accountsPerConn = await Promise.all(
     activeConnections.map(async (conn) => {
+      if (conn.kind === "MANUAL") return [];
       try {
         const res = await plaidClient.accountsGet({ access_token: conn.accessToken });
+        // Keep the account rows (and their names) current — entity untouched.
+        await ensureBankAccounts(session.user.clubId, conn.id, res.data.accounts).catch((e) => console.error("ensureBankAccounts failed", e));
         return res.data.accounts.map((a) => ({
           ...a,
           connectionId: conn.id,
@@ -137,6 +145,7 @@ export async function GET(req: Request) {
   const where: Prisma.PlaidTransactionWhereInput = {
     clubId: session.user.clubId,
     plaidConnectionId: { in: connectionIds },
+    ...bankEntityWhere(entityParam),
     ...(fromDate || toDate
       ? {
           date: {
@@ -159,6 +168,20 @@ export async function GET(req: Request) {
     }),
   ]);
 
+  // Receipts confirmed against these rows (the paperclip on each bank row).
+  const receiptRows = rows.length
+    ? await prisma.receipt.findMany({
+        where: { clubId: session.user.clubId, status: "MATCHED", plaidTransactionId: { in: rows.map((r) => r.id) } },
+        select: { id: true, plaidTransactionId: true, fileName: true },
+      })
+    : [];
+  const receiptsOf = new Map<string, { id: string; fileName: string; url: string }[]>();
+  for (const rc of receiptRows) {
+    const list = receiptsOf.get(rc.plaidTransactionId!) ?? [];
+    list.push({ id: rc.id, fileName: rc.fileName, url: `/api/financials/receipts/${rc.id}/file` });
+    receiptsOf.set(rc.plaidTransactionId!, list);
+  }
+
   const transactions = rows.map((r) => ({
     id: r.id,
     transaction_id: r.plaidTransactionId, // legacy compatibility
@@ -173,6 +196,10 @@ export async function GET(req: Request) {
     paymentChannel: r.paymentChannel,
     connectionId: r.plaidConnectionId,
     connectionLabel: r.connection.label || r.connection.institutionName || "Bank",
+    accountId: r.accountId,
+    legalEntityId: r.legalEntityId,
+    source: r.source,
+    receipts: receiptsOf.get(r.id) ?? [],
     // Review state
     reviewedAt: r.reviewedAt,
     categorizedExpenseId: r.categorizedExpenseId,

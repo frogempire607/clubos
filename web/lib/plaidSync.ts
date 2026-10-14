@@ -52,8 +52,10 @@ function parseDate(d: string): Date {
   return new Date(`${d}T00:00:00.000Z`);
 }
 
-function mapTx(src: PlaidTxLike, clubId: string, connectionId: string) {
+function mapTx(src: PlaidTxLike, clubId: string, connectionId: string, entityOf?: Map<string, string | null>) {
   return {
+    // The account's entity (lib/bankAccounts.ts) — null until it is assigned.
+    legalEntityId: entityOf?.get(`${connectionId}|${src.account_id}`) ?? null,
     clubId,
     plaidConnectionId: connectionId,
     plaidTransactionId: src.transaction_id,
@@ -86,8 +88,12 @@ export async function syncConnection(
 ): Promise<SyncResult> {
   const connection = await prisma.plaidConnection.findFirst({
     where: { id: connectionId, deletedAt: null },
-    select: { id: true, clubId: true, accessToken: true },
+    select: { id: true, clubId: true, accessToken: true, kind: true },
   });
+  if (connection && connection.kind === "MANUAL") {
+    // Kept by hand — nothing to pull from Plaid.
+    return { added: 0, modified: 0, removed: 0, earliestDate: null, cursor: null, hasMore: false };
+  }
   if (!connection) {
     return { added: 0, modified: 0, removed: 0, earliestDate: null, cursor: null, hasMore: false, error: "Connection not found" };
   }
@@ -109,6 +115,22 @@ export async function syncConnection(
   let hasMore = true;
   let pages = 0;
 
+  // Account → entity, so every new row lands on the right books.
+  const accountRows = await prisma.bankAccount.findMany({
+    where: { plaidConnectionId: connection.id },
+    select: { accountId: true, legalEntityId: true },
+  });
+  const entityOf = new Map<string, string | null>(accountRows.map((a) => [`${connection.id}|${a.accountId}`, a.legalEntityId]));
+  const seen = new Set(accountRows.map((a) => a.accountId));
+  const noteAccount = async (accountId: string) => {
+    if (seen.has(accountId)) return;
+    seen.add(accountId);
+    await prisma.bankAccount.createMany({
+      data: [{ clubId: connection.clubId, plaidConnectionId: connection.id, accountId }],
+      skipDuplicates: true,
+    });
+  };
+
   try {
     while (hasMore && pages < MAX_PAGES) {
       pages += 1;
@@ -122,7 +144,8 @@ export async function syncConnection(
       // Upsert added / modified in the same loop — both branches carry the
       // full transaction shape so the write is identical.
       for (const raw of data.added) {
-        const row = mapTx(raw as PlaidTxLike, connection.clubId, connection.id);
+        const row = mapTx(raw as PlaidTxLike, connection.clubId, connection.id, entityOf);
+        await noteAccount(row.accountId);
         if (!earliestDate || row.date < earliestDate) earliestDate = row.date;
         await prisma.plaidTransaction.upsert({
           where: { plaidTransactionId: row.plaidTransactionId },
@@ -132,7 +155,8 @@ export async function syncConnection(
         added += 1;
       }
       for (const raw of data.modified) {
-        const row = mapTx(raw as PlaidTxLike, connection.clubId, connection.id);
+        const row = mapTx(raw as PlaidTxLike, connection.clubId, connection.id, entityOf);
+        await noteAccount(row.accountId);
         if (!earliestDate || row.date < earliestDate) earliestDate = row.date;
         await prisma.plaidTransaction.upsert({
           where: { plaidTransactionId: row.plaidTransactionId },

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getObject } from "@/lib/storage";
+import { requirePermissionLive } from "@/lib/apiGuard";
 
 // GET /api/files/[id]
 // Streams a stored file ONLY if the requester is a logged-in user in the same
@@ -15,11 +16,16 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
 
   const file = await prisma.uploadedFile.findUnique({
     where: { id: params.id },
-    select: { clubId: true, storageKey: true, mimeType: true, originalName: true },
+    select: { clubId: true, storageKey: true, mimeType: true, originalName: true, kind: true },
   });
   if (!file) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (file.clubId !== session.user.clubId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  // Receipts are financial records: Financials access only (2026-10-14).
+  if (file.kind === "RECEIPT") {
+    const denied = await requirePermissionLive(session, "finances", "view");
+    if (denied) return denied;
   }
 
   const bytes = await getObject(file.storageKey);

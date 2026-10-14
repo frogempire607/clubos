@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normalizeAudience } from "@/lib/eventAudience";
 import { publicMediaUrl } from "@/lib/publicMedia";
 import { autoDiscountView } from "@/lib/eventAutoDiscounts";
 import { prisma } from "@/lib/prisma";
@@ -71,6 +72,7 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       // events route and register route apply).
       visibility: true,
       purchaseAccess: true,
+      audience: true,
       // Phase 5 §5.3.3 — the public page must say, before the pay picker, that
       // a coach still has to review this. Resolved through the policy walker,
       // never read off the column directly.
@@ -253,5 +255,7 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
     // it); a private link takes signups whatever those say. Full is full
     // either way.
     registrationOpen: access.canRegister && !capacityReached,
+    // lib/eventAudience — for some athletes only: members register in the app.
+    audienceRestricted: link.via !== "token" && !!normalizeAudience(event.audience),
   });
 }

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { audienceProblem, audienceSchema, normalizeAudience } from "@/lib/eventAudience";
+import { audienceMembershipProblem } from "@/lib/eventAudienceServer";
 import type { Prisma } from "@prisma/client";
 import { validateAutoDiscounts } from "@/lib/eventAutoDiscounts";
 import { applyExclusions, resolveEventWrite } from "@/lib/eventPricingModel";
@@ -95,6 +97,8 @@ const eventFields = {
   unpublishAt: z.string().optional().nullable(),
   locationId: z.string().optional().nullable(),
   visibility: z.enum(["PUBLIC", "MEMBERS_ONLY", "STAFF_ONLY"]),
+  // Who the event is for, on top of visibility (lib/eventAudience.ts).
+  audience: audienceSchema.nullable().optional(),
   purchaseAccess: z.enum(["ANYONE", "STAFF_ONLY"]),
   allowMembershipPayment: z.boolean(),
   imageUrl: z.string().optional().nullable(),
@@ -217,6 +221,9 @@ export async function POST(req: Request) {
     const linkIssue = linkProblem(data.externalLinks);
     if (linkIssue) return NextResponse.json({ error: linkIssue }, { status: 400 });
     const externalLinks = normalizeEventLinks(data.externalLinks);
+    const audIssue = data.audience ? audienceProblem(data.audience) ?? (await audienceMembershipProblem(session.user.clubId, data.audience)) : null;
+    if (audIssue) return NextResponse.json({ error: audIssue }, { status: 400 });
+    const audience = normalizeAudience(data.audience);
 
     const startsAt = new Date(data.startsAt);
     const endsAt = new Date(data.endsAt);
@@ -329,6 +336,7 @@ export async function POST(req: Request) {
         escalationSchedule: data.escalationSchedule ?? undefined,
         escalationCustomDays: data.escalationCustomDays ?? undefined,
         externalLinks: externalLinks.length > 0 ? (externalLinks as unknown as Prisma.InputJsonValue) : undefined,
+        audience: audience ? (audience as unknown as Prisma.InputJsonValue) : undefined,
         sessions: data.sessions?.length
           ? {
               create: data.sessions.map((s, i) => ({

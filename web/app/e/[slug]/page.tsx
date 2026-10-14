@@ -43,6 +43,8 @@ type PublicEvent = {
   variableCost?: boolean;
   capacityReached: boolean;
   registrationOpen: boolean;
+  /** For some athletes only (memberships / ages…): register from the member app. */
+  audienceRestricted?: boolean;
   paymentMethods?: string[];
   // Phase 5 §5.3.3 — a coach reviews this registration before the spot is
   // confirmed, and billOnApproval means no payment choice is offered now.
@@ -538,6 +540,18 @@ export default function PublicEventPage() {
             <p className="text-xs text-stone-500 mt-3">
               No account with {event.club.name} yet? Contact the club and they&apos;ll send you an invite.
             </p>
+          </div>
+        ) : event.audienceRestricted && !event.capacityReached ? (
+          <div className="bg-white rounded-xl border border-stone-200 p-8 text-center">
+            <h2 className="text-base font-semibold text-stone-900 mb-1">Registration is in your {event.club.name} account</h2>
+            <p className="text-sm text-stone-500 mb-4">This event is for selected athletes. Sign in to see whether yours can register.</p>
+            {event.portalAvailable ? (
+              <Link href={signedInMember && portalHref ? portalHref : signInHref} className="inline-flex items-center justify-center gap-1.5 w-full py-3 rounded-lg text-white text-sm font-semibold" style={{ background: accent }}>
+                {signedInMember ? "Continue in your account" : "Sign in"} <ArrowRight className="h-4 w-4" strokeWidth={2.5} />
+              </Link>
+            ) : (
+              <p className="text-sm text-stone-500">Contact {event.club.name} for more information.</p>
+            )}
           </div>
         ) : !event.registrationOpen ? (
           <div className="bg-white rounded-xl border border-stone-200 p-8 text-center">

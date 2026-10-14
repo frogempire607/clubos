@@ -23,6 +23,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { EXCLUDE_VOID } from "@/lib/paymentSources";
+import { bankEntityWhere } from "@/lib/bankAccounts";
 
 export type TaxRange = { entity?: string | null; from?: Date | null; to?: Date | null };
 
@@ -126,6 +127,9 @@ export async function computeBankBasedTaxSummary(
     prisma.plaidTransaction.findMany({
       where: {
         clubId,
+        // Only the selected entity's bank accounts (lib/bankAccounts.ts) —
+        // before 2026-10-14 every bank row counted for every entity.
+        ...bankEntityWhere(r.entity),
         ...(r.from || r.to
           ? {
               date: {

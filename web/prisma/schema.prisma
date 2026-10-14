@@ -228,6 +228,9 @@ model Club {
   payLines                       PayLine[]
   staffCalendarFeeds             StaffCalendarFeed[]
   plaidConnections               PlaidConnection[]
+  bankAccounts                   BankAccount[]
+  receipts                       Receipt[]
+  ledgerImports                  LedgerImport[]
   plaidTransactions              PlaidTransaction[]
   plaidSyncCursors               PlaidSyncCursor[]
   transactionCategoryRules       TransactionCategoryRule[]
@@ -273,11 +276,16 @@ model PlaidConnection {
   itemId          String    @unique
   // Optional cache so the UI doesn't have to hit Plaid every render.
   accountsCache   Json?
+  // PLAID = a live bank link. MANUAL = an account kept by hand (a closed
+  // account, a card that isn't linked) whose history comes only from
+  // imports — never synced, never sent to Plaid. (2026-10-14)
+  kind            String    @default("PLAID")
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
   club              Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  bankAccounts      BankAccount[]
   transactions      Transaction[]
   expenses          Expense[]
   plaidTransactions PlaidTransaction[]
@@ -318,6 +326,14 @@ model PlaidTransaction {
   excludedFromTax                 Boolean   @default(false)
   markedAsTransfer                Boolean   @default(false)
   notes                           String?
+  // The legal entity whose books this bank row belongs to — copied from its
+  // BankAccount (and re-stamped when the account is moved to another entity).
+  // Null = the account isn't assigned to an entity yet.
+  legalEntityId                   String?
+  // PLAID = from the bank feed. QUICKBOOKS = history brought in by an import
+  // (plaidTransactionId is then "qb:<import>:<row>"); importId says which.
+  source                          String    @default("PLAID")
+  importId                        String?
   syncedAt                        DateTime  @default(now())
   createdAt                       DateTime  @default(now())
   updatedAt                       DateTime  @updatedAt
@@ -329,7 +345,95 @@ model PlaidTransaction {
   @@index([clubId, plaidConnectionId, date(sort: Desc)], map: "plaid_transactions_clubId_connection_idx")
   @@index([clubId, reviewedAt], map: "plaid_transactions_clubId_reviewed_idx")
   @@index([categorizedExpenseId], map: "plaid_transactions_categorizedExpenseId_idx")
+  @@index([clubId, legalEntityId, date], map: "plaid_transactions_entity_idx")
+  @@index([importId])
   @@map("plaid_transactions")
+}
+
+/// One account inside a bank connection (one bank login can hold several —
+/// checking, savings, a card), and which legal entity's books it belongs to.
+/// An entity can have many accounts; an account belongs to at most one entity.
+/// (2026-10-14)
+model BankAccount {
+  id                String    @id @default(cuid())
+  clubId            String
+  plaidConnectionId String
+  /// Plaid account_id, or "manual" for the single account of a MANUAL connection.
+  accountId         String
+  name              String?
+  officialName      String?
+  mask              String?
+  type              String?
+  subtype           String?
+  legalEntityId     String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  club        Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  connection  PlaidConnection @relation(fields: [plaidConnectionId], references: [id], onDelete: Cascade)
+  legalEntity LegalEntity?    @relation(fields: [legalEntityId], references: [id], onDelete: SetNull)
+
+  @@unique([plaidConnectionId, accountId])
+  @@index([clubId])
+  @@index([legalEntityId])
+  @@map("bank_accounts")
+}
+
+/// A receipt in the receipt inbox: the file, what it says (vendor / date /
+/// amount, typed or read from the file name), and the bank row it was
+/// matched to once the owner confirms. Never matched automatically. (2026-10-14)
+model Receipt {
+  id                 String    @id @default(cuid())
+  clubId             String
+  fileId             String
+  fileName           String
+  mimeType           String
+  vendor             String?
+  amount             Decimal?  @db.Decimal(12, 2)
+  receiptDate        DateTime? @db.Date
+  notes              String?
+  /// UNMATCHED | MATCHED | IGNORED
+  status             String    @default("UNMATCHED")
+  plaidTransactionId String?
+  legalEntityId      String?
+  matchedAt          DateTime?
+  matchedByUserId    String?
+  uploadedByUserId   String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, status])
+  @@index([plaidTransactionId])
+  @@map("receipts")
+}
+
+/// One accounting import (QuickBooks CSV): the parsed rows, the owner's
+/// mapping, what committing did, and enough to undo it. (2026-10-14)
+model LedgerImport {
+  id              String    @id @default(cuid())
+  clubId          String
+  source          String    @default("QUICKBOOKS")
+  fileName        String
+  legalEntityId   String?
+  /// DRAFT | COMMITTED | UNDONE
+  status          String    @default("DRAFT")
+  rows            Json
+  mapping         Json      @default("{}")
+  summary         Json?
+  /// What commit changed on existing bank rows (to put back on undo).
+  applied         Json?
+  createdByUserId String?
+  committedAt     DateTime?
+  undoneAt        DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId])
+  @@map("ledger_imports")
 }
 
 // One row per PlaidConnection. Holds the Plaid /transactions/sync cursor
@@ -1604,6 +1708,12 @@ model Event {
   // always written through lib/eventLinks.normalizeEventLinks. When empty, a
   // non-empty registrationLink above is shown as one link ("Registration").
   externalLinks          Json?
+  // Who the event is for, on top of `visibility` (2026-10-14). Null = everyone
+  // the visibility allows. Shape (lib/eventAudience.ts): { membershipIds?,
+  // minAge?, maxAge?, genders?, tags? }. An athlete must match EVERY rule that
+  // is set; a family sees the event when one of its athletes matches, and only
+  // matching athletes can register. Private share links are exempt.
+  audience               Json?
   registrationDeadline   DateTime?
   registrationOpen       Boolean?
   divisions              String?
@@ -2956,6 +3066,7 @@ model LegalEntity {
   transactions  Transaction[]
   expenses      Expense[]
   donations     Donation[]
+  bankAccounts  BankAccount[]
 
   @@index([clubId])
   @@map("legal_entities")

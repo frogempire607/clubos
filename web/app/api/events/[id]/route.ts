@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { audienceProblem, audienceSchema, normalizeAudience } from "@/lib/eventAudience";
+import { audienceMembershipProblem } from "@/lib/eventAudienceServer";
 import { validateAutoDiscounts } from "@/lib/eventAutoDiscounts";
 import { applyExclusions, resolveEventWrite } from "@/lib/eventPricingModel";
 import { z } from "zod";
@@ -61,6 +63,8 @@ const updateSchema = z.object({
   unpublishAt: z.string().optional().nullable(),
   locationId: z.string().optional().nullable(),
   visibility: z.enum(["PUBLIC", "MEMBERS_ONLY", "STAFF_ONLY"]).optional(),
+  // Who the event is for, on top of visibility (lib/eventAudience.ts). null clears.
+  audience: audienceSchema.nullable().optional(),
   purchaseAccess: z.enum(["ANYONE", "STAFF_ONLY"]).optional(),
   allowMembershipPayment: z.boolean().optional(),
   imageUrl: z.string().optional().nullable(),
@@ -208,6 +212,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     const linkIssue = rest.externalLinks === undefined ? null : linkProblem(rest.externalLinks);
     if (linkIssue) return NextResponse.json({ error: linkIssue }, { status: 400 });
     const cleanLinks = rest.externalLinks === undefined ? undefined : normalizeEventLinks(rest.externalLinks);
+    const audIssue = rest.audience ? audienceProblem(rest.audience) ?? (await audienceMembershipProblem(session.user.clubId, rest.audience)) : null;
+    if (audIssue) return NextResponse.json({ error: audIssue }, { status: 400 });
+    const cleanAudience = rest.audience === undefined ? undefined : normalizeAudience(rest.audience);
 
     const baseType =
       "customEventTypeId" in rest
@@ -283,9 +290,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       invoiceScheduledAt: _isa,
       autoDiscounts,
       externalLinks: _el,
+      audience: _aud,
       ...flatRest
     } = rest;
-    void _pm; void _sa; void _siw; void _sis; void _mp; void _nmp; void _dif; void _vis; void _pa; void _pr; void _isa; void _el;
+    void _pm; void _sa; void _siw; void _sis; void _mp; void _nmp; void _dif; void _vis; void _pa; void _pr; void _isa; void _el; void _aud;
     const modelWrite = model
       ? {
           pricingModel: model.pricingModel,
@@ -321,6 +329,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         ...(autoDiscounts !== undefined ? { autoDiscounts: autoDiscounts as Prisma.InputJsonValue } : {}),
         ...(cleanLinks !== undefined
           ? { externalLinks: cleanLinks.length > 0 ? (cleanLinks as unknown as Prisma.InputJsonValue) : Prisma.DbNull }
+          : {}),
+        ...(cleanAudience !== undefined
+          ? { audience: cleanAudience ? (cleanAudience as unknown as Prisma.InputJsonValue) : Prisma.DbNull }
           : {}),
         ...(baseType ? { type: baseType } : {}),
         ...(registrationForm !== undefined ? { registrationForm: registrationForm ?? undefined } : {}),

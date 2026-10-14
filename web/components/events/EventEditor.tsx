@@ -19,6 +19,7 @@
 // (pricingModel, signupAccess, splitInvoiceWhen, sellIndividualSessions,
 // sessions[].price, sessions[].id). The API writes both vocabularies.
 
+import { audienceProblem, describeAudience, normalizeAudience } from "@/lib/eventAudience";
 import AutoDiscountsEditor, { autoDiscountsLine } from "@/components/events/AutoDiscountsEditor";
 import { parseAutoDiscounts, type AutoDiscounts } from "@/lib/eventAutoDiscounts";
 import { useEffect, useMemo, useState } from "react";
@@ -132,6 +133,8 @@ export type EditorEvent = {
   autoDiscounts?: unknown;
   cancellationPolicyText?: string | null;
   externalLinks?: unknown;
+  /** lib/eventAudience — who the event is for, on top of who can sign up. */
+  audience?: unknown;
   registrationLink?: string | null;
   paymentDueBy?: string | null;
   escalationEnabled?: boolean | null;
@@ -429,6 +432,23 @@ export default function EventEditor({
   // ── Staff ──
   const [staffUserIds, setStaffUserIds] = useState<string[]>((ev?.staffAssignments || []).map((a) => a.user.id));
 
+  // ── Who it's for (lib/eventAudience.ts) ──
+  const initAud = normalizeAudience(ev?.audience);
+  const [audMemberships, setAudMemberships] = useState<string[]>(initAud?.membershipIds ?? []);
+  const [audMin, setAudMin] = useState<string>(initAud?.minAge != null ? String(initAud.minAge) : "");
+  const [audMax, setAudMax] = useState<string>(initAud?.maxAge != null ? String(initAud.maxAge) : "");
+  const [audGenders, setAudGenders] = useState<string[]>(initAud?.genders ?? []);
+  const [audTags, setAudTags] = useState<string>((initAud?.tags ?? []).join(", "));
+  const audienceDraft = normalizeAudience({
+    membershipIds: audMemberships,
+    minAge: audMin.trim() === "" ? null : Number(audMin),
+    maxAge: audMax.trim() === "" ? null : Number(audMax),
+    genders: audGenders,
+    tags: audTags.split(",").map((t) => t.trim()).filter(Boolean),
+  });
+  const audienceLine = describeAudience(audienceDraft, (id) => memberships.find((m) => m.id === id)?.name ?? "a plan") ?? "Everyone who can sign up";
+  const toggleIn = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
+
   const [open, setOpen] = useState<Record<string, boolean>>({ basics: !isEdit || !!isCopy, schedule: !isEdit || !!isCopy, money: !isEdit, pay: !!isCopy });
   const toggle = (k: string) => setOpen((o) => ({ ...o, [k]: !o[k] }));
   const [error, setError] = useState("");
@@ -558,6 +578,10 @@ export default function EventEditor({
     const orphanLabel = links.find((l) => l.label.trim() && !l.url.trim());
     const linkIssue = orphanLabel ? `Add a web address for "${orphanLabel.label.trim()}", or remove that link.` : linkProblem(links);
     if (linkIssue) { setError(linkIssue); setOpen((o) => ({ ...o, basics: true })); return; }
+    const audIssue = (audMin.trim() !== "" && !/^\d{1,3}$/.test(audMin.trim())) || (audMax.trim() !== "" && !/^\d{1,3}$/.test(audMax.trim()))
+      ? "Ages must be whole numbers."
+      : audienceProblem(audienceDraft ?? {});
+    if (audIssue) { setError(audIssue); setOpen((o) => ({ ...o, audience: true })); return; }
     if (!exclusions.paymentMethodsLocked && exclusions.paymentMethods.length === 0) { setError("Pick at least one way to pay, or make the event free."); setOpen((o) => ({ ...o, pay: true })); return; }
     // Checked before the event is saved, so a bad roster never leaves a saved
     // event behind with no roster (and a second Save creating a duplicate).
@@ -583,6 +607,7 @@ export default function EventEditor({
       type, customEventTypeId, name,
       description: description || undefined,
       externalLinks: links.filter((l) => l.url.trim()).map((l) => ({ label: l.label.trim(), url: l.url.trim() })),
+      audience: audienceDraft,
       startsAt: new Date(startsAt).toISOString(),
       endsAt: new Date(endsAt).toISOString(),
       capacity: capacity ? parseInt(capacity) : null,
@@ -919,6 +944,42 @@ export default function EventEditor({
 
       <Card title="Discounts" summary={autoDiscountsLine(autoDiscounts)} open={!!open.discounts} onToggle={() => toggle("discounts")}>
         <AutoDiscountsEditor value={autoDiscounts} onChange={setAutoDiscounts} />
+      </Card>
+
+      <Card title="Who it's for" summary={audienceLine} open={!!open.audience} onToggle={() => toggle("audience")}>
+        <p className="text-[12px] text-text-muted">
+          Leave everything off and the event is for everyone who can sign up. Set any of these and only athletes who match
+          ALL of them see the event and can register; a family sees it when one of its athletes matches. Staff always see it.
+          The public link can&apos;t check this for a stranger, so families register from their account (a private share link still works).
+        </p>
+        {memberships.filter((m) => m.active).length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-text-primary mb-1">Members of</p>
+            <div className="flex flex-wrap gap-1.5">
+              {memberships.filter((m) => m.active).map((m) => (
+                <button key={m.id} type="button" aria-pressed={audMemberships.includes(m.id)} onClick={() => setAudMemberships((l) => toggleIn(l, m.id))}
+                  className={`px-3 py-2 rounded-full text-xs border min-h-[36px] ${audMemberships.includes(m.id) ? "border-brand bg-brand/10 text-brand font-medium" : "border-app-border text-text-primary"}`}>{m.name}</button>
+              ))}
+            </div>
+            <p className="text-[12px] text-text-muted mt-1">Any one of the ticked plans is enough.</p>
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2 max-w-xs">
+          <Field label="Youngest age"><input inputMode="numeric" value={audMin} onChange={(e) => setAudMin(e.target.value)} placeholder="Any" className={input} /></Field>
+          <Field label="Oldest age"><input inputMode="numeric" value={audMax} onChange={(e) => setAudMax(e.target.value)} placeholder="Any" className={input} /></Field>
+        </div>
+        <p className="text-[12px] text-text-muted -mt-1">Age on the event&apos;s first day, from the date of birth on file. An athlete with no date of birth doesn&apos;t match an age rule.</p>
+        <div>
+          <p className="text-xs font-medium text-text-primary mb-1">Gender</p>
+          <div className="flex flex-wrap gap-1.5">
+            {["Female", "Male"].map((g) => (
+              <button key={g} type="button" aria-pressed={audGenders.includes(g)} onClick={() => setAudGenders((l) => toggleIn(l, g))}
+                className={`px-3 py-2 rounded-full text-xs border min-h-[36px] ${audGenders.includes(g) ? "border-brand bg-brand/10 text-brand font-medium" : "border-app-border text-text-primary"}`}>{g}</button>
+            ))}
+          </div>
+        </div>
+        <Field label="Member tags (optional, comma-separated)"><input value={audTags} onChange={(e) => setAudTags(e.target.value)} placeholder="e.g. Competition team" className={input} /></Field>
+        {audienceDraft && <p className="text-[12px] text-text-primary">Families will see: “For {audienceLine}”.</p>}
       </Card>
 
       <Card title="Who signs up, and how" summary={accessLine} open={!!open.access} onToggle={() => toggle("access")}>

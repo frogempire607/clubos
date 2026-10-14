@@ -7,6 +7,7 @@ import { rosterForSignup } from "@/lib/eventRosterServer";
 import { autoDiscountView } from "@/lib/eventAutoDiscounts";
 import { resolveEventPolicy } from "@/lib/eventPayments";
 import { eventLinksForRead } from "@/lib/eventLinks";
+import { athleteMatches, describeAudience, normalizeAudience } from "@/lib/eventAudience";
 
 // GET /api/member/events
 // Upcoming events visible to members. Filters out STAFF_ONLY visibility,
@@ -69,9 +70,30 @@ export async function GET(req: Request) {
   // will actually charge. Drives member vs non-member event pricing.
   const isActiveMember = subscriptions.length > 0;
 
+  // Event audience (lib/eventAudience.ts): an event with one is listed only
+  // when an athlete this login can act for is someone it's for.
+  const audienced = events.filter((e) => normalizeAudience(e.audience));
+  const ids = accessible.map((a: { id: string }) => a.id);
+  const [facts, famSubs, plans] = audienced.length && ids.length
+    ? await Promise.all([
+        prisma.member.findMany({ where: { id: { in: ids }, clubId: session.user.clubId }, select: { id: true, dateOfBirth: true, gender: true, tags: true } }),
+        prisma.memberSubscription.findMany({ where: { memberId: { in: ids }, status: "active" }, select: { memberId: true, membershipId: true } }),
+        prisma.membership.findMany({ where: { clubId: session.user.clubId, id: { in: audienced.flatMap((e) => normalizeAudience(e.audience)?.membershipIds ?? []) } }, select: { id: true, name: true } }),
+      ])
+    : [[], [], []];
+  const planName = (id: string) => plans.find((p) => p.id === id)?.name ?? "selected";
+  const fitsSomeone = (e: (typeof events)[number]) => {
+    const aud = normalizeAudience(e.audience);
+    if (!aud) return true;
+    return facts.some((f) => athleteMatches(aud, {
+      dateOfBirth: f.dateOfBirth, gender: f.gender, tags: f.tags,
+      activeMembershipIds: famSubs.filter((s) => s.memberId === f.id).map((s) => s.membershipId),
+    }, e.startsAt, planName).ok);
+  };
+
   // B16 — the roster families pick a spot from: labels and open counts only.
   const withRoster = await Promise.all(
-    events.map(async (e) => {
+    events.filter(fitsSomeone).map(async (e) => {
       // The type's policy decides approval; it's resolved here and not sent.
       const approvalGated = resolveEventPolicy(e).requiresCoachApproval;
       const customEventType = e.customEventType
@@ -86,6 +108,7 @@ export async function GET(req: Request) {
         autoDiscounts: autoDiscountView(e.autoDiscounts),
         // Labeled outside links, normalized (old registrationLink included).
         externalLinks: eventLinksForRead(e),
+        audienceLabel: describeAudience(normalizeAudience(e.audience), planName),
       };
     }),
   );

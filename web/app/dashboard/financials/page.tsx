@@ -16,6 +16,11 @@ import {
 import { REPORT_TYPES, REPORT_LABELS, type ReportType } from "@/lib/financialReportTypes";
 import { todayLocalISO } from "@/lib/datetime";
 import PageHeader from "@/components/PageHeader";
+import { useSession } from "next-auth/react";
+import { hasPermission } from "@/lib/permissions";
+import BankAccountsCard from "@/components/financials/BankAccountsCard";
+import ReceiptsTab from "@/components/financials/ReceiptsTab";
+import ImportTab from "@/components/financials/ImportTab";
 import { SkeletonList, SkeletonCard } from "@/components/LoadingSkeleton";
 
 type Entity = { id: string; name: string; entityType: string };
@@ -63,6 +68,8 @@ type Donation = {
 type BankAccount = { account_id: string; name: string; type: string; subtype: string; balances: { available: number | null; current: number | null; iso_currency_code: string }; connectionId?: string; connectionLabel?: string };
 type BankTx = {
   id?: string; // PlaidTransaction row id (server-side identifier)
+  source?: string; // PLAID | QUICKBOOKS
+  receipts?: { id: string; fileName: string; url: string }[];
   transaction_id: string;
   date: string;
   name: string;
@@ -107,6 +114,8 @@ const TABS = [
   { key: "stripe", label: "Stripe" },
   { key: "offline", label: "Cash & Offline" },
   { key: "bank", label: "Bank" },
+  { key: "receipts", label: "Receipts" },
+  { key: "import", label: "Import" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
@@ -150,6 +159,10 @@ export default function FinancialsPage() {
     },
     [router],
   );
+  const { data: session } = useSession();
+  const perms = (session?.user as { permissions?: Record<string, unknown> | null } | undefined)?.permissions ?? null;
+  // The server checks every write; this only hides buttons that would be refused.
+  const canEditMoney = session?.user?.role === "OWNER" || hasPermission(perms, "finances", "full");
   const [entities, setEntities] = useState<Entity[]>([]);
   const [entity, setEntity] = useState("all");
   const [preset, setPreset] = useState("ytd");
@@ -243,7 +256,9 @@ export default function FinancialsPage() {
       {tab === "tax" && <TaxSummaryTab qs={qs} />}
       {tab === "stripe" && <StripeTab qs={qs} initialUnreconciledOnly={show === "unreconciled"} />}
       {tab === "offline" && <CashOfflineTab qs={qs} entities={entities} initialAwaitingOnly={show === "awaiting"} />}
-      {tab === "bank" && <BankTab initialNeedsReviewOnly={show === "review"} />}
+      {tab === "bank" && <BankTab initialNeedsReviewOnly={show === "review"} entity={entity} canEdit={canEditMoney} />}
+      {tab === "receipts" && <ReceiptsTab canEdit={canEditMoney} />}
+      {tab === "import" && <ImportTab canEdit={canEditMoney} />}
     </div>
   );
 }
@@ -1531,7 +1546,7 @@ type BankDataV2 = {
   pagination?: { total: number; page: number; pageSize: number };
 };
 
-function BankTab({ initialNeedsReviewOnly = false }: { initialNeedsReviewOnly?: boolean }) {
+function BankTab({ initialNeedsReviewOnly = false, entity = "all", canEdit = false }: { initialNeedsReviewOnly?: boolean; entity?: string; canEdit?: boolean }) {
   const [bankData, setBankData] = useState<BankDataV2 | null>(null);
   const [loading, setLoading] = useState(true);
   // Deep-link focus from the UNCATEGORIZED_LARGE_BANK Action Item / Alert:
@@ -1562,6 +1577,7 @@ function BankTab({ initialNeedsReviewOnly = false }: { initialNeedsReviewOnly?: 
   ) {
     const params = new URLSearchParams();
     if (filterId) params.set("connectionId", filterId);
+    if (entity && entity !== "all") params.set("entity", entity);
     params.set("range", rangeKey);
     if (rangeKey === "custom") {
       if (customFrom) params.set("from", customFrom);
@@ -1577,7 +1593,7 @@ function BankTab({ initialNeedsReviewOnly = false }: { initialNeedsReviewOnly?: 
     }
     setLoading(false);
   }
-  useEffect(() => { loadBankData(null, range, 1); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { loadBankData(connectionFilter, range, 1); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [entity]);
 
   function applyRange(next: BankRange) {
     setRange(next);
@@ -1728,6 +1744,7 @@ function BankTab({ initialNeedsReviewOnly = false }: { initialNeedsReviewOnly?: 
   });
   return (
     <>
+      <BankAccountsCard canEdit={canEdit} onChanged={() => loadBankData(connectionFilter, range, page)} />
       {/* Per-bank manager — list of connected accounts with rename /
           disconnect, plus an "Add another bank" CTA. Filtering happens via
           the dropdown below so adding doesn't reset the user's view. */}
@@ -1978,6 +1995,10 @@ function BankRow({ tx, onReload }: { tx: BankTx; onReload: () => void }) {
         <Td>
           <div>
             <span className="text-sm text-text-primary">{tx.name}</span>
+            {tx.source === "QUICKBOOKS" && <span className="ml-1.5 rounded bg-app-bg px-1.5 py-0.5 text-[12px] text-text-muted">from QuickBooks</span>}
+            {(tx.receipts ?? []).map((r) => (
+              <a key={r.id} href={r.url} target="_blank" rel="noreferrer" title={r.fileName} className="ml-1.5 text-[12px] text-brand hover:underline">Receipt ↗</a>
+            ))}
             {tx.merchantName && tx.merchantName !== tx.name && (
               <span className="text-[12px] text-text-muted block">{tx.merchantName}</span>
             )}

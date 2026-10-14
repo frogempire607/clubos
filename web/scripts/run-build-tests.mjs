@@ -110,6 +110,7 @@ export const GATED = [
   ["scripts/pay-ledger-server-tests.ts"],
   ["scripts/schedule-feeds-pay-tests.ts"],
   ["scripts/email-queue-tests.ts"],
+  ["scripts/finance-entities-tests.ts"],
   ["scripts/permission-behaviour-tests.ts"],
   ["scripts/staff-authz-tests.ts"],
   // communication, reports, nav, platform
