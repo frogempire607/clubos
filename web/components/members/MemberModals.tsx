@@ -1412,6 +1412,11 @@ export function PurchaseMembershipModal({ member, onClose }: { member: Member; o
   // Eligible-discount dropdown, refetched per selected plan (null = loading).
   const [eligibleDiscounts, setEligibleDiscounts] = useState<EligibleDiscount[] | null>(null);
   const [emailReceipt, setEmailReceipt] = useState(false);
+  // Card checkout + a free trial that would apply: charge at checkout (the
+  // default for staff-started purchases — a family buying through the club
+  // expects to pay) or wait until the trial is over.
+  const [purchaseTrial, setPurchaseTrial] = useState<{ kind: "DAYS" | "WINDOW"; days: number; firstChargeAt: string } | null>(null);
+  const [chargeTiming, setChargeTiming] = useState<"TODAY" | "AFTER_TRIAL">("TODAY");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -1451,6 +1456,18 @@ export function PurchaseMembershipModal({ member, onClose }: { member: Member; o
     };
   }, [selectedMembership]);
 
+  useEffect(() => {
+    setPurchaseTrial(null);
+    setChargeTiming("TODAY");
+    if (!selectedMembership) return;
+    let cancelled = false;
+    fetch(`/api/members/${encodeURIComponent(member.id)}/purchase-trial?membershipId=${encodeURIComponent(selectedMembership)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) setPurchaseTrial(d?.trial ?? null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedMembership, member.id]);
+
   const currentMembership = memberships.find((m) => m.id === selectedMembership);
   const options: Option[] = (() => { try { return JSON.parse(currentMembership?.options || "[]"); } catch { return []; } })();
   const selectedOptionObj = options.find((o) => o.label === selectedOption);
@@ -1487,6 +1504,7 @@ export function PurchaseMembershipModal({ member, onClose }: { member: Member; o
         membershipId: selectedMembership,
         optionLabel: selectedOption,
         billingType: resolvedBillingType,
+        chargeTiming,
         autoRenew: resolvedBillingType === "MANUAL" ? false : autoRenew,
         startDate: startDate || null,
         endDate: endDate || null,
@@ -1597,6 +1615,28 @@ export function PurchaseMembershipModal({ member, onClose }: { member: Member; o
                       <button type="button" onClick={() => setAutoRenew(!autoRenew)} className={`relative inline-flex h-5 w-9 rounded-full transition ${autoRenew ? "bg-brand" : "bg-app-border"}`}>
                         <span className={`inline-block h-4 w-4 rounded-full bg-surface shadow transition-transform mt-0.5 ${autoRenew ? "translate-x-4" : "translate-x-0.5"}`} />
                       </button>
+                    </div>
+                  )}
+
+                  {billingType === "RECURRING" && !isOneTime && purchaseTrial && (
+                    <div className="border border-app-border rounded-lg px-3 py-2.5" data-testid="staff-charge-timing">
+                      <p className="text-sm font-medium text-text-primary mb-1.5">First card charge</p>
+                      {([
+                        { v: "TODAY" as const, title: "Charge at checkout", sub: "Skips the free trial — the membership is paid from today." },
+                        {
+                          v: "AFTER_TRIAL" as const,
+                          title: purchaseTrial.kind === "WINDOW" ? "When their free trial ends" : `After the ${purchaseTrial.days}-day free trial`,
+                          sub: `First charge ${new Date(purchaseTrial.firstChargeAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}.`,
+                        },
+                      ]).map((c) => (
+                        <label key={c.v} className="flex items-start gap-2 py-1 cursor-pointer">
+                          <input type="radio" name="charge-timing" className="mt-1" checked={chargeTiming === c.v} onChange={() => setChargeTiming(c.v)} />
+                          <span>
+                            <span className="block text-sm text-text-primary">{c.title}</span>
+                            <span className="block text-xs text-text-muted">{c.sub}</span>
+                          </span>
+                        </label>
+                      ))}
                     </div>
                   )}
 

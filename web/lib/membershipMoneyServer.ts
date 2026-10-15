@@ -10,6 +10,7 @@
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
+import { setStripeStop } from "@/lib/stripeStop";
 import { recurringUnitWithFee } from "@/lib/fees";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
@@ -535,7 +536,7 @@ export async function setAutoRenewFromPanel(input: {
     try {
       if (row.stripeSubscriptionId) {
         if (input.on) {
-          await stripe.subscriptions.update(row.stripeSubscriptionId, { cancel_at_period_end: false, cancel_at: "" }, { stripeAccount: club!.stripeAccountId! });
+          await setStripeStop({ subscriptionId: row.stripeSubscriptionId, stripeAccount: club!.stripeAccountId!, stopAt: null });
           endsAt = null;
         } else {
           endsAt = await applyNonRenewal(row.stripeSubscriptionId, club!.stripeAccountId!, planNonRenewal(nr, now));

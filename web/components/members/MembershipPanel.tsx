@@ -21,7 +21,7 @@ import type { PanelView, PanelAction } from "@/lib/membershipPanel";
 import AssignDiscount, { useAssignQuote } from "./AssignDiscount";
 import { offerChargePlan } from "@/lib/membershipAssignQuote";
 import { assignChargeChoices, defaultAssignChargeChoice, assignChargePlan, cashNextDueLine, type AssignChargeChoice } from "@/lib/chargeDate";
-import { MoneySummary, MoneyActions, PaymentsList, PaidSheet, WaiveSheet, SwitchSheet, RefundSheet, AutoRenewSheet, CommitSheet, ChargeDateSheet, type MoneyPayload, type MoneySheet } from "./MembershipMoney";
+import { MoneySummary, MoneyActions, PaymentsList, PaidSheet, WaiveSheet, SwitchSheet, RefundSheet, AutoRenewSheet, CommitSheet, ChargeDateSheet, EndTrialSheet, type MoneyPayload, type MoneySheet } from "./MembershipMoney";
 
 // ── Payload (mirrors the route) ──────────────────────────────────────────────
 
@@ -352,6 +352,7 @@ export default function MembershipPanel({
         if (moneySheet === "autorenew") return <AutoRenewSheet {...sp} />;
         if (moneySheet === "commit") return <CommitSheet {...sp} />;
         if (moneySheet === "chargeDate") return <ChargeDateSheet {...sp} />;
+        if (moneySheet === "endTrial") return <EndTrialSheet {...sp} />;
         return <RefundSheet {...sp} payment={moneySheet.refund} />;
       })()}
       {dialog === "cancel_setup" && (

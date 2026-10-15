@@ -33,12 +33,14 @@ export type MoneyPayload = {
     | { state: "MISSING"; text: string; suggestedStart: string; suggestedEnd: string; months: number }
     | { state: "ACTIVE" | "DONE"; text: string; end: string; then: "renews" | "ends"; progress: string | null };
   skippedChargeAt: string | null;
+  /** Stripe free trial with nothing paid yet — "Charge now instead" ends it. */
+  freeTrial?: { endsAt: string; amount: number } | null;
   autoRenew: { on: boolean; nowText: string; toggle: { endsAt: string | null; sentence: string; blocked?: boolean } };
   payments: MoneyPayment[];
   history: { id: string; at: string; text: string }[];
 };
 
-export type MoneySheet = null | "paid" | "waive" | "switch" | "autorenew" | "commit" | "chargeDate" | { refund: MoneyPayment };
+export type MoneySheet = null | "paid" | "waive" | "switch" | "autorenew" | "commit" | "chargeDate" | "endTrial" | { refund: MoneyPayment };
 
 const fmt = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—");
 const fmtS = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }) : "—");
@@ -132,6 +134,9 @@ export function MoneyActions({ m, onOpen, disabled }: { m: MoneyPayload; onOpen:
         { key: "chargeDate", label: "Change due date", sub: next ? `Next payment due ${next} — give them more time.` : "Set when the next payment is due." },
         { key: "switch", label: "Switch to automatic payments", sub: "Charge their saved card or Cash App from when the cash runs out." },
       ];
+  if (m.freeTrial) {
+    items.unshift({ key: "endTrial", label: "Charge now instead of after the free trial", sub: `In a free trial — first charge ${fmtS(m.freeTrial.endsAt)}. End the trial and charge ${money2(m.freeTrial.amount)} today.` });
+  }
   return (
     <div className="mt-3">
       <div className="text-[12px] font-semibold uppercase tracking-wide text-text-muted mb-1.5">Payments</div>
@@ -420,6 +425,23 @@ export function ChargeDateSheet({ memberId, first, headline, m, onClose, onDone 
         <PreviewBox p={p} label={m.hasStripe ? "Stripe" : "Billing"} />
       )}
       {m.hasStripe && <p className="mt-2 text-[12.5px] text-text-muted">Can&apos;t be earlier than what they&apos;ve already paid for — use Refund or Waive a payment for that.</p>}
+      <ErrLine err={err} />
+    </AppSheet>
+  );
+}
+
+/** End a real free trial early: Stripe charges the first period today. */
+export function EndTrialSheet({ memberId, first, headline, m, onClose, onDone }: SheetProps) {
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const t = m.freeTrial;
+  if (!t) return null;
+  return (
+    <AppSheet open onClose={onClose} title="Charge now instead" description={`${first} · ${headline}`}
+      footer={<><button type="button" className={btn} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className={btnP} disabled={busy} onClick={() => commit(`/api/members/${memberId}/billing-admin/actions`, { action: "end_trial_now", subscriptionId: m.subscriptionId, confirmImmediateCharge: true }, setBusy, setErr, onDone)}>{busy ? "Charging…" : `Charge ${money2(t.amount)} now`}</button></>}>
+      <div className="mt-1 rounded-xl bg-app-bg px-3 py-2.5 text-sm text-text-primary">
+        The free trial ends now instead of {fmt(t.endsAt)}. {first}&apos;s card{m.pmLabel ? ` (${m.pmLabel})` : ""} is charged <b>{money2(t.amount)}</b> today, and it renews from today.
+      </div>
+      <div className="mt-2 rounded-xl border border-info-border bg-info-surface px-3 py-2 text-[13px] text-text-primary"><b>Stripe:</b> ends the trial and charges the first period immediately. If the card is declined, the membership shows as past due.</div>
       <ErrLine err={err} />
     </AppSheet>
   );

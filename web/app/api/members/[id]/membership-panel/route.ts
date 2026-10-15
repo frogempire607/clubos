@@ -279,6 +279,16 @@ async function buildMoney(
     paidThrough: cur.hasStripe ? (cur.paidThroughDate && cur.paidThroughDate > (m.currentPeriodEnd ?? new Date(0)) ? cur.paidThroughDate : m.currentPeriodEnd) : cur.paidThroughDate,
     commitment,
     skippedChargeAt: live?.skipAt ?? null,
+    // A real free trial: Stripe says trialing and nothing has ever been paid
+    // for it. ("Change charge date" also uses Stripe's trial on PAYING
+    // members — those carry a paid-through date and are not offered "end the
+    // trial", which would charge them twice. The action re-checks Stripe's
+    // own invoices for this subscription before charging.)
+    freeTrial:
+      live?.status === "trialing" && live.nextInvoiceAt && live.nextInvoiceAt > now
+      && !(cur.paidThroughDate && cur.paidThroughDate > now)
+        ? { endsAt: live.nextInvoiceAt, amount: charge }
+        : null,
     autoRenew: { on: renews, nowText: renewsText(m, renews), toggle: toggle.ok ? { endsAt: toggle.endsAt, sentence: toggle.sentence } : { endsAt: null, sentence: toggle.error, blocked: true } },
     payments: txs.slice(0, 6).map((t) => {
       const src = (t.paymentSource ?? (t.manual ? t.paymentMethod : "STRIPE") ?? "").toUpperCase();

@@ -19,6 +19,7 @@
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
+import { setStripeStop } from "@/lib/stripeStop";
 import { billingPeriodToStripeInterval } from "@/lib/stripe";
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
 import { parseOptions, resolveTerms, type MembershipOption } from "@/lib/membershipOptions";
@@ -236,20 +237,23 @@ export async function commitPlanChange(input: PlanChangeInput & { actorUserId: s
 
   let updated: Stripe.Subscription;
   try {
-    updated = await stripe.subscriptions.update(
-      sub.id,
-      {
+    // The stop date is explicit either way (a member moving OFF a fixed term
+    // must stop being cut off on the old date), but sent through
+    // lib/stripeStop: Stripe refuses cancel_at and cancel_at_period_end in
+    // the same update.
+    updated = await setStripeStop({
+      subscriptionId: sub.id,
+      stripeAccount: club.stripeAccountId,
+      stopAt: cancelAtUnix,
+      live: sub,
+      extra: {
         items: [{ id: item.id, price_data: { currency: "usd", product: productId, unit_amount: unitAmount, recurring: interval } }],
         // The new price starts on the next invoice. Nothing mid-cycle.
         proration_behavior: "none",
-        // Explicit either way: a member moving OFF a fixed term must stop
-        // being cut off on the old date.
-        cancel_at: cancelAtUnix ?? "",
-        cancel_at_period_end: false,
         metadata: { ...(sub.metadata ?? {}), memberSubscriptionId: row.id, memberId: row.memberId, optionId: option.id ?? "", planChangedAt: new Date().toISOString() },
       },
-      { stripeAccount: club.stripeAccountId, idempotencyKey: `aox-plan-change-${row.id}-${option.id}-${unitAmount}-${cancelAtUnix ?? 0}-${sub.current_period_end}` },
-    );
+      idempotencyKey: `aox-plan-change-${row.id}-${option.id}-${unitAmount}-${cancelAtUnix ?? 0}-${sub.current_period_end}`,
+    });
   } catch (e) {
     return { ok: false, code: "STRIPE_FAILED", error: `Stripe rejected the change — nothing was saved: ${String(e)}`, status: 502 };
   }
@@ -557,11 +561,14 @@ async function commitSwitch(input: PlanChangeInput & { actorUserId: string }): P
   // Step 2 — the current subscription ends on the switch date. No proration:
   // its last period is paid for and stays that way.
   try {
-    await stripe.subscriptions.update(
-      sub.id,
-      { cancel_at: effUnix, cancel_at_period_end: false, proration_behavior: "none" },
-      { stripeAccount: club.stripeAccountId, idempotencyKey: `aox-switch-end-${row.id}-${effUnix}-${created.stripeSubscriptionId}` },
-    );
+    await setStripeStop({
+      subscriptionId: sub.id,
+      stripeAccount: club.stripeAccountId,
+      stopAt: effUnix,
+      live: sub,
+      extra: { proration_behavior: "none" },
+      idempotencyKey: `aox-switch-end-${row.id}-${effUnix}-${created.stripeSubscriptionId}`,
+    });
   } catch (e) {
     // Undo step 1. It is trialing and has charged nothing.
     let undone = true;

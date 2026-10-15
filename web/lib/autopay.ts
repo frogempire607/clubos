@@ -32,6 +32,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
+import { setStripeStop } from "@/lib/stripeStop";
 import { recurringUnitWithFee } from "@/lib/fees";
 import { billingPeriodToStripeInterval } from "@/lib/stripe";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
@@ -471,11 +472,9 @@ export async function setAutoRenew(
         // Renewal back ON: clear BOTH ways a stop can be scheduled. A row that
         // was stopped at a term end carries `cancel_at`, and clearing only
         // `cancel_at_period_end` would leave it silently still ending.
-        await stripe.subscriptions.update(
-          sub.stripeSubscriptionId,
-          { cancel_at_period_end: false, cancel_at: null },
-          { stripeAccount: acct },
-        );
+        // (Stripe refuses an update that names both — lib/stripeStop sends
+        // only the one the live subscription actually has.)
+        await setStripeStop({ subscriptionId: sub.stripeSubscriptionId, stripeAccount: acct, stopAt: null });
         endsAt = null;
       } else {
         endsAt = await applyNonRenewal(

@@ -16,6 +16,7 @@ import {
   SUBSCRIPTION_EVENT_SOURCE,
 } from "@/lib/subscriptionEvents";
 import { stripe } from "@/lib/stripe";
+import { setStripeStop } from "@/lib/stripeStop";
 import { createSavedCardSubscription } from "@/lib/cardActivation";
 import { resolveDraftOptionId, addUTCMonths } from "@/lib/billingAdmin";
 import { minimumTermEndForOptionId, parseOptions, resolveTerms } from "@/lib/membershipOptions";
@@ -57,6 +58,8 @@ const schema = z.object({
     "set_dates",
     // B13 slice 3 — one Change plan for every row (SAME_INTERVAL / SWITCH / OFFLINE)
     "change_plan",
+    // 2026-10-15 — a family in a free trial who wants to pay now.
+    "end_trial_now",
   ]),
   confirm: z.literal(true, { errorMap: () => ({ message: "This action requires explicit confirmation." }) }),
   // reassign_subscription:
@@ -441,6 +444,54 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // rows: the end date becomes the paid-through date and the expiry sweep
   // does the rest. Recorded as CANCELED dated the effective day, so Reports
   // count the churn in the month it happens, not the month it was decided.
+  // end_trial_now — the family is in a Stripe free trial (first charge later)
+  // and wants to pay today. Ends the trial; Stripe invoices and charges the
+  // first period immediately. Refused unless it is a REAL free trial: "Change
+  // charge date" also parks paying members in Stripe's trial state, and ending
+  // that early would charge them for time they already paid for.
+  if (data.action === "end_trial_now") {
+    if (!data.subscriptionId) return NextResponse.json({ error: "subscriptionId is required." }, { status: 400 });
+    if (data.confirmImmediateCharge !== true) return NextResponse.json({ error: "Confirm the charge first." }, { status: 400 });
+    const row = await prisma.memberSubscription.findFirst({
+      where: { id: data.subscriptionId, memberId: member.id, status: { in: ["active", "past_due"] } },
+      select: { id: true, optionLabel: true, price: true, stripeSubscriptionId: true, paidThroughDate: true },
+    });
+    if (!row) return NextResponse.json({ error: "No live membership to change." }, { status: 404 });
+    if (!row.stripeSubscriptionId) return NextResponse.json({ error: "This membership isn't billed by card." }, { status: 409 });
+    if (row.paidThroughDate && row.paidThroughDate.getTime() > Date.now()) {
+      return NextResponse.json({ error: "They're paid through a later date — this isn't a free trial. Use Change charge date instead.", code: "NOT_FREE_TRIAL" }, { status: 409 });
+    }
+    const club = await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { stripeAccountId: true } });
+    if (!club?.stripeAccountId) return NextResponse.json({ error: "Stripe isn't connected for this club." }, { status: 409 });
+    let trialEnd: Date | null = null;
+    try {
+      const live = await stripe.subscriptions.retrieve(row.stripeSubscriptionId, {}, { stripeAccount: club.stripeAccountId });
+      if (live.status !== "trialing" || !live.trial_end) {
+        return NextResponse.json({ error: `Stripe shows this membership as ${live.status}, not in a free trial — nothing to end.`, code: "NOT_TRIALING" }, { status: 409 });
+      }
+      trialEnd = new Date(live.trial_end * 1000);
+      const paid = await stripe.invoices.list({ subscription: row.stripeSubscriptionId, status: "paid", limit: 10 }, { stripeAccount: club.stripeAccountId });
+      if (paid.data.some((inv) => (inv.amount_paid ?? 0) > 0)) {
+        return NextResponse.json({ error: "Stripe has already collected a payment on this membership — the later date is a moved charge date, not a free trial. Use Change charge date instead.", code: "NOT_FREE_TRIAL" }, { status: 409 });
+      }
+      await stripe.subscriptions.update(
+        row.stripeSubscriptionId,
+        { trial_end: "now", proration_behavior: "none" },
+        { stripeAccount: club.stripeAccountId, idempotencyKey: `aox-end-trial-${row.id}-${live.trial_end}` },
+      );
+    } catch (e) {
+      return NextResponse.json({ error: `Stripe rejected the change — nothing was charged: ${String(e)}` }, { status: 502 });
+    }
+    await writeBillingAudit({
+      clubId: session.user.clubId, memberId: member.id, actorUserId: session.user.id,
+      action: "TRIAL_ENDED_EARLY",
+      before: { trialEndsAt: trialEnd?.toISOString() ?? null },
+      after: { chargedFrom: new Date().toISOString() },
+      note: `"${row.optionLabel}" free trial ended early at the family's request — Stripe charges the first period today instead of ${trialEnd ? trialEnd.toISOString().slice(0, 10) : "later"}.`,
+    });
+    return NextResponse.json({ ok: true, message: `Free trial ended — Stripe is charging ${member.firstName}'s card now. It shows under Recent payments in a minute.` });
+  }
+
   if (data.action === "cancel_at_period_end" || data.action === "keep_membership") {
     if (!data.subscriptionId) return NextResponse.json({ error: "subscriptionId is required." }, { status: 400 });
     const row = await prisma.memberSubscription.findFirst({
@@ -459,11 +510,20 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           return NextResponse.json({ error: `Stripe shows this subscription as ${live.status} — nothing live to ${keep ? "keep" : "cancel"}. Run a sync.`, code: "NOT_LIVE" }, { status: 409 });
         }
         effective = new Date(((live.status === "trialing" && live.trial_end) || live.current_period_end) * 1000);
-        await stripe.subscriptions.update(
-          row.stripeSubscriptionId,
-          keep ? { cancel_at_period_end: false, cancel_at: "" } : { cancel_at_period_end: true, metadata: { ...(live.metadata ?? {}), cancelReason: data.cancelReason ?? "" } },
-          { stripeAccount: club.stripeAccountId },
-        );
+        if (keep) {
+          await setStripeStop({ subscriptionId: row.stripeSubscriptionId, stripeAccount: club.stripeAccountId, stopAt: null, live });
+        } else {
+          // A date set earlier (cancel_at) must be cleared first — Stripe
+          // refuses an update naming both.
+          if (live.cancel_at && !live.cancel_at_period_end) {
+            await stripe.subscriptions.update(row.stripeSubscriptionId, { cancel_at: "" }, { stripeAccount: club.stripeAccountId });
+          }
+          await stripe.subscriptions.update(
+            row.stripeSubscriptionId,
+            { cancel_at_period_end: true, metadata: { ...(live.metadata ?? {}), cancelReason: data.cancelReason ?? "" } },
+            { stripeAccount: club.stripeAccountId },
+          );
+        }
       } catch (e) {
         return NextResponse.json({ error: `Stripe rejected the change — nothing was saved: ${String(e)}` }, { status: 502 });
       }
@@ -533,13 +593,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       if (!club?.stripeAccountId) return NextResponse.json({ error: "Stripe isn't connected for this club." }, { status: 409 });
       try {
         const end = resolved.next.endDate;
-        await stripe.subscriptions.update(
-          row.stripeSubscriptionId,
-          end && end.getTime() > Date.now() + 60_000
-            ? { cancel_at: Math.floor(end.getTime() / 1000), cancel_at_period_end: false }
-            : { cancel_at: "", cancel_at_period_end: false },
-          { stripeAccount: club.stripeAccountId },
-        );
+        await setStripeStop({
+          subscriptionId: row.stripeSubscriptionId,
+          stripeAccount: club.stripeAccountId,
+          stopAt: end && end.getTime() > Date.now() + 60_000 ? end : null,
+        });
       } catch (e) {
         return NextResponse.json({ error: `Stripe rejected the date — nothing was saved: ${String(e)}` }, { status: 502 });
       }

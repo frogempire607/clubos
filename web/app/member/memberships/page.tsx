@@ -18,6 +18,8 @@ type Membership = {
   trialDays: number | null;
   trialAppliesToReturning: boolean;
 };
+type TrialInfo = { kind: "DAYS" | "WINDOW"; days: number; firstChargeAt: string };
+const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 type ActiveSub = { id: string; membershipId: string; optionLabel: string; status: string };
 
 const periodLabel: Record<string, string> = {
@@ -43,6 +45,10 @@ export default function MemberMembershipsPage() {
   // Option key currently showing the card / cash-check payment choice.
   const [choosingKey, setChoosingKey] = useState<string | null>(null);
   const [discountCode, setDiscountCode] = useState("");
+  // Pay today, or when the free trial is over — asked whenever a trial would
+  // apply, so nobody is surprised by a charge (or by the lack of one).
+  const [trialByMember, setTrialByMember] = useState<Record<string, Record<string, TrialInfo | null>>>({});
+  const [chargeTiming, setChargeTiming] = useState<"TODAY" | "AFTER_TRIAL" | null>(null);
   // B3 slice 2 — memberId → "planId:optionLabel" → the sibling price.
   const [siblingByMember, setSiblingByMember] = useState<Record<string, Record<string, { label: string; price: number }>>>({});
 
@@ -61,6 +67,7 @@ export default function MemberMembershipsPage() {
           setMemberships(d.memberships || []);
           setActiveByMember(d.activeByMember || {});
           setSiblingByMember(d.siblingByMember || {});
+          setTrialByMember(d.trialByMember || {});
           setAccessible(d.accessible || []);
           if (!keepSelection) setSelectedMemberId(d.defaultMemberId ?? d.accessible?.[0]?.id ?? null);
           setHasMemberProfile(d.hasMemberProfile);
@@ -122,7 +129,7 @@ export default function MemberMembershipsPage() {
     const res = await fetch("/api/member/memberships/subscribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ membershipId, optionLabel, memberId: selectedMemberId, paymentMethod, discountCode: discountCode.trim() || null }),
+      body: JSON.stringify({ membershipId, optionLabel, memberId: selectedMemberId, paymentMethod, discountCode: discountCode.trim() || null, ...(chargeTiming ? { chargeTiming } : {}) }),
     });
     const d = await res.json().catch(() => ({}));
     // Cash/check (and parental-approval) requests queue instead of redirecting.
@@ -335,7 +342,7 @@ export default function MemberMembershipsPage() {
                             </div>
                             <button
                               disabled={!hasMemberProfile || submitting === key}
-                              onClick={() => setChoosingKey(choosing ? null : key)}
+                              onClick={() => { setChoosingKey(choosing ? null : key); setChargeTiming(null); }}
                               className="px-3 py-1.5 bg-stone-900 text-white rounded-lg text-xs font-medium hover:bg-stone-700 disabled:opacity-50 flex-shrink-0"
                             >
                               {submitting === key ? "Starting…" : "Subscribe"}
@@ -350,10 +357,37 @@ export default function MemberMembershipsPage() {
                                 placeholder="Discount code (optional)"
                                 className="w-full mb-2 px-2.5 py-1.5 border border-stone-200 rounded-lg text-xs font-mono uppercase placeholder:font-sans placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-stone-400"
                               />
+                              {(() => {
+                                const t = o.billingPeriod !== "ONE_TIME" && selectedMemberId ? trialByMember[selectedMemberId]?.[m.id] ?? null : null;
+                                if (!t) return null;
+                                const choices: { v: "TODAY" | "AFTER_TRIAL"; title: string; sub: string }[] = [
+                                  { v: "TODAY", title: "Pay today", sub: "Your card is charged at checkout and the membership starts now." },
+                                  t.kind === "WINDOW"
+                                    ? { v: "AFTER_TRIAL", title: "Pay when my free trial ends", sub: `Your free trial runs until ${shortDate(t.firstChargeAt)} — the first charge is that day.` }
+                                    : { v: "AFTER_TRIAL", title: `Start with the ${t.days}-day free trial`, sub: `Nothing today — the first charge is ${shortDate(t.firstChargeAt)}.` },
+                                ];
+                                return (
+                                  <div className="mb-2" data-testid="charge-timing">
+                                    <p className="text-xs text-stone-600 font-medium mb-1.5">Paying by card — when should we charge it?</p>
+                                    <div className="space-y-1.5">
+                                      {choices.map((c) => (
+                                        <label key={c.v} className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 cursor-pointer ${chargeTiming === c.v ? "border-stone-900 bg-stone-50" : "border-stone-200"}`}>
+                                          <input type="radio" name={`timing-${key}`} className="mt-0.5" checked={chargeTiming === c.v} onChange={() => setChargeTiming(c.v)} />
+                                          <span>
+                                            <span className="block text-sm font-medium text-stone-900">{c.title}</span>
+                                            <span className="block text-xs text-stone-500">{c.sub}</span>
+                                          </span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                               <p className="text-[11px] text-stone-500 mb-1.5">How will you pay?</p>
                               <div className="grid grid-cols-3 gap-2">
                                 <button
-                                  disabled={submitting === key}
+                                  disabled={submitting === key || (o.billingPeriod !== "ONE_TIME" && !!selectedMemberId && !!trialByMember[selectedMemberId]?.[m.id] && !chargeTiming)}
+                                  title={o.billingPeriod !== "ONE_TIME" && !!selectedMemberId && !!trialByMember[selectedMemberId]?.[m.id] && !chargeTiming ? "Choose when to charge the card first" : undefined}
                                   onClick={() => subscribe(m.id, o.label, "CARD")}
                                   className="px-2 py-1.5 rounded-lg text-xs font-medium bg-stone-900 text-white hover:bg-stone-700 disabled:opacity-50"
                                 >

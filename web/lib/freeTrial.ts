@@ -135,3 +135,59 @@ export function trialWindowDays(
   if (member.trialEndsAt && member.trialEndsAt <= now && config && !config.renewable) return null;
   return days;
 }
+
+// ── Charge today, or after the free trial (2026-10-15) ──────────────────────
+//
+// Families kept asking why they had not been charged: a first purchase of a
+// trial plan silently started a Stripe trial (charge N days later) — including
+// families moved over from the old system, and families who were ALREADY in
+// their class-trial window and so got a second trial stacked on top. Now the
+// buyer picks: pay today, or start paying when the free trial is over.
+//
+// "When the trial is over" means:
+//  · already in a class-trial window (Member.trialEndsAt in the future) → the
+//    day that window ends. Never a fresh trial on top of it.
+//  · otherwise, when the plan's subscription trial applies to them → N days
+//    from today (unchanged from before).
+// Stripe Checkout needs a trial_end at least 48 hours away, so a window ending
+// sooner than that offers "pay today" only.
+
+export type ChargeTiming = "TODAY" | "AFTER_TRIAL";
+
+export const CHECKOUT_TRIAL_MIN_MS = 48 * 3600 * 1000 + 10 * 60 * 1000;
+
+export type TrialStart =
+  | { kind: "DAYS"; days: number; firstChargeAt: Date }
+  | { kind: "WINDOW"; days: number; firstChargeAt: Date };
+
+/** PURE. What "after the trial" would mean for this buyer, or null when there is no trial to wait for. */
+export function trialStartFor(eligibleDays: number | null, classTrialEndsAt: Date | null, now: Date): TrialStart | null {
+  if (classTrialEndsAt && classTrialEndsAt.getTime() > now.getTime()) {
+    const left = classTrialEndsAt.getTime() - now.getTime();
+    if (left < CHECKOUT_TRIAL_MIN_MS) return null;
+    return { kind: "WINDOW", days: Math.ceil(left / 86_400_000), firstChargeAt: classTrialEndsAt };
+  }
+  if (eligibleDays && eligibleDays > 0) {
+    return { kind: "DAYS", days: eligibleDays, firstChargeAt: new Date(now.getTime() + eligibleDays * 86_400_000) };
+  }
+  return null;
+}
+
+/** PURE. The Checkout `subscription_data` trial fields for the buyer's choice. */
+export function trialCheckoutFields(t: TrialStart | null, timing: ChargeTiming): { trial_period_days?: number; trial_end?: number } {
+  if (!t || timing === "TODAY") return {};
+  if (t.kind === "WINDOW") return { trial_end: Math.floor(t.firstChargeAt.getTime() / 1000) };
+  return { trial_period_days: t.days };
+}
+
+/** The trial a given member could start on a given plan right now (server). */
+export async function purchaseTrialFor(
+  freeTrialConfig: unknown,
+  membership: MembershipTrialFields,
+  member: { id: string; trialEndsAt: Date | null },
+  now: Date = new Date(),
+): Promise<TrialStart | null> {
+  const trial = trialForMembership(freeTrialConfig, membership);
+  const eligible = trial ? await eligibleForSubscriptionTrial(member.id, membership.id, trial) : null;
+  return trialStartFor(eligible, member.trialEndsAt, now);
+}

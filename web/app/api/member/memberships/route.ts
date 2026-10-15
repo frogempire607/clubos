@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { expireEndedManualSubscriptions } from "@/lib/memberStatus";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { siblingQuotes } from "@/lib/membershipSiblingServer";
-import { trialForMembership } from "@/lib/freeTrial";
+import { trialForMembership, purchaseTrialFor } from "@/lib/freeTrial";
 
 // GET /api/member/memberships
 // Returns active memberships the member is allowed to purchase (purchaseAccess=ANYONE),
@@ -99,8 +99,25 @@ export async function GET() {
     }),
   ).catch(() => ({}));
 
+  // Per athlete, per plan: what "pay after the free trial" would mean right
+  // now (first charge date), or null when nothing would be free — the page
+  // shows it next to the "pay today" choice. Checkout re-derives it.
+  const trialByMember: Record<string, Record<string, { kind: string; days: number; firstChargeAt: string } | null>> = {};
+  if (accessibleIds.length) {
+    const rows = await prisma.member.findMany({ where: { id: { in: accessibleIds }, clubId: session.user.clubId }, select: { id: true, trialEndsAt: true } });
+    for (const mem of rows) {
+      const per: Record<string, { kind: string; days: number; firstChargeAt: string } | null> = {};
+      for (const m of membershipsRaw) {
+        const t = await purchaseTrialFor(club?.freeTrialConfig, m, mem).catch(() => null);
+        per[m.id] = t ? { kind: t.kind, days: t.days, firstChargeAt: t.firstChargeAt.toISOString() } : null;
+      }
+      trialByMember[mem.id] = per;
+    }
+  }
+
   return NextResponse.json({
     memberships,
+    trialByMember,
     accessible,
     defaultMemberId: defaultId,
     activeByMember,

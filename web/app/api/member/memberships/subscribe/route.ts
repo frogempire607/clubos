@@ -22,7 +22,7 @@ import { resolveFamilyContext } from "@/lib/memberContext";
 import { MEMBERSHIP_PURCHASE_KIND } from "@/lib/approvals";
 import { findValidDiscount, recordDiscountUse } from "@/lib/discounts";
 import { membershipDiscountAtPurchase } from "@/lib/membershipSiblingServer";
-import { trialForMembership, eligibleForSubscriptionTrial } from "@/lib/freeTrial";
+import { purchaseTrialFor, trialCheckoutFields } from "@/lib/freeTrial";
 
 const schema = z.object({
   membershipId: z.string(),
@@ -34,6 +34,10 @@ const schema = z.object({
   // files a MEMBERSHIP_PURCHASE approval the owner activates manually.
   paymentMethod: z.enum(["CARD", "CASH", "CHECK"]).optional().default("CARD"),
   discountCode: z.string().max(50).optional().nullable(),
+  // When the card is first charged, if a free trial applies: TODAY skips the
+  // trial; AFTER_TRIAL starts paying when it is over (lib/freeTrial
+  // trialStartFor). Omitted = AFTER_TRIAL, the behaviour before this choice.
+  chargeTiming: z.enum(["TODAY", "AFTER_TRIAL"]).optional().default("AFTER_TRIAL"),
 });
 
 type Option = { label: string; price: number; billingPeriod: string };
@@ -46,7 +50,7 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const { membershipId, optionLabel, memberId, paymentMethod, discountCode } = schema.parse(await req.json());
+    const { membershipId, optionLabel, memberId, paymentMethod, discountCode, chargeTiming } = schema.parse(await req.json());
     const isOffline = paymentMethod === "CASH" || paymentMethod === "CHECK";
 
     const club = await prisma.club.findUnique({ where: { id: session.user.clubId } });
@@ -332,11 +336,13 @@ export async function POST(req: Request) {
 
     const appFeePercent = 0;
 
-    // Honor trial rules — same central Free Trial offer as owner-side subscribe.
-    let trialPeriodDays: number | null = null;
+    // Honor trial rules — same central Free Trial offer as owner-side
+    // subscribe — and the buyer's choice of paying today or after the trial.
+    let trialFields: { trial_period_days?: number; trial_end?: number } = {};
     if (isRecurring) {
-      const trial = trialForMembership(club.freeTrialConfig, membership);
-      if (trial) trialPeriodDays = await eligibleForSubscriptionTrial(member.id, membershipId, trial);
+      const m = await prisma.member.findUnique({ where: { id: member.id }, select: { trialEndsAt: true } });
+      const start = await purchaseTrialFor(club.freeTrialConfig, membership, { id: member.id, trialEndsAt: m?.trialEndsAt ?? null });
+      trialFields = trialCheckoutFields(start, chargeTiming);
     }
 
     // Reuse the member's existing Stripe customer so every purchase accrues on
@@ -368,7 +374,7 @@ export async function POST(req: Request) {
                 // checkout.session.completed webhook, which flips
                 // cancel_at_period_end on the created subscription (the local
                 // MemberSubscription row already carries autoRenew=false).
-                ...(trialPeriodDays ? { trial_period_days: trialPeriodDays } : {}),
+                ...trialFields,
               },
             }
           : {

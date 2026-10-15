@@ -18,7 +18,7 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { recordDiscountUse } from "@/lib/discounts";
 import { membershipDiscountAtPurchase } from "@/lib/membershipSiblingServer";
 import { resolveStaffDiscount, discountAppliedLabel, type ResolvedStaffDiscount } from "@/lib/staffPayments";
-import { trialForMembership, eligibleForSubscriptionTrial } from "@/lib/freeTrial";
+import { purchaseTrialFor, trialCheckoutFields } from "@/lib/freeTrial";
 import { sendEmail } from "@/lib/email";
 import {
   recordSubscriptionCreated,
@@ -43,6 +43,11 @@ const schema = z.object({
   // MANUAL path only: email the member a purchase receipt (card purchases get
   // Stripe's own receipt).
   emailReceipt:  z.boolean().optional().default(false),
+  // Card checkout only: when the first charge happens if a free trial would
+  // apply. TODAY skips the trial; AFTER_TRIAL waits for it (a running
+  // class-trial window ends it — lib/freeTrial trialStartFor). Omitted =
+  // AFTER_TRIAL, the behaviour before this choice existed.
+  chargeTiming:  z.enum(["TODAY", "AFTER_TRIAL"]).optional().default("AFTER_TRIAL"),
 });
 
 type Option = { label: string; price: number; billingPeriod: string };
@@ -370,11 +375,15 @@ export async function POST(req: Request) {
     // Trial rules: the club's central Free Trial offer decides whether this
     // plan trials (legacy per-membership flags only apply for clubs that never
     // configured it). Repeat use on the same plan is gated by the offer.
-    let trialPeriodDays: number | null = null;
+    let trialFields: { trial_period_days?: number; trial_end?: number } = {};
     if (isRecurring) {
-      const trial = trialForMembership(club.freeTrialConfig, membership);
-      if (trial) trialPeriodDays = await eligibleForSubscriptionTrial(memberId, membershipId, trial);
+      const start = await purchaseTrialFor(club.freeTrialConfig, membership, { id: member.id, trialEndsAt: member.trialEndsAt ?? null });
+      trialFields = trialCheckoutFields(start, body.chargeTiming);
     }
+    // Days before the first charge from the trial alone (the anchor grant
+    // below adds to it).
+    const trialPeriodDays: number | null = trialFields.trial_period_days
+      ?? (trialFields.trial_end ? Math.ceil((trialFields.trial_end * 1000 - Date.now()) / 86_400_000) : null);
 
     // Build subscription_data with optional billing anchor. AthletixOS takes
     // no per-transaction platform cut on any plan.
@@ -386,9 +395,15 @@ export async function POST(req: Request) {
       // param (Stripe rejects the whole session). Auto Renew OFF is applied by
       // the checkout.session.completed webhook using the local row's
       // autoRenew=false.
-      ...(trialPeriodDays ? { trial_period_days: trialPeriodDays } : {}),
+      ...trialFields,
     };
     if (billingAnchorDate) {
+      // A fixed trial_end alongside a billing anchor is a combination Stripe
+      // Checkout is picky about; the whole-day count is the same trial.
+      if (subscriptionData.trial_end && trialPeriodDays) {
+        delete subscriptionData.trial_end;
+        subscriptionData.trial_period_days = trialPeriodDays;
+      }
       subscriptionData.billing_cycle_anchor = Math.floor(billingAnchorDate.getTime() / 1000);
       subscriptionData.proration_behavior = "create_prorations";
     }
