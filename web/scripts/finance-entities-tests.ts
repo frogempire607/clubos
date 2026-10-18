@@ -80,7 +80,7 @@ const FIN_FULL = { finances: "full" }, FIN_VIEW = { finances: "view" }, COACH = 
 const user = (id: string, role: string, perms: Record<string, unknown> | null, clubId = CLUB) => ({
   id, clubId, role, deletedAt: null, firstName: id, lastName: "T", email: `${id}@x.test`, staffProfile: perms ? { title: "Staff", permissions: perms } : null,
 });
-fake.seed("club", [{ id: CLUB, name: "Frog", timezone: "America/New_York", tier: "pro" }, { id: "club_2", name: "Other", timezone: "America/New_York", tier: "pro" }]);
+fake.seed("club", [{ id: CLUB, name: "Frog", timezone: "America/New_York", tier: "enterprise" }, { id: "club_2", name: "Other", timezone: "America/New_York", tier: "pro" }]);
 fake.seed("user", [user("owner", "OWNER", null), user("fin", "STAFF", FIN_FULL), user("viewer", "STAFF", FIN_VIEW), user("coach", "STAFF", COACH), user("stranger", "STAFF", FIN_FULL, "club_2")]);
 fake.seed("legalEntity", [
   { id: "llc", clubId: CLUB, name: "Frog Empire LLC", entityType: "LLC", createdAt: d("2026-01-01") },

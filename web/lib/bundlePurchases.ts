@@ -8,7 +8,7 @@
 import Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
-import { applyProcessingFee } from "@/lib/fees";
+import { applyProcessingFee, feePolicyFor } from "@/lib/fees";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { sendPaymentReceiptEmail } from "@/lib/email";
@@ -183,7 +183,7 @@ export async function chargeBundlePurchaseSavedCard(purchaseId: string): Promise
           tier: true,
           stripeAccountId: true,
           stripeChargesEnabled: true,
-          passProcessingFees: true,
+          passProcessingFees: true, passPlatformFee: true,
         },
       },
     },
@@ -196,7 +196,7 @@ export async function chargeBundlePurchaseSavedCard(purchaseId: string): Promise
   }
   const baseCents = Math.round(Number(purchase.amountDue ?? 0) * 100);
   if (baseCents <= 0) return { ok: false, outcome: "failed", message: "Nothing to charge." };
-  const fee = applyProcessingFee(baseCents, purchase.club.passProcessingFees);
+  const fee = applyProcessingFee(baseCents, feePolicyFor(purchase.club));
   const totalCents = fee.totalCents;
 
   async function recordStripeSuccess(pi: Stripe.PaymentIntent): Promise<{ ok: true; total: number }> {
@@ -290,7 +290,7 @@ export async function chargeBundlePurchaseSavedCard(purchaseId: string): Promise
         confirm: true,
         description: `Event bundle — ${purchase.bundle.name}`,
         expand: ["latest_charge.balance_transaction"],
-        application_fee_amount: calculatePlatformFee(totalCents, purchase.club.tier),
+        application_fee_amount: calculatePlatformFee(totalCents, purchase.club),
         metadata: {
           kind: "bundle_saved_card",
           bundlePurchaseId: purchase.id,

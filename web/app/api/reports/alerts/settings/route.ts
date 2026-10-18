@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { ALERT_KINDS } from "@/lib/reportsAlerts";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // PUT /api/reports/alerts/settings
 // Body: { settings: [{ kind, threshold?, enabled }] }
@@ -28,6 +29,9 @@ export async function PUT(req: Request) {
   }
   const denied = requirePermission(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullReports");
+  if (tierGate) return tierGate;
 
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);

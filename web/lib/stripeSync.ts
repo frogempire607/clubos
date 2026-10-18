@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
+import { feePolicyFor } from "@/lib/fees";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { parseOptions } from "@/lib/membershipOptions";
 import { mirrorFromStripePrice, type MirrorResult } from "@/lib/stripePlanChange";
@@ -209,7 +210,7 @@ type LinkedRow = {
 async function mirrorPriceForRow(clubId: string, row: LinkedRow, snap: SubSnapshot): Promise<MirrorResult | null> {
   if (snap.amountCents == null) return null;
   const [club, plan] = await Promise.all([
-    prisma.club.findUnique({ where: { id: clubId }, select: { passProcessingFees: true } }),
+    prisma.club.findUnique({ where: { id: clubId }, select: { passProcessingFees: true, passPlatformFee: true, tier: true } }),
     row.membershipId
       ? prisma.membership.findFirst({ where: { id: row.membershipId, clubId }, select: { options: true } })
       : Promise.resolve(null),
@@ -218,7 +219,7 @@ async function mirrorPriceForRow(clubId: string, row: LinkedRow, snap: SubSnapsh
     unitCents: snap.amountCents,
     interval: snap.interval,
     intervalCount: (snap.snapshot.intervalCount as number | null) ?? null,
-    passProcessingFees: !!club?.passProcessingFees,
+    passProcessingFees: club ? feePolicyFor(club) : false,
     options: plan ? parseOptions(plan.options) : [],
     current: { optionId: row.optionId, optionLabel: row.optionLabel, price: Number(row.price), billingPeriod: row.billingPeriod },
   });

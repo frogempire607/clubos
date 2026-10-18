@@ -29,7 +29,7 @@ export async function GET(req: Request) {
   }
 
   const club = await prisma.club.findUnique({ where: { id: session.user.clubId } });
-  const features = getTierFeatures(club?.tier ?? "growth");
+  const features = getTierFeatures(club?.tier ?? "starter");
   if (!features.plaid) {
     return NextResponse.json(
       {

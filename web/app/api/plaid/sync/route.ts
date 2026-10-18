@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   if (denied) return denied;
 
   const club = await prisma.club.findUnique({ where: { id: session.user.clubId } });
-  const features = getTierFeatures(club?.tier ?? "growth");
+  const features = getTierFeatures(club?.tier ?? "starter");
   if (!features.plaid) {
     return NextResponse.json(
       { error: "Bank integration requires a Pro plan or higher.", upgradeRequired: "pro" },

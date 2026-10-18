@@ -156,7 +156,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (data.action === "activate_card") {
     const club = await prisma.club.findUnique({
       where: { id: session.user.clubId },
-      select: { id: true, name: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true },
+      select: { id: true, name: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true, passPlatformFee: true, tier: true },
     });
     if (!club?.stripeAccountId || !club.stripeChargesEnabled) {
       return NextResponse.json({ error: "Online payments aren't connected for this club — use “Already paid?” to bill offline." }, { status: 409 });
@@ -288,7 +288,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         stripeSetupPaymentMethodId: member.stripeSetupPaymentMethodId,
       },
       startDate: rowStart,
-      club: { id: club.id, stripeAccountId: club.stripeAccountId, passProcessingFees: club.passProcessingFees },
+      club: { id: club.id, stripeAccountId: club.stripeAccountId, passProcessingFees: club.passProcessingFees, passPlatformFee: club.passPlatformFee, tier: club.tier },
       membershipId: plan.id,
       planName: plan.name,
       optionLabel: option.label,

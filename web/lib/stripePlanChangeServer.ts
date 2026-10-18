@@ -18,7 +18,7 @@
 
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
-import { stripe } from "@/lib/stripe";
+import { stripe, calculatePlatformFeePercent } from "@/lib/stripe";
 import { setStripeStop } from "@/lib/stripeStop";
 import { billingPeriodToStripeInterval } from "@/lib/stripe";
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
@@ -33,7 +33,7 @@ import {
   switchLines,
 } from "@/lib/stripePlanChange";
 import { createSavedCardSubscription } from "@/lib/cardActivation";
-import { feeBreakdown } from "@/lib/fees";
+import { feeBreakdown, feePolicyFor, passesAnyFee, surchargeLabel } from "@/lib/fees";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { recordSubscriptionEvent, SUBSCRIPTION_EVENT_KIND, SUBSCRIPTION_EVENT_SOURCE } from "@/lib/subscriptionEvents";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
@@ -68,7 +68,7 @@ export type PlanChangePreview = {
 };
 
 type Ctx = {
-  club: { id: string; name: string; stripeAccountId: string; stripeChargesEnabled: boolean; passProcessingFees: boolean };
+  club: { id: string; name: string; stripeAccountId: string; stripeChargesEnabled: boolean; passProcessingFees: boolean; passPlatformFee: boolean; tier: string };
   row: {
     id: string; memberId: string; membershipId: string | null; optionId: string | null; optionLabel: string;
     price: unknown; billingPeriod: string | null; autoRenew: boolean; minimumTermEndsAt: Date | null; endDate: Date | null;
@@ -102,7 +102,7 @@ function discountColumns(d: PlanChangeDiscount | null | undefined, listPrice: nu
 async function loadContext(input: { clubId: string; memberId: string; subscriptionId: string; optionId: string; allowIntervalChange?: boolean; discount?: PlanChangeDiscount | null }): Promise<Ctx | PlanChangeError> {
   const club = await prisma.club.findUnique({
     where: { id: input.clubId },
-    select: { id: true, name: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true },
+    select: { id: true, name: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true, passPlatformFee: true, tier: true },
   });
   if (!club?.stripeAccountId || !club.stripeChargesEnabled) {
     return { ok: false, code: "STRIPE_NOT_CONNECTED", error: "Online payments aren't connected for this club.", status: 409 };
@@ -163,17 +163,17 @@ function buildPreview(ctx: Ctx, autoRenewOverride: boolean | null): PlanChangePr
   const { club, row, plan, option, sub } = ctx;
   const item = sub.items.data[0];
   const unit = item.price?.unit_amount ?? null;
-  const inv = unit != null ? baseFromUnitAmount(unit, club.passProcessingFees) : { baseCents: Math.round(Number(row.price) * 100), feeFolded: false };
+  const inv = unit != null ? baseFromUnitAmount(unit, feePolicyFor(club)) : { baseCents: Math.round(Number(row.price) * 100), feeFolded: false };
   // While trialing the first invoice is at trial end; otherwise the period end.
   const effectiveAt = new Date(((sub.status === "trialing" && sub.trial_end) || sub.current_period_end) * 1000);
   const terms = planChangeTerms({ effectiveAt, option, plan, autoRenew: autoRenewOverride, addMonths: addUTCMonths, addPeriod: addBillingPeriod });
-  const fb = feeBreakdown(option.price, club.passProcessingFees);
+  const fb = feeBreakdown(option.price, feePolicyFor(club));
   const sameAmount = inv.baseCents === Math.round(option.price * 100);
   const lines: string[] = [];
   lines.push(
     sameAmount
-      ? `The charge stays $${fb.total.toFixed(2)}${club.passProcessingFees ? ` ($${option.price.toFixed(2)} + $${fb.fee.toFixed(2)} processing fee)` : ""}.`
-      : `From ${fmt(effectiveAt)} the card is charged $${fb.total.toFixed(2)}${club.passProcessingFees ? ` ($${option.price.toFixed(2)} + $${fb.fee.toFixed(2)} processing fee)` : ""} instead of $${(unit != null ? unit / 100 : Number(row.price)).toFixed(2)}.`,
+      ? `The charge stays $${fb.total.toFixed(2)}${passesAnyFee(feePolicyFor(club)) ? ` ($${option.price.toFixed(2)} + $${fb.fee.toFixed(2)} ${surchargeLabel(feePolicyFor(club)).toLowerCase()})` : ""}.`
+      : `From ${fmt(effectiveAt)} the card is charged $${fb.total.toFixed(2)}${passesAnyFee(feePolicyFor(club)) ? ` ($${option.price.toFixed(2)} + $${fb.fee.toFixed(2)} ${surchargeLabel(feePolicyFor(club)).toLowerCase()})` : ""} instead of $${(unit != null ? unit / 100 : Number(row.price)).toFixed(2)}.`,
   );
   lines.push("Nothing is charged or refunded today — money already billed stays as it is.");
   if (terms.minimumTermEndsAt) lines.push(`${terms.contractMonths}-month commitment from ${fmt(effectiveAt)} to ${fmt(terms.minimumTermEndsAt)}.`);
@@ -230,7 +230,7 @@ export async function commitPlanChange(input: PlanChangeInput & { actorUserId: s
   }
   if (!productId) return { ok: false, code: "NO_PRODUCT", error: "Couldn't resolve a Stripe product for this plan.", status: 502 };
 
-  const unitAmount = unitAmountFor(option.price, club.passProcessingFees);
+  const unitAmount = unitAmountFor(option.price, feePolicyFor(club));
   const interval = billingPeriodToStripeInterval(option.billingPeriod);
   if (!interval) return { ok: false, code: "OPTION_NOT_RECURRING", error: "That option isn't a recurring billing period.", status: 409 };
   const cancelAtUnix = preview.cancelAt ? Math.floor(preview.cancelAt.getTime() / 1000) : null;
@@ -250,6 +250,9 @@ export async function commitPlanChange(input: PlanChangeInput & { actorUserId: s
         items: [{ id: item.id, price_data: { currency: "usd", product: productId, unit_amount: unitAmount, recurring: interval } }],
         // The new price starts on the next invoice. Nothing mid-cycle.
         proration_behavior: "none",
+        // The platform percent is specific to this unit amount (the $0.30 is
+        // folded in), so a price change must restate it.
+        application_fee_percent: calculatePlatformFeePercent(Math.round(option.price * 100), club),
         metadata: { ...(sub.metadata ?? {}), memberSubscriptionId: row.id, memberId: row.memberId, optionId: option.id ?? "", planChangedAt: new Date().toISOString() },
       },
       idempotencyKey: `aox-plan-change-${row.id}-${option.id}-${unitAmount}-${cancelAtUnix ?? 0}-${sub.current_period_end}`,
@@ -511,7 +514,7 @@ function switchPreview(ctx: Ctx, autoRenew: boolean | null): AnyPlanChangePrevie
     option,
     fee: base.target.fee,
     total: base.target.total,
-    passProcessingFees: club.passProcessingFees,
+    passProcessingFees: passesAnyFee(feePolicyFor(club)),
     terms: { autoRenew: base.autoRenew, contractMonths: base.target.contractMonths, minimumTermEndsAt: base.minimumTermEndsAt, cancelAt: base.cancelAt },
     cardLabel: cardOf(sub).label,
   });
@@ -539,7 +542,7 @@ async function commitSwitch(input: PlanChangeInput & { actorUserId: string }): P
   const created = await createSavedCardSubscription({
     member: { id: row.memberId, stripeSetupCustomerId: customerId, stripeSetupPaymentMethodId: pmId ?? member?.stripeSetupPaymentMethodId ?? null },
     startDate: effectiveAt,
-    club: { id: club.id, stripeAccountId: club.stripeAccountId, passProcessingFees: club.passProcessingFees },
+    club: { id: club.id, stripeAccountId: club.stripeAccountId, passProcessingFees: club.passProcessingFees, passPlatformFee: club.passPlatformFee, tier: club.tier },
     membershipId: plan.id,
     planName: plan.name,
     optionLabel: option.label,

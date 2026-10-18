@@ -14,15 +14,15 @@ function subjectOf(m: unknown): string | null {
   return (m as { subjectMemberId?: string | null })?.subjectMemberId ?? null;
 }
 
-async function requireGrowth(clubId: string) {
+async function requirePrivateMessaging(clubId: string) {
   const club = await prisma.club.findUnique({ where: { id: clubId }, select: { tier: true } });
-  const features = getTierFeatures(club?.tier ?? "growth");
-  if (!features.directMessaging) {
+  const features = getTierFeatures(club?.tier);
+  if (!features.privateMessaging) {
     return NextResponse.json(
       {
-        error: "Direct messaging requires a Growth plan or higher.",
+        error: "Private messaging is included on Pro. Starter clubs can send email and group announcements.",
         code: "UPGRADE_REQUIRED",
-        upgradeRequired: "growth",
+        upgradeRequired: "pro",
       },
       { status: 403 }
     );
@@ -34,7 +34,7 @@ export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const gate = await requireGrowth(session.user.clubId);
+  const gate = await requirePrivateMessaging(session.user.clubId);
   if (gate) return gate;
 
   const uid = session.user.id;
@@ -114,7 +114,7 @@ export async function POST(req: Request) {
   });
   if (!rl.allowed) return rateLimitedResponse(rl, "Slow down — too many messages sent. Try again in a moment.");
 
-  const gate = await requireGrowth(session.user.clubId);
+  const gate = await requirePrivateMessaging(session.user.clubId);
   if (gate) return gate;
 
   const raw = await req.json().catch(() => ({}));

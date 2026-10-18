@@ -7,7 +7,7 @@ import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
-import { processingFeeLineItem, applyProcessingFee } from "@/lib/fees";
+import { processingFeeLineItem, applyProcessingFee, feePolicyFor } from "@/lib/fees";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { resolveChargeablePaymentMethodId, resolveCardSnapshot, prettyBrand } from "@/lib/memberCard";
@@ -142,7 +142,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       // Card totals include the processing fee when the club passes it; cash,
       // check and pay-later owe the sticker price. Documents from the included
       // events are surfaced for review — hard enforcement stays at check-in.
-      const fee = applyProcessingFee(priceCents, club.passProcessingFees);
+      const fee = applyProcessingFee(priceCents, feePolicyFor(club));
       const card = chargeablePm
         ? await resolveCardSnapshot(customerId, club.stripeAccountId)
         : null;
@@ -330,9 +330,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       }
     }
 
-    const platformFee = calculatePlatformFee(priceCents, club.tier);
+    const platformFee = calculatePlatformFee(priceCents, club);
     const baseUrl = getAppBaseUrl();
-    const feeItem = processingFeeLineItem(priceCents, club.passProcessingFees);
+    const feeItem = processingFeeLineItem(priceCents, feePolicyFor(club));
 
     const checkout = await stripe.checkout.sessions.create(
       {

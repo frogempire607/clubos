@@ -1,3 +1,4 @@
+import { requireTierFeature } from "@/lib/tierGuard";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
@@ -53,6 +54,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   if (selfRule(session.user.role, session.user.id, id, "view_pay") !== "allow") {
     const denied = await requirePermissionLive(session, "finances", "view");
     if (denied) return denied;
@@ -78,6 +82,9 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
   }
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const clubId = session.user.clubId;
   if (!(await requireStaff(id, clubId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

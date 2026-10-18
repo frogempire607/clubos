@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { canUseFeature } from "@/lib/tier";
 
 // GET /api/member/messages/unread → { count }
 // Unread direct messages addressed to the signed-in member, for the bottom-nav
@@ -14,7 +15,7 @@ export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ count: 0, announcements: 0 }, NO_STORE);
   const now = new Date();
-  const [count, announcements] = await Promise.all([
+  const [count, announcements, club] = await Promise.all([
     prisma.message.count({
       where: { clubId: session.user.clubId, recipientId: session.user.id, readAt: null },
     }),
@@ -32,6 +33,10 @@ export async function GET() {
         engagements: { none: { userId: session.user.id } },
       },
     }),
+    prisma.club.findUnique({ where: { id: session.user.clubId }, select: { tier: true } }),
   ]);
-  return NextResponse.json({ count, announcements }, NO_STORE);
+  // `messaging`: private messaging is a Pro feature (pricing overhaul
+  // 2026-10-18). On Starter the portal hides Messages rather than showing a
+  // screen whose Send button would be refused.
+  return NextResponse.json({ count, announcements, messaging: canUseFeature(club?.tier, "privateMessaging") }, NO_STORE);
 }

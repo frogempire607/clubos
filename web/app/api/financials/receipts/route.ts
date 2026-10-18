@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { requirePermissionLive } from "@/lib/apiGuard";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { addReceipt, listReceipts, RECEIPT_MAX_BYTES, RECEIPT_TYPES } from "@/lib/receiptsServer";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 export const dynamic = "force-dynamic";
 const PER_REQUEST = 25;
@@ -15,6 +16,9 @@ export async function GET(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = await requirePermissionLive(session, "finances", "view");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullFinancials");
+  if (tierGate) return tierGate;
   const status = new URL(req.url).searchParams.get("status") ?? "UNMATCHED";
   if (!["UNMATCHED", "MATCHED", "IGNORED", "ALL"].includes(status)) return NextResponse.json({ error: "Bad status" }, { status: 400 });
   return NextResponse.json({ receipts: await listReceipts(session.user.clubId, status) });
@@ -27,6 +31,9 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullFinancials");
+  if (tierGate) return tierGate;
   const rl = rateLimit({ key: `receipts:${session.user.id}`, limit: 20, windowMs: 60_000 });
   if (!rl.allowed) return rateLimitedResponse(rl, "Too many uploads at once. Wait a moment and try again.");
   let form: FormData;

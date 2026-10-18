@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // Owner-editable auto-categorization rules for the Money Out matching UX.
 //
@@ -18,6 +19,9 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "finances", "view");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullFinancials");
+  if (tierGate) return tierGate;
 
   const rules = await prisma.transactionCategoryRule.findMany({
     where: { clubId: session.user.clubId },
@@ -48,6 +52,9 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullFinancials");
+  if (tierGate) return tierGate;
 
   let data: z.infer<typeof postSchema>;
   try {

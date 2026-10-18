@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionLive } from "@/lib/apiGuard";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
-import { processingFeeLineItem } from "@/lib/fees";
+import { processingFeeLineItem, feePolicyFor } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { resolveStaffDiscount, quotePayment, discountAppliedLabel } from "@/lib/staffPayments";
@@ -262,7 +262,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       originalPrice: priceCents / 100,
       discount,
       method: paymentMethod === "STRIPE" ? "NEW_CARD" : "CASH",
-      passProcessingFees: paymentMethod === "STRIPE" ? club.passProcessingFees : false,
+      passProcessingFees: paymentMethod === "STRIPE" ? feePolicyFor(club) : false,
     });
     if (!quoted.ok) return NextResponse.json({ error: quoted.error }, { status: 400 });
     const quote = quoted.quote;
@@ -467,9 +467,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       );
     }
     const chargeCents = Math.round(quote.finalPrice * 100);
-    const platformFee = calculatePlatformFee(chargeCents, club.tier);
+    const platformFee = calculatePlatformFee(chargeCents, club);
     const baseUrl = getAppBaseUrl();
-    const feeItem = processingFeeLineItem(chargeCents, club.passProcessingFees);
+    const feeItem = processingFeeLineItem(chargeCents, feePolicyFor(club));
 
     const checkoutSession = await stripe.checkout.sessions.create(
       {

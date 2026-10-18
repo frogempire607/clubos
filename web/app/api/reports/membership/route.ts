@@ -21,12 +21,12 @@ export async function GET(req: Request) {
     where: { id: clubId },
     select: { tier: true, timezone: true, wentLiveAt: true, createdAt: true },
   });
-  const features = getTierFeatures(club?.tier ?? "growth");
+  const features = getTierFeatures(club?.tier ?? "starter");
   if (!features.reports) {
     return NextResponse.json(
       tierBlockedBody({
         message: "Reports & analytics aren't available on your current plan.",
-        upgradeRequired: upgradeRequired(club?.tier ?? "growth", "reports"),
+        upgradeRequired: upgradeRequired(club?.tier ?? "starter", "reports"),
       }),
       { status: 403 },
     );

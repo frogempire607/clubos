@@ -134,7 +134,7 @@ export async function POST(req: Request) {
       where: { id: session.user.clubId },
       select: { tier: true },
     });
-    const features = getTierFeatures(club?.tier ?? "growth");
+    const features = getTierFeatures(club?.tier ?? "starter");
     if (features.maxMembers !== null) {
       const count = await prisma.member.count({
         where: { clubId: session.user.clubId, deletedAt: null },
@@ -142,7 +142,7 @@ export async function POST(req: Request) {
       if (count >= features.maxMembers) {
         return NextResponse.json(
           {
-            error: `Your ${getTierName(club?.tier ?? "growth")} plan allows up to ${features.maxMembers} members. Upgrade to Pro for unlimited members.`,
+            error: `Your ${getTierName(club?.tier ?? "starter")} plan allows up to ${features.maxMembers} members. Upgrade to Pro for unlimited members.`,
             code: "MEMBER_LIMIT_REACHED",
             upgradeRequired: "pro",
           },

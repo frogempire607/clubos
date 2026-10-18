@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { ACTION_ITEM_KINDS } from "@/lib/reportsActionItems";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // POST /api/reports/action-items/snooze
 // Body: { kind, targetId?, days }
@@ -24,6 +25,9 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "reports", "view");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "actionCenter");
+  if (tierGate) return tierGate;
 
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
@@ -63,6 +67,9 @@ export async function DELETE(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "reports", "view");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "actionCenter");
+  if (tierGate) return tierGate;
 
   const url = new URL(req.url);
   const kind = url.searchParams.get("kind");

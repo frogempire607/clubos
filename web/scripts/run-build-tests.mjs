@@ -25,6 +25,9 @@ const RENDER = ["--tsconfig", "scripts/tsconfig.render.json"];
 export const GATED = [
   // guards
   ["scripts/sport-terms-guard.ts"],
+  // pricing overhaul (2026-10-18): gross-up math + 1.4% platform floor + tier gates
+  ["scripts/fee-math-tests.ts"],
+  ["scripts/tier-gating-guard.ts"],
   ["scripts/subscription-truth-guard.ts"],
   ["scripts/permission-boundary-guard.ts"],
   ["scripts/members-grep-guards.ts"],

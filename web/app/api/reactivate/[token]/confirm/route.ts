@@ -7,9 +7,9 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { optionIdForPurchase, parseOptions, minimumTermEndForOptionId } from "@/lib/membershipOptions";
 import { Prisma } from "@prisma/client";
-import { stripe, billingPeriodToStripeInterval } from "@/lib/stripe";
+import { stripe, billingPeriodToStripeInterval, calculatePlatformFeePercent } from "@/lib/stripe";
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
-import { recurringUnitWithFee } from "@/lib/fees";
+import { recurringUnitWithFee, feePolicyFor } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendMembershipActivatedEmail } from "@/lib/email";
 import { writeBillingAudit } from "@/lib/billingAudit";
@@ -208,7 +208,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   // Every user-facing amount below states THIS (it's what Stripe bills), never
   // the base price alone. Same lib/fees.ts math as the subscription created.
   const totalCharged =
-    recurringUnitWithFee(Math.round(offerEffectivePrice(offer) * 100), isCard && club.passProcessingFees) / 100;
+    recurringUnitWithFee(Math.round(offerEffectivePrice(offer) * 100), isCard ? feePolicyFor(club) : false) / 100;
   if (chargesNow && !body.acknowledgeImmediateCharge) {
     return NextResponse.json(
       {
@@ -318,7 +318,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
         if (!trialEnd || ts > trialEnd) cancelAtUnix = ts;
       }
       // The discounted price is what the card is charged (server-frozen math).
-      const amountCents = recurringUnitWithFee(Math.round(offerEffectivePrice(offer) * 100), club.passProcessingFees);
+      const amountCents = recurringUnitWithFee(Math.round(offerEffectivePrice(offer) * 100), feePolicyFor(club));
       const interval = billingPeriodToStripeInterval(offer.billingPeriod) || { interval: "month" as const, interval_count: 1 };
 
       const catalogMembership = await prisma.membership.findFirst({
@@ -351,7 +351,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           ...(trialEnd ? { trial_end: trialEnd } : {}),
           ...(cancelAtUnix ? { cancel_at: cancelAtUnix } : {}),
           proration_behavior: "none",
-          application_fee_percent: 0,
+          application_fee_percent: calculatePlatformFeePercent(Math.round(offerEffectivePrice(offer) * 100), club),
           metadata: { reactivationId: r.id, migrationMemberId: member.id, clubId: club.id },
         },
         {

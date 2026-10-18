@@ -31,7 +31,7 @@
 // plan" are different questions and only the first is safe to default to.
 
 import { addUTCDays, addUTCMonths } from "@/lib/billingAdmin";
-import { recurringUnitWithFee, feeBreakdown } from "@/lib/fees";
+import { recurringUnitWithFee, feeBreakdown, passesAnyFee, surchargeLabel, type FeePolicyInput } from "@/lib/fees";
 import type { EmailBlock } from "@/lib/emailBlocks";
 
 // ── The option model lives in lib/membershipOptions.ts ──────────────────────
@@ -614,7 +614,7 @@ export function planPriceChange(input: {
  * `price * 100` on a reprice would silently strip the passthrough off every
  * touched subscription and quietly cut the club's take on each one.
  */
-export function stripeUnitAmountCents(price: number, passProcessingFees: boolean): number {
+export function stripeUnitAmountCents(price: number, passProcessingFees: FeePolicyInput): number {
   return recurringUnitWithFee(Math.round(price * 100), passProcessingFees);
 }
 
@@ -727,7 +727,7 @@ export function buildPriceChangeEmail(args: {
   billingPeriod: string;
   fromPrice: number;
   toPrice: number;
-  passProcessingFees: boolean;
+  passProcessingFees: FeePolicyInput;
   /** Date the new price takes effect. Null = next billing cycle. */
   effectiveDate: Date | null;
   channel: "stripe" | "offline";
@@ -788,14 +788,14 @@ export function buildPriceChangeEmail(args: {
     },
   ];
 
-  if (passProcessingFees) {
-    const b = feeBreakdown(toPrice, true);
+  if (passesAnyFee(passProcessingFees)) {
+    const b = feeBreakdown(toPrice, passProcessingFees);
     blocks.push({
       type: "paragraph",
       runs: [
         {
           kind: "text",
-          text: `Your card is charged ${fmtUsd(b.total)} — ${fmtUsd(b.base)} membership plus ${fmtUsd(b.fee)} card processing.`,
+          text: `Your card is charged ${fmtUsd(b.total)} — ${fmtUsd(b.base)} membership plus ${fmtUsd(b.fee)} ${surchargeLabel(passProcessingFees).toLowerCase()}.`,
         },
       ],
     });

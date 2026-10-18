@@ -55,7 +55,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     category: "Billing & payments",
     keywords: ["processing fee", "stripe fee", "surcharge", "pass fee", "2.9"],
     body:
-      "AthletixOS charges 0% platform fee on every plan. If you want members to cover Stripe's processing fee, enable 'Pass processing fees to customer' on Settings → Payments. The fee is shown transparently at checkout with a clear breakdown before they pay.",
+      "Every card payment carries Stripe's processing fee (2.9% + $0.30) and the AthletixOS platform fee for your plan (Starter 2%, Pro 1.6%, Enterprise 1.4%, each + $0.30). On Settings → Member payments you choose, separately for each fee, whether your club or the paying member covers it — the member sees a clear fee line at checkout before paying. Cash and check payments carry no fees.",
   },
   {
     id: "cash-payments",

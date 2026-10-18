@@ -4,6 +4,7 @@
 // the price shown is the price charged — and the commit re-derives it from
 // the server's own data, never from a number the browser sent.
 
+import { feePolicyFor } from "@/lib/fees";
 import { prisma } from "@/lib/prisma";
 import { parseOptions, type MembershipOption } from "@/lib/membershipOptions";
 import { discountedPrice } from "@/lib/discounts";
@@ -33,7 +34,7 @@ export async function quoteAssignment(args: {
   method: AssignMethod;
 }): Promise<AssignQuoteResult> {
   const [club, member, plan] = await Promise.all([
-    prisma.club.findUnique({ where: { id: args.clubId }, select: { passProcessingFees: true } }),
+    prisma.club.findUnique({ where: { id: args.clubId }, select: { passProcessingFees: true, passPlatformFee: true, tier: true } }),
     prisma.member.findFirst({
       where: { id: args.memberId, clubId: args.clubId, deletedAt: null },
       select: { id: true, firstName: true, lastName: true, userId: true, responsiblePayerUserId: true },
@@ -79,7 +80,7 @@ export async function quoteAssignment(args: {
     codeError,
     familyNote,
     method: args.method,
-    passProcessingFees: !!club?.passProcessingFees,
+    passProcessingFees: club ? feePolicyFor(club) : false,
   });
   return { ok: true, quote, code, plan: { id: plan.id, name: plan.name }, option };
 }

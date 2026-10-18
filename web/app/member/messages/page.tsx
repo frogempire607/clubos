@@ -101,6 +101,15 @@ export default function MemberMessagesPage() {
   // this controlled minor's account. Renders a friendly banner in
   // place of the conversations.
   const [messagingDisabled, setMessagingDisabled] = useState(false);
+  // Starter clubs don't include private messaging (pricing overhaul
+  // 2026-10-18); a family reaching this page by link sees where club news is.
+  const [clubHasMessaging, setClubHasMessaging] = useState(true);
+  useEffect(() => {
+    fetch("/api/member/messages/unread", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.messaging === false) setClubHasMessaging(false); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/api/member/messages", { cache: "no-store" })
@@ -166,7 +175,7 @@ export default function MemberMessagesPage() {
           <h1 className="text-2xl font-semibold text-stone-900 mb-1">Messages</h1>
           <p className="text-sm text-stone-500">Conversations with your club.</p>
         </div>
-        {!messagingDisabled && recipients.length > 0 && (
+        {!messagingDisabled && clubHasMessaging && recipients.length > 0 && (
           <button
             onClick={() => setComposeOpen(true)}
             className="pbtn-accent inline-flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2 rounded-xl flex-shrink-0"
@@ -185,6 +194,12 @@ export default function MemberMessagesPage() {
 
       {loading ? (
         <div className="text-center py-8 text-stone-400 text-sm">Loading…</div>
+      ) : !clubHasMessaging ? (
+        <div className="bg-white rounded-xl border border-stone-200 p-8 text-center">
+          <p className="text-sm font-semibold text-stone-900 mb-1">Your club shares updates in News</p>
+          <p className="text-xs text-stone-500 mb-4">This club doesn&apos;t use in-app messaging. Announcements and updates arrive in News and by email.</p>
+          <a href="/member/announcements" className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-stone-900 text-white text-sm font-medium">Open News</a>
+        </div>
       ) : messagingDisabled ? (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
           <p className="text-sm font-semibold text-amber-900 mb-1">

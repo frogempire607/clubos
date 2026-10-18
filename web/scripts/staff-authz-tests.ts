@@ -132,7 +132,7 @@ const HANDLERS: Record<string, (args: any) => unknown> = {
     return { ...(u ?? {}), staffProfile: u?.staffProfile ?? null };
   },
   "user.create": (a) => ({ id: "new_user", ...a.data, staffProfile: { permissions: a.data?.staffProfile?.create?.permissions } }),
-  "club.findUnique": () => ({ name: "Test Club", slug: "test-club", builtInEventColors: null }),
+  "club.findUnique": () => ({ name: "Test Club", slug: "test-club", builtInEventColors: null, tier: "pro" }), // Pro: these routes are tier-gated since 2026-10-18
   "recurringClass.findFirst": (a) => (a?.where?.id === CLS.id && a?.where?.clubId === CLS.clubId ? { ...CLS } : null),
   "recurringClass.findMany": () => [{ ...CLS }],
   "recurringClass.update": (a) => { Object.assign(CLS, a.data); return { ...CLS }; },

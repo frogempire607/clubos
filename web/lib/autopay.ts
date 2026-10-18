@@ -31,9 +31,9 @@
 // id orphans no money event arriving afterwards.
 
 import { prisma } from "@/lib/prisma";
-import { stripe } from "@/lib/stripe";
+import { stripe, calculatePlatformFeePercent } from "@/lib/stripe";
 import { setStripeStop } from "@/lib/stripeStop";
-import { recurringUnitWithFee } from "@/lib/fees";
+import { recurringUnitWithFee, feePolicyFor } from "@/lib/fees";
 import { billingPeriodToStripeInterval } from "@/lib/stripe";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
@@ -175,7 +175,7 @@ export async function turnAutopayOn(
       member: {
         select: {
           id: true, stripeCustomerId: true, stripeSetupCustomerId: true, stripeSetupPaymentMethodId: true,
-          club: { select: { id: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true } },
+          club: { select: { id: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true, passPlatformFee: true, tier: true } },
         },
       },
       membership: { select: { id: true, clubId: true, name: true, description: true, stripeProductId: true, stripePriceIds: true } },
@@ -218,7 +218,7 @@ export async function turnAutopayOn(
   // The member's OWN price, passed through the club's fee passthrough. Reading
   // the plan's option price here would silently reprice anyone on an override.
   const amountCents = recurringUnitWithFee(
-    Math.round(Number(sub.price) * 100), club.passProcessingFees,
+    Math.round(Number(sub.price) * 100), feePolicyFor(club),
   );
   const interval = billingPeriodToStripeInterval(sub.billingPeriod ?? "MONTHLY")
     ?? { interval: "month" as const, interval_count: 1 };
@@ -264,7 +264,7 @@ export async function turnAutopayOn(
           },
         }],
         ...(trialEnd ? { trial_end: trialEnd } : {}),
-        application_fee_percent: 0,
+        application_fee_percent: calculatePlatformFeePercent(Math.round(Number(sub.price) * 100), club),
         metadata: { memberSubscriptionId: sub.id, memberId: sub.memberId, clubId },
       },
       {
@@ -357,7 +357,7 @@ export async function previewAutopayChange(
       member: {
         select: {
           stripeCustomerId: true, stripeSetupCustomerId: true, stripeSetupPaymentMethodId: true,
-          club: { select: { stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true } },
+          club: { select: { stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true, passPlatformFee: true, tier: true } },
         },
       },
     },
@@ -408,7 +408,7 @@ export async function previewAutopayChange(
   const pmId = customerId
     ? await resolveChargeablePaymentMethodId(customerId, club.stripeAccountId, sub.member.stripeSetupPaymentMethodId)
     : null;
-  const charge = recurringUnitWithFee(Math.round(price * 100), club.passProcessingFees) / 100;
+  const charge = recurringUnitWithFee(Math.round(price * 100), feePolicyFor(club)) / 100;
 
   if (!pmId) {
     return {

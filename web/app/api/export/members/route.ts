@@ -17,7 +17,7 @@ export async function GET(req: Request) {
       where: { id: session.user.clubId },
       select: { tier: true },
     });
-    const features = getTierFeatures(club?.tier ?? "growth");
+    const features = getTierFeatures(club?.tier ?? "starter");
     if (!features.advancedAnalytics) {
       return new Response(
         "Excel and PDF exports are available on Pro and Enterprise plans. Use CSV instead, or upgrade.",

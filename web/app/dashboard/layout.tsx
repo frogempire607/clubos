@@ -19,6 +19,7 @@ type Me = {
   role?: string;
   permissions?: Record<string, unknown> | null;
   title?: string | null;
+  feeChoiceRequired?: boolean;
 } | null;
 
 function initialsOf(name: string | null | undefined, email: string | null | undefined): string {
@@ -68,6 +69,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
   }, [status, router]);
+
+  // Pricing overhaul (2026-10-18): until the OWNER saves their fee split once,
+  // every dashboard page sends them to Member payments, where a one-time
+  // explainer says what changed. Owners only — the member portal and staff
+  // logins are never redirected. One click ("Keep these settings") ends it.
+  useEffect(() => {
+    if (me?.role === "OWNER" && me.feeChoiceRequired && pathname !== "/dashboard/settings/billing") {
+      router.replace("/dashboard/settings/billing?feeChange=1");
+    }
+  }, [me, pathname, router]);
+  // The billing page fires this once the choice is saved.
+  useEffect(() => {
+    const done = () => setMe((m) => (m ? { ...m, feeChoiceRequired: false } : m));
+    window.addEventListener("aox:fee-choice-made", done);
+    return () => window.removeEventListener("aox:fee-choice-made", done);
+  }, []);
 
   if (status === "loading") {
     return (

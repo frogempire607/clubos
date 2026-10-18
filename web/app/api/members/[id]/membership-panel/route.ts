@@ -10,7 +10,7 @@ import { resumeLapsedPauses } from "@/lib/membershipPause";
 import { datesEditable } from "@/lib/membershipPanel";
 import { siblingLinesForMember } from "@/lib/membershipSiblingServer";
 import { siblingOn, membershipSiblingSummary } from "@/lib/membershipSiblingDiscount";
-import { recurringUnitWithFee } from "@/lib/fees";
+import { recurringUnitWithFee, feePolicyFor, passesAnyFee } from "@/lib/fees";
 import { liveStripeFacts, type LiveFacts } from "@/lib/membershipMoneyServer";
 import {
   commitmentView, howTheyPay, nextPayment, autoRenewPlan, renewsNow, paymentMethodLabel, refundable, moneyEventSentence,
@@ -45,7 +45,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
         orderBy: { createdAt: "desc" },
         include: { membership: { select: { id: true, name: true } } },
       },
-      club: { select: { passProcessingFees: true, stripeAccountId: true, stripeChargesEnabled: true } },
+      club: { select: { passProcessingFees: true, passPlatformFee: true, tier: true, stripeAccountId: true, stripeChargesEnabled: true } },
     },
   });
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -63,8 +63,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   ]);
 
   const subs: PanelSub[] = member.subscriptions.map((s) => {
-    const snap = (s.stripeSnapshot ?? null) as { defaultPaymentMethod?: { brand?: string; last4?: string } | null; cancelAt?: string | null } | null;
+    const snap = (s.stripeSnapshot ?? null) as { defaultPaymentMethod?: { brand?: string; last4?: string } | null; cancelAt?: string | null; unitAmount?: number | null } | null;
     return {
+      stripeUnitCents: typeof snap?.unitAmount === "number" ? snap.unitAmount : null,
       id: s.id,
       planName: s.membership?.name ?? null,
       optionLabel: s.optionLabel,
@@ -125,7 +126,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     cardLabel,
     requestedPaymentMethod: member.requestedPaymentMethod,
     payerName,
-    passProcessingFees: member.club.passProcessingFees,
+    passProcessingFees: feePolicyFor(member.club),
     now: new Date(),
   });
 
@@ -176,7 +177,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     sibling,
     view,
     member: { id: member.id, firstName: member.firstName, lastName: member.lastName, isMinor: member.isMinor, guardianEmail: member.guardianEmail, email: member.email },
-    club: { passProcessingFees: member.club.passProcessingFees, stripeReady: !!member.club.stripeAccountId && !!member.club.stripeChargesEnabled },
+    club: { passProcessingFees: passesAnyFee(feePolicyFor(member.club)), feePolicy: feePolicyFor(member.club), stripeReady: !!member.club.stripeAccountId && !!member.club.stripeChargesEnabled },
     hasCard,
     cardLabel,
     requestedPaymentMethod: member.requestedPaymentMethod,
@@ -213,7 +214,7 @@ function renewsText(m: MoneyRow, renews: boolean): string {
 
 async function buildMoney(
   clubId: string,
-  member: { id: string; requestedPaymentMethod: string | null; club: { passProcessingFees: boolean; stripeAccountId: string | null } },
+  member: { id: string; requestedPaymentMethod: string | null; club: { passProcessingFees: boolean; passPlatformFee: boolean; tier: string; stripeAccountId: string | null } },
   row: SubRow,
   cur: PanelSub,
   plans: PlanRow[],
@@ -236,7 +237,11 @@ async function buildMoney(
   const snapPm = (row.stripeSnapshot ?? null) as { defaultPaymentMethod?: { brand?: string; last4?: string; type?: string; label?: string } | null } | null;
   const pmLabel = paymentMethodLabel(live?.pm) ?? paymentMethodLabel(snapPm?.defaultPaymentMethod ? { type: snapPm.defaultPaymentMethod.type ?? null, brand: snapPm.defaultPaymentMethod.brand, last4: snapPm.defaultPaymentMethod.last4, label: snapPm.defaultPaymentMethod.label } : null);
   const offlineMethod = member.requestedPaymentMethod === "CHECK" ? "CHECK" : member.requestedPaymentMethod === "CASH" ? "CASH" : null;
-  const charge = member.club.passProcessingFees && cur.hasStripe ? recurringUnitWithFee(Math.round(cur.price * 100), true) / 100 : cur.price;
+  // Stripe's own unit amount when we have it (the truth — pre-fix subscriptions
+  // bill the legacy amount); otherwise what the current formula would charge.
+  const charge = live?.unitDollars != null && cur.hasStripe
+    ? live.unitDollars
+    : passesAnyFee(feePolicyFor(member.club)) && cur.hasStripe ? recurringUnitWithFee(Math.round(cur.price * 100), feePolicyFor(member.club)) / 100 : cur.price;
 
   const txs = await prisma.transaction.findMany({
     where: { clubId, OR: [{ memberId: member.id }, { athleteMemberId: member.id }], type: { in: MEMBERSHIP_TX_TYPES }, status: { in: ["SUCCEEDED", "REFUNDED", "FAILED", "PENDING"] }, NOT: { reconciliationStatus: "VOID" } },

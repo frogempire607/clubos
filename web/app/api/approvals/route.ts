@@ -1,3 +1,4 @@
+import { feePolicyFor } from "@/lib/fees";
 import { NextResponse } from "next/server";
 import { autoDiscountView } from "@/lib/eventAutoDiscounts";
 import { registrationDiscountName } from "@/lib/eventDiscounts";
@@ -616,7 +617,7 @@ async function eventRegistrationRequests(args: {
       invoiceCount: true,
       lastChargeError: true,
       sessionIds: true,
-      club: { select: { passProcessingFees: true, timezone: true } },
+      club: { select: { passProcessingFees: true, passPlatformFee: true, tier: true, timezone: true } },
       event: {
         select: {
           id: true, name: true, startsAt: true, autoChargeDate: true, registrationForm: true, autoDiscounts: true,
@@ -686,7 +687,7 @@ async function eventRegistrationRequests(args: {
           summaryFields: resolveCategoryFields(r.event).map((f) => ({ id: f.key, label: f.label })),
           groupLabel: grp?.label ?? null,
         },
-        { passProcessingFees: r.club.passProcessingFees, timezone: r.club.timezone },
+        { passProcessingFees: feePolicyFor(r.club), timezone: r.club.timezone },
         new Date(),
       ),
     };

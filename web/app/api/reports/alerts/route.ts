@@ -20,12 +20,12 @@ export async function GET() {
 
   const clubId = session.user.clubId;
   const club = await prisma.club.findUnique({ where: { id: clubId }, select: { tier: true } });
-  const features = getTierFeatures(club?.tier ?? "growth");
-  if (!features.reports) {
+  const features = getTierFeatures(club?.tier ?? "starter");
+  if (!features.fullReports) {
     return NextResponse.json(
       tierBlockedBody({
         message: "Reports & analytics aren't available on your current plan.",
-        upgradeRequired: upgradeRequired(club?.tier ?? "growth", "reports"),
+        upgradeRequired: upgradeRequired(club?.tier ?? "starter", "fullReports"),
       }),
       { status: 403 },
     );

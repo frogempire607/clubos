@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import { applicationFeeCents, applicationFeePercent, feePolicyFor, type ClubFeeFields } from "@/lib/fees";
 
 // Lazy singleton. `next build` imports every route module to collect page data,
 // so a top-level `new Stripe(process.env.STRIPE_SECRET_KEY!)` — or a top-level
@@ -29,15 +30,23 @@ export const stripe: Stripe = new Proxy({} as Stripe, {
   },
 });
 
-// AthletixOS takes NO per-transaction platform cut on any plan — every tier is
-// a flat monthly subscription. Kept as a function so existing Connect
-// application_fee call sites stay valid (they just resolve to 0).
-export function platformFeeBps(_tier: string): number {
-  return 0;
+// The AthletixOS platform fee (2026-10-18): tier rate + $0.30 per charge,
+// collected as `application_fee_amount` (one-time) or `application_fee_percent`
+// (subscriptions) on the club's connected account. All math lives in
+// lib/fees.ts — these wrappers exist so every Stripe call site states the
+// club's fee policy explicitly.
+//
+// `netCents` is the CLUB'S price after discounts, BEFORE any gross-up — NOT
+// the total the member is charged. Passing the grossed-up total would charge
+// the platform fee on the platform fee.
+
+export function calculatePlatformFee(netCents: number, club: ClubFeeFields): number {
+  return applicationFeeCents(netCents, feePolicyFor(club));
 }
 
-export function calculatePlatformFee(_amountInCents: number, _tier: string): number {
-  return 0;
+/** application_fee_percent for a subscription whose club price is `netCents`. */
+export function calculatePlatformFeePercent(netCents: number, club: ClubFeeFields): number {
+  return applicationFeePercent(netCents, feePolicyFor(club));
 }
 
 // Convert our billingPeriod enum -> Stripe recurring config

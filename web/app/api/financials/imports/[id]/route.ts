@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { requirePermissionLive } from "@/lib/apiGuard";
 import { importPreview, saveMapping } from "@/lib/ledgerImportServer";
 import type { ImportMapping } from "@/lib/ledgerImport";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullFinancials");
+  if (tierGate) return tierGate;
   const pv = await importPreview(session.user.clubId, id);
   if (!pv) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(pv);
@@ -40,6 +44,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullFinancials");
+  if (tierGate) return tierGate;
   let body: z.infer<typeof schema>;
   try {
     body = schema.parse(await req.json());

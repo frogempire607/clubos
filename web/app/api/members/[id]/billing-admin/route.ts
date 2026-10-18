@@ -22,7 +22,7 @@ import {
   resolveDraftOptionId,
 } from "@/lib/billingAdmin";
 import { writeBillingAudit } from "@/lib/billingAudit";
-import { feeBreakdown, describeProcessingFee } from "@/lib/fees";
+import { feeBreakdown, describeProcessingFee, feePolicyFor, passesAnyFee } from "@/lib/fees";
 import { resolveStaffDiscount } from "@/lib/staffPayments";
 import { reactivationUrl, parseOffer, compareOfferToCurrent } from "@/lib/reactivation";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
@@ -133,7 +133,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     include: {
       club: {
         select: {
-          id: true, name: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true,
+          id: true, name: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true, passPlatformFee: true, tier: true,
           offlineActivationPolicy: true,
         },
       },
@@ -450,7 +450,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   // club passes the Stripe processing fee (display only — lib/fees.ts owns
   // the math, and the charge paths use recurringUnitWithFee on the same base).
   // An UNCONFIGURED member has no price at all — never show $0/"Free".
-  const fees = feeBreakdown(pricing.configured ? pricing.price : 0, club.passProcessingFees);
+  const fees = feeBreakdown(pricing.configured ? pricing.price : 0, feePolicyFor(club));
 
   // Plans for the edit modal.
   const plans = await prisma.membership.findMany({
@@ -481,7 +481,8 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     // client accepts, or only when staff records the money as received?
     offlineActivationPolicy: club.offlineActivationPolicy === "ON_ACCEPTANCE" ? "ON_ACCEPTANCE" : "ON_PAYMENT",
     feeBreakdown: {
-      passFees: club.passProcessingFees,
+      passFees: passesAnyFee(feePolicyFor(club)),
+      feePolicy: feePolicyFor(club),
       feePercentLabel: describeProcessingFee(),
       base: fees.base,
       fee: fees.fee,

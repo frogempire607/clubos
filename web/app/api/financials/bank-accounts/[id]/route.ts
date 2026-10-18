@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermissionLive } from "@/lib/apiGuard";
 import { formatZodError } from "@/lib/zodErrors";
 import { assignAccountEntity } from "@/lib/bankAccounts";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullFinancials");
+  if (tierGate) return tierGate;
   let body: z.infer<typeof schema>;
   try {
     body = schema.parse(await req.json());

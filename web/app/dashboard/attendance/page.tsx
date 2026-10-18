@@ -12,6 +12,7 @@ import { SkeletonList } from "@/components/LoadingSkeleton";
 import { todayLocalISO } from "@/lib/datetime";
 import { classDropInPrice } from "@/lib/attendanceBilling";
 import NoMembershipPanel, { type NoMembershipPrompt } from "@/components/attendance/NoMembershipPanel";
+import { computeProcessingFeeCents, type FeePolicy, type FeePolicyInput } from "@/lib/fees";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -401,6 +402,7 @@ type ChargeCardPreview = {
   payerManagesOthers: string[];
   allowedPrices: { label: string; price: number }[];
   passProcessingFees: boolean;
+  feePolicy?: FeePolicy;
 };
 
 type ChargeResult =
@@ -416,8 +418,9 @@ function titleCaseBrand(brand: string) {
 }
 
 // Display-only estimate; the server computes the real fee/total.
-function processingFeeFor(base: number) {
-  return Math.round(base * 100 * 0.029) / 100;
+// Fee math lives in lib/fees.ts only — never hardcode 2.9% here.
+function processingFeeFor(base: number, policy: FeePolicyInput) {
+  return computeProcessingFeeCents(Math.round(base * 100), policy) / 100;
 }
 
 function newClientKey(): string {
@@ -668,7 +671,7 @@ function ChargeSavedCardPanel({
   const discountedBase = base != null ? (math ? math.final : base) : null;
   const fee =
     preview.passProcessingFees && discountedBase != null && discountedBase > 0
-      ? processingFeeFor(discountedBase)
+      ? processingFeeFor(discountedBase, preview.feePolicy ?? true)
       : 0;
   const total = discountedBase != null ? discountedBase + fee : null;
 

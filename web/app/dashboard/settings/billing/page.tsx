@@ -6,6 +6,7 @@ import GroupRatesCard from "@/components/settings/GroupRatesCard";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
+import { quoteCharge, formatCents, surchargeLabel, passesAnyFee, type FeePolicy } from "@/lib/fees";
 
 type Status = {
   connected: boolean;
@@ -126,15 +127,15 @@ export default function BillingSettingsPage() {
         <h3 className="text-sm font-semibold text-text-primary mb-2">How payments work</h3>
         <ul className="text-xs text-text-muted space-y-1.5 leading-relaxed">
           <li>· Members pay with their card directly to your Stripe account</li>
-          <li>· AthletixOS charges <strong>0% platform fee</strong> on every plan — your monthly subscription is all you pay us</li>
-          <li>· Optionally pass Stripe&apos;s processing fee to members at checkout (toggle below)</li>
+          <li>· Stripe charges its processing fee (2.9% + $0.30) and AthletixOS charges a platform fee set by your plan, on each card payment</li>
+          <li>· You choose who covers each fee — your club or the paying member (toggles below)</li>
           <li>· You handle payouts, taxes, and refunds through Stripe</li>
           <li>· Test card: <code className="bg-white px-1 py-0.5 rounded">4242 4242 4242 4242</code> — any future date / any CVC</li>
         </ul>
       </div>
 
-      {/* ── Pass processing fees to customer ── */}
-      <ProcessingFeeToggle />
+      {/* ── Who pays which fee (Stripe processing / AthletixOS platform) ── */}
+      <FeeSplitCard />
 
       {/* ── Offline (cash/check) activation policy ── */}
       <OfflineActivationPolicyCard />
@@ -154,91 +155,216 @@ export default function BillingSettingsPage() {
   );
 }
 
-/* ── Pass Stripe processing fees to the customer ── */
-function ProcessingFeeToggle() {
-  const [enabled, setEnabled] = useState(false);
+/* ── Who pays which fee (pricing overhaul 2026-10-18) ── */
+// Two independent toggles. All math is lib/fees.ts quoteCharge — the same
+// function every checkout uses, so this preview is exactly what is charged.
+type FeeSettings = {
+  passProcessingFees: boolean;
+  passPlatformFee: boolean;
+  processingFeeNote: string | null;
+  feeChoiceRequired: boolean;
+  feeDescription: string;
+  tier: string;
+  tierName: string;
+  platformFeeDescription: string;
+  platformRate: number;
+  platformFixedCents: number;
+};
+
+function FeeSplitCard() {
+  const params = useSearchParams();
+  const [s, setS] = useState<FeeSettings | null>(null);
   const [note, setNote] = useState("");
-  const [feeDesc, setFeeDesc] = useState("2.9%");
-  const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     fetch("/api/club/payment-settings")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d) {
-          setEnabled(!!d.passProcessingFees);
-          setNote(d.processingFeeNote || "");
-          if (d.feeDescription) setFeeDesc(d.feeDescription);
-        }
-        setLoaded(true);
+      .then((d: FeeSettings | null) => {
+        if (d) { setS(d); setNote(d.processingFeeNote || ""); }
       });
   }, []);
 
-  async function save(next: boolean, nextNote: string) {
-    setSaving(true);
-    setSaved(false);
+  async function patch(body: Record<string, unknown>) {
+    if (!s) return;
+    const prev = s;
+    setSaving(true); setSaved(false); setError("");
+    if ("passProcessingFees" in body || "passPlatformFee" in body) setS({ ...s, ...(body as Partial<FeeSettings>) });
     const res = await fetch("/api/club/payment-settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ passProcessingFees: next, processingFeeNote: nextNote || null }),
+      body: JSON.stringify(body),
     });
     setSaving(false);
-    if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 2500); }
+    if (res.ok) {
+      const d = (await res.json()) as FeeSettings;
+      setS(d);
+      setSaved(true); setTimeout(() => setSaved(false), 2500);
+      if (!d.feeChoiceRequired) window.dispatchEvent(new Event("aox:fee-choice-made"));
+    } else {
+      setS(prev);
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "Could not save.");
+    }
   }
 
-  return (
-    <div className="mt-6 bg-white rounded-xl border border-app-border p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-semibold text-text-primary mb-1">Pass processing fees to customer</h3>
-          <p className="text-xs text-text-muted leading-relaxed max-w-xl">
-            When enabled, Stripe&apos;s processing fee ({feeDesc}) is transparently added to the
-            member&apos;s checkout total so you receive the full intended amount. Members see a clear
-            breakdown before paying. Applies to memberships, events, classes, products, and private
-            lessons.
-          </p>
-        </div>
-        <button
-          role="switch"
-          aria-checked={enabled}
-          disabled={!loaded || saving}
-          onClick={() => { const n = !enabled; setEnabled(n); save(n, note); }}
-          className="relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition disabled:opacity-50"
-          style={{ background: enabled ? "var(--color-primary)" : "var(--color-border)" }}
-        >
-          <span
-            className="inline-block h-5 w-5 rounded-full bg-white shadow transition-transform mt-0.5"
-            style={{ transform: enabled ? "translateX(22px)" : "translateX(2px)" }}
-          />
-        </button>
-      </div>
+  if (!s) {
+    return <div className="mt-6 bg-white rounded-xl border border-app-border p-5 text-sm text-text-muted">Loading fee settings…</div>;
+  }
 
-      {enabled && (
-        <div className="mt-4">
-          <label className="block text-xs font-medium text-text-primary mb-1">
-            Optional explanation shown to members (optional)
-          </label>
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            onBlur={() => save(enabled, note)}
-            placeholder="e.g. A small processing fee keeps your membership price the same for the club."
-            className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface"
-            maxLength={300}
-          />
-          <div className="mt-3 bg-app-bg border border-app-border rounded-lg p-3 text-xs text-text-muted">
-            <p className="font-medium text-text-primary mb-1">Example member sees</p>
-            <div className="flex justify-between"><span>Membership</span><span>$100.00</span></div>
-            <div className="flex justify-between"><span>Processing fee</span><span>$2.90</span></div>
-            <div className="flex justify-between font-semibold text-text-primary border-t border-app-border mt-1 pt-1">
-              <span>Total</span><span>$102.90</span>
-            </div>
-          </div>
+  const policyFor = (pp: boolean, pf: boolean): FeePolicy => ({
+    passProcessing: pp, passPlatform: pf, platformRate: s.platformRate, platformFixedCents: s.platformFixedCents,
+  });
+  const current = quoteCharge(10000, policyFor(s.passProcessingFees, s.passPlatformFee));
+  const combos: { pp: boolean; pf: boolean; label: string }[] = [
+    { pp: false, pf: false, label: "Club covers both fees" },
+    { pp: true, pf: false, label: "Member covers processing" },
+    { pp: false, pf: true, label: "Member covers platform fee" },
+    { pp: true, pf: true, label: "Member covers both fees" },
+  ];
+  const showBanner = s.feeChoiceRequired || params.get("feeChange") === "1";
+
+  return (
+    <div className="mt-6 space-y-4">
+      {showBanner && s.feeChoiceRequired && (
+        <div className="rounded-xl border border-brand/30 bg-brand/5 p-5">
+          <h3 className="text-sm font-semibold text-text-primary">Our fee structure has changed</h3>
+          <p className="text-xs text-text-muted mt-1 leading-relaxed max-w-2xl">
+            AthletixOS now charges a per-transaction platform fee ({s.platformFeeDescription} on your {s.tierName} plan)
+            instead of relying on the monthly subscription alone. You choose who covers it. Until you change anything,
+            the defaults apply: <strong className="text-text-primary">Stripe processing is passed to the paying member</strong> and{" "}
+            <strong className="text-text-primary">the platform fee is absorbed by your club</strong>. You can change these now or any time later.
+          </p>
+          <button
+            onClick={() => patch({ confirmFeeChoice: true })}
+            disabled={saving}
+            className="mt-3 min-h-[44px] px-4 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-hover disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Keep these settings"}
+          </button>
         </div>
       )}
-      {saved && <p className="text-xs text-text-muted mt-2">Saved.</p>}
+
+      <div className="bg-white rounded-xl border border-app-border p-5">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h3 className="text-sm font-semibold text-text-primary">Who pays which fee</h3>
+            <p className="text-xs text-text-muted mt-1">
+              Your plan: <strong className="text-text-primary">{s.tierName}</strong> · platform fee{" "}
+              <strong className="text-text-primary">{s.platformFeeDescription}</strong> per card payment ·{" "}
+              <a href="/dashboard/settings?section=plan" className="text-brand hover:underline">Change plan</a>
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 divide-y divide-app-border border border-app-border rounded-lg">
+          <FeeToggleRow
+            title="Pass Stripe processing fee to members"
+            detail={`Stripe's ${s.feeDescription} is added to the member's total so your club isn't charged it.`}
+            checked={s.passProcessingFees}
+            disabled={saving}
+            onChange={(v) => patch({ passProcessingFees: v })}
+          />
+          <FeeToggleRow
+            title="Pass AthletixOS platform fee to members"
+            detail={`The ${s.platformFeeDescription} platform fee is added to the member's total instead of coming out of your payout.`}
+            checked={s.passPlatformFee}
+            disabled={saving}
+            onChange={(v) => patch({ passPlatformFee: v })}
+          />
+        </div>
+        <p className="text-[12px] text-text-muted mt-2">
+          Applies to memberships, events, classes, products and private lessons paid by card. Discounts come off first; fees are worked out on the discounted price.
+        </p>
+
+        {/* Live preview on a $100 membership */}
+        <div className="mt-5">
+          <p className="text-xs font-medium text-text-primary mb-2">On a $100.00 membership</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-text-muted text-left">
+                  <th className="font-medium py-1.5 pr-2">Setting</th>
+                  <th className="font-medium py-1.5 px-2 text-right">Member pays</th>
+                  <th className="font-medium py-1.5 pl-2 text-right">Club nets</th>
+                </tr>
+              </thead>
+              <tbody>
+                {combos.map((c) => {
+                  const q = quoteCharge(10000, policyFor(c.pp, c.pf));
+                  const on = c.pp === s.passProcessingFees && c.pf === s.passPlatformFee;
+                  return (
+                    <tr key={c.label} className={`border-t border-app-border ${on ? "bg-brand/5 font-semibold text-text-primary" : "text-text-muted"}`}>
+                      <td className="py-2 pr-2">{c.label}{on ? " · current" : ""}</td>
+                      <td className="py-2 px-2 text-right tabular-nums">{formatCents(q.totalCents)}</td>
+                      <td className="py-2 pl-2 text-right tabular-nums">{formatCents(q.clubNetCents)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-3 bg-app-bg border border-app-border rounded-lg p-3 text-xs text-text-muted space-y-1">
+            <p className="font-medium text-text-primary">With your current settings</p>
+            <div className="flex justify-between"><span>Membership</span><span className="tabular-nums">$100.00</span></div>
+            {current.surchargeCents > 0 && (
+              <div className="flex justify-between"><span>{surchargeLabel(current.policy)} (paid by member)</span><span className="tabular-nums">{formatCents(current.surchargeCents)}</span></div>
+            )}
+            <div className="flex justify-between font-semibold text-text-primary border-t border-app-border pt-1"><span>Member pays</span><span className="tabular-nums">{formatCents(current.totalCents)}</span></div>
+            <div className="flex justify-between"><span>Stripe processing</span><span className="tabular-nums">−{formatCents(current.stripeFeeCents)}</span></div>
+            <div className="flex justify-between"><span>AthletixOS platform fee</span><span className="tabular-nums">−{formatCents(current.applicationFeeCents)}</span></div>
+            <div className="flex justify-between font-semibold text-text-primary border-t border-app-border pt-1"><span>Your club nets</span><span className="tabular-nums">{formatCents(current.clubNetCents)}</span></div>
+            <p className="pt-1 text-[12px]">Based on Stripe&apos;s standard U.S. card rate. Amex and international cards cost more, and that difference comes out of your payout.</p>
+          </div>
+        </div>
+
+        {passesAnyFee(current.policy) && (
+          <div className="mt-4">
+            <label className="block text-xs font-medium text-text-primary mb-1">
+              Explanation shown to members (optional)
+            </label>
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              onBlur={() => { if ((s.processingFeeNote || "") !== note) patch({ processingFeeNote: note || null }); }}
+              placeholder="e.g. A small processing fee keeps our membership prices the same for everyone."
+              className="w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface"
+              maxLength={300}
+            />
+          </div>
+        )}
+        {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+        {saved && <p className="text-xs text-text-muted mt-2">Saved.</p>}
+      </div>
+    </div>
+  );
+}
+
+function FeeToggleRow({ title, detail, checked, disabled, onChange }: {
+  title: string; detail: string; checked: boolean; disabled: boolean; onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 p-4">
+      <div>
+        <p className="text-sm font-medium text-text-primary">{title}</p>
+        <p className="text-xs text-text-muted mt-0.5 leading-relaxed max-w-xl">{detail}</p>
+      </div>
+      <button
+        role="switch"
+        aria-checked={checked}
+        aria-label={title}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className="relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition disabled:opacity-50 mt-0.5"
+        style={{ background: checked ? "var(--color-primary)" : "var(--color-border)" }}
+      >
+        <span
+          className="inline-block h-5 w-5 rounded-full bg-white shadow transition-transform mt-0.5"
+          style={{ transform: checked ? "translateX(22px)" : "translateX(2px)" }}
+        />
+      </button>
     </div>
   );
 }

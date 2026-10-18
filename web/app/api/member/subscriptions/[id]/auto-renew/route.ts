@@ -1,3 +1,4 @@
+import { feePolicyFor } from "@/lib/fees";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
@@ -60,9 +61,9 @@ async function authorize(subscriptionId: string, clubId: string, userId: string)
 }
 
 async function describe(sub: NonNullable<Awaited<ReturnType<typeof authorize>>["sub"]>, person: PayablePerson, clubId: string) {
-  const club = await prisma.club.findUnique({ where: { id: clubId }, select: { passProcessingFees: true } });
+  const club = await prisma.club.findUnique({ where: { id: clubId }, select: { passProcessingFees: true, passPlatformFee: true, tier: true } });
   return describeForPortal({
-    sub, person, passProcessingFees: !!club?.passProcessingFees, card: null, lastPaidMethod: null, now: new Date(),
+    sub, person, passProcessingFees: club ? feePolicyFor(club) : false, card: null, lastPaidMethod: null, now: new Date(),
   });
 }
 

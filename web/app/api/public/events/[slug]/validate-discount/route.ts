@@ -1,3 +1,4 @@
+import { feePolicyFor } from "@/lib/fees";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -65,7 +66,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       nonMemberPrice: true,
       dropInFee: true,
       variableCostEnabled: true,
-      club: { select: { passProcessingFees: true } },
+      club: { select: { passProcessingFees: true, passPlatformFee: true, tier: true } },
     },
   });
   // Same decision as the register route (lib/eventShareLink.linkAccess).
@@ -108,7 +109,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   const b = eventChargeBreakdown({
     gross,
     discount: check.discount,
-    passProcessingFees: event.club.passProcessingFees,
+    passProcessingFees: feePolicyFor(event.club),
   });
 
   return NextResponse.json({

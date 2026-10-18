@@ -1,4 +1,5 @@
 import { addBillingPeriod } from "@/lib/billingAdmin";
+import { normalizeTier } from "@/lib/tier";
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { stripe } from "@/lib/stripe";
@@ -189,7 +190,8 @@ export async function POST(req: Request) {
           await prisma.club.update({
             where: { id: platformClubId },
             data: {
-              tier: clubOsPlan,
+              // Validated: metadata is ours, but never write an unknown tier.
+              tier: normalizeTier(clubOsPlan),
               stripeCustomerId: (session.customer as string) || undefined,
               stripeSubscriptionId: (session.subscription as string) || undefined,
               subscriptionStatus: "active",
@@ -1353,16 +1355,16 @@ export async function POST(req: Request) {
           });
           for (const s of subs) await recomputeMemberStatus(s.memberId, s.member.clubId);
         } else {
-          // ClubOS platform sub (club paying ClubOS) canceled. There is no
-          // free tier to fall back to — keep the tier on record and just mark
-          // the subscription canceled so billing/settings can prompt a
-          // re-subscribe. Access is governed by subscriptionStatus, not a
-          // Starter downgrade.
+          // ClubOS platform sub (club paying ClubOS) canceled. Since
+          // 2026-10-18 there IS a free tier: the club falls back to Starter
+          // (and its 2% platform rate) rather than keeping paid features for
+          // free. Nothing is deleted — data from Pro features stays, the
+          // routes are just gated until they upgrade again.
           await prisma.club.updateMany({
             where: { stripeSubscriptionId: subscription.id },
             // Clear the id so the owner can subscribe again — checkout treats
             // a lingering stripeSubscriptionId as "already subscribed".
-            data: { subscriptionStatus: "canceled", stripeSubscriptionId: null },
+            data: { subscriptionStatus: "canceled", stripeSubscriptionId: null, tier: "starter" },
           });
         }
         break;
@@ -1421,7 +1423,6 @@ export async function POST(req: Request) {
 // environment (test vs live) and define which Price corresponds to which tier.
 function tierFromPriceId(priceId: string): string | null {
   const map: Record<string, string> = {
-    [process.env.STRIPE_PRICE_GROWTH || "__growth__"]: "growth",
     [process.env.STRIPE_PRICE_PRO || "__pro__"]: "pro",
     [process.env.STRIPE_PRICE_ENTERPRISE || "__enterprise__"]: "enterprise",
   };

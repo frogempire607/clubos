@@ -274,8 +274,9 @@ check("an unreadable date is refused, not treated as absent",
 console.log("\nstripeUnitAmountCents:");
 check("no passthrough → the bare amount", stripeUnitAmountCents(190, false) === 19000, stripeUnitAmountCents(190, false));
 check("passthrough adds the fee", stripeUnitAmountCents(190, true) > 19000, stripeUnitAmountCents(190, true));
-check("$190 with passthrough = 19551 cents", stripeUnitAmountCents(190, true) === 19551, stripeUnitAmountCents(190, true));
-check("$175 with passthrough = 18008 cents", stripeUnitAmountCents(175, true) === 18008, stripeUnitAmountCents(175, true));
+// 2026-10-18 fee fix: Stripe's $0.30 is now recovered and the gross-up divides.
+check("$190 with passthrough = 19599 cents (club nets $190.00)", stripeUnitAmountCents(190, true) === 19599, stripeUnitAmountCents(190, true));
+check("$175 with passthrough = 18054 cents (club nets $175.00)", stripeUnitAmountCents(175, true) === 18054, stripeUnitAmountCents(175, true));
 check("$0 stays $0 either way", stripeUnitAmountCents(0, true) === 0 && stripeUnitAmountCents(0, false) === 0);
 check("rounds to whole cents", Number.isInteger(stripeUnitAmountCents(190.005, true)));
 
@@ -303,8 +304,8 @@ check("a decrease reads as good news", decreaseMail.subject.includes("going down
 check("shows the old price", flat(decreaseMail.blocks).includes("$190.00"));
 check("shows the new price", flat(decreaseMail.blocks).includes("$175.00"));
 check("states the effective date", flat(decreaseMail.blocks).includes("September 1, 2026"));
-check("fee passthrough is spelled out so $175 vs $180.08 isn't read as a bug",
-  flat(decreaseMail.blocks).includes("$180.08"));
+check("fee passthrough is spelled out so $175 vs $180.54 isn't read as a bug",
+  flat(decreaseMail.blocks).includes("$180.54"));
 check("stripe members are told nothing is needed from them",
   flat(decreaseMail.blocks).includes("Nothing is needed from you"));
 check("stripe members are told they were NOT charged or refunded today",

@@ -440,8 +440,9 @@ console.log("\n— a priced event is never free (2026-08-12 regression) —");
   // What the charge engine will actually send Stripe on approval: the resolved
   // $1.00 through the shared fee helper, with the club passing fees on.
   const fee = applyProcessingFee(Math.round(amountToCollect(memberOnlyEvent as never, approved as never, 10) * 100), true);
-  check("the approval charge totals $1.03 at Stripe", fee.totalCents === 103, fee);
-  check("…of which $0.03 is the passed-through processing fee", fee.feeCents === 3, fee);
+  // 2026-10-18 fee fix: Stripe's $0.30 is recovered too — (1.00 + 0.30) / 0.971, rounded up.
+  check("the approval charge totals $1.34 at Stripe", fee.totalCents === 134, fee);
+  check("…of which $0.34 is the passed-through processing fee", fee.feeCents === 34, fee);
   check(
     "and with fees absorbed it is exactly the ticket price",
     applyProcessingFee(100, false).totalCents === 100,

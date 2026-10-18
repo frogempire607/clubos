@@ -44,7 +44,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   const club = await prisma.club.findUnique({
     where: { id: ann.clubId }, select: { tier: true },
   });
-  const features = getTierFeatures(club?.tier ?? "growth");
+  const features = getTierFeatures(club?.tier ?? "starter");
   if (!features.emailSms) {
     return NextResponse.json(
       {

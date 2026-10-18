@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { clubTier, limitBlocked } from "@/lib/tierGuard";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
@@ -94,6 +95,16 @@ export async function POST(req: Request) {
 
   try {
     const data = inviteSchema.parse(await req.json());
+
+    // Staff seats by plan (Starter 5, Pro 25, Enterprise unlimited). A seat =
+    // an active STAFF login; owners don't use a seat. Re-adding a deleted
+    // coach still needs a free seat.
+    if (data.accountRole !== "OWNER") {
+      const seats = await prisma.user.count({ where: { clubId: session.user.clubId, role: "STAFF", deletedAt: null } });
+      const lim = limitBlocked(await clubTier(session.user.clubId), "maxStaffSeats", seats);
+      if (lim) return lim;
+    }
+
     if (!data.password && !data.sendSetupLink) {
       return NextResponse.json(
         { error: "Provide a password or set sendSetupLink to true." },

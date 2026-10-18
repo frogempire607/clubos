@@ -11,7 +11,7 @@ import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
 import { setStripeStop } from "@/lib/stripeStop";
-import { recurringUnitWithFee } from "@/lib/fees";
+import { recurringUnitWithFee, feePolicyFor, REFUND_APPLICATION_FEE } from "@/lib/fees";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { recomputeMemberStatus } from "@/lib/memberStatus";
 import { turnAutopayOff, turnAutopayOn, setAutoRenew, planNonRenewal, applyNonRenewal, offlineStopDate } from "@/lib/autopay";
@@ -49,7 +49,7 @@ async function loadRow(clubId: string, memberId: string, subscriptionId: string)
 type Row = NonNullable<Awaited<ReturnType<typeof loadRow>>>;
 
 async function clubStripe(clubId: string) {
-  return prisma.club.findUnique({ where: { id: clubId }, select: { stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true } });
+  return prisma.club.findUnique({ where: { id: clubId }, select: { stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true, passPlatformFee: true, tier: true } });
 }
 
 export function toMoneyRow(row: Row, live: LiveFacts | null): MoneyRow {
@@ -87,6 +87,10 @@ export type LiveFacts = {
   skipAt: Date | null;
   /** Discounts already on the subscription — kept when a skip is added. */
   discountIds: string[];
+  /** What Stripe actually bills per period (unit × quantity), in dollars. The
+   *  TRUE charge — subscriptions created before the 2026-10-18 fee fix bill
+   *  the legacy amount, which no formula reproduces. */
+  unitDollars: number | null;
 };
 
 function pmFacts(pm: Stripe.PaymentMethod | string | null | undefined): PmFacts | null {
@@ -127,6 +131,11 @@ export async function liveStripeFacts(stripeSubscriptionId: string, stripeAccoun
       pm,
       skipAt,
       discountIds,
+      unitDollars: (() => {
+        const it = sub.items?.data?.[0];
+        const u = it?.price?.unit_amount;
+        return typeof u === "number" ? (u * (it?.quantity ?? 1)) / 100 : null;
+      })(),
     } satisfies LiveFacts;
   })();
   try {
@@ -390,6 +399,8 @@ export async function refundPaymentTx(input: {
         {
           ...(tx.stripeChargeId ? { charge: tx.stripeChargeId } : { payment_intent: tx.stripePaymentIntentId! }),
           amount: cents, reason: "requested_by_customer",
+          // Explicit (lib/fees.ts): the platform fee is returned pro rata.
+          refund_application_fee: REFUND_APPLICATION_FEE,
           metadata: { transactionId: tx.id, memberId: input.memberId, refundedByUserId: input.actorUserId ?? "", reason },
           expand: ["charge"],
         },
@@ -475,7 +486,7 @@ export async function switchHowTheyPay(input: {
     const pm = await stripe.paymentMethods.retrieve(pmId, { stripeAccount: club.stripeAccountId });
     pmLabel = paymentMethodLabel(pmFacts(pm));
   } catch { /* the label is nice-to-have */ }
-  const charge = recurringUnitWithFee(Math.round(Number(row.price) * 100), club.passProcessingFees) / 100;
+  const charge = recurringUnitWithFee(Math.round(Number(row.price) * 100), feePolicyFor(club)) / 100;
   const plan = switchToCardPlan(toMoneyRow(row, null), { pmLabel, chargeAmount: charge, now });
   if (!plan.ok) return { ok: false, status: 409, code: plan.code, error: plan.error };
   if (input.preview) return { ok: true, preview: true, sentence: plan.sentence, consequence: plan.consequence, needsChargeAck: plan.chargesToday, facts: { effectiveAt: iso(plan.effectiveAt), chargeAmount: charge } };
@@ -671,7 +682,7 @@ export async function moveChargeDate(input: {
     hasStripe: !!row.stripeSubscriptionId,
     status: row.status,
     stripeStatus: facts?.status ?? row.stripeStatus,
-    chargeAmount: facts?.unitDollars ?? (row.stripeSubscriptionId && club ? recurringUnitWithFee(Math.round(Number(row.price) * 100), club.passProcessingFees) / 100 : Number(row.price)),
+    chargeAmount: facts?.unitDollars ?? (row.stripeSubscriptionId && club ? recurringUnitWithFee(Math.round(Number(row.price) * 100), feePolicyFor(club)) / 100 : Number(row.price)),
     billingPeriod: row.billingPeriod,
     startDate: row.startDate,
     endDate: row.endDate,

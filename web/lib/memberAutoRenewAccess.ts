@@ -15,7 +15,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
-import { feeBreakdown } from "@/lib/fees";
+import { feeBreakdown, passesAnyFee, type FeePolicyInput } from "@/lib/fees";
 import { autoRenewCopy, howYouPayLine, paymentMethodLabel, type AutoRenewCopy } from "@/lib/autoRenewCopy";
 import type { CardSnapshot } from "@/lib/memberCard";
 
@@ -95,7 +95,8 @@ export type AutoRenewRow = {
 export function describeForPortal(input: {
   sub: SubRow;
   person: PayablePerson;
-  passProcessingFees: boolean;
+  /** Club fee policy (lib/fees.ts feePolicyFor), or false. */
+  passProcessingFees: FeePolicyInput;
   card: CardLike;
   /** paymentMethod of the last SUCCEEDED membership payment (CASH, CHECK, STRIPE…). */
   lastPaidMethod: string | null;
@@ -104,7 +105,7 @@ export function describeForPortal(input: {
   const { sub, person, card, now } = input;
   const billing: "CARD" | "OFFLINE" = sub.billingType === "MANUAL" || !sub.stripeSubscriptionId ? "OFFLINE" : "CARD";
   const base = Number(sub.price ?? 0) || 0;
-  const amount = billing === "CARD" && input.passProcessingFees && base > 0 ? feeBreakdown(base, true).total : base;
+  const amount = billing === "CARD" && passesAnyFee(input.passProcessingFees) && base > 0 ? feeBreakdown(base, input.passProcessingFees).total : base;
   const copy = autoRenewCopy(
     {
       billing, autoRenew: sub.autoRenew, status: sub.status,

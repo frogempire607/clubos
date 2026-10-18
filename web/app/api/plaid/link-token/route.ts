@@ -12,12 +12,12 @@ export async function POST() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Plaid bank sync requires Growth plan or higher
+  // Plaid bank sync requires Pro or higher
   const club = await prisma.club.findUnique({
     where: { id: session.user.clubId },
     select: { tier: true },
   });
-  const features = getTierFeatures(club?.tier ?? "growth");
+  const features = getTierFeatures(club?.tier ?? "starter");
   if (!features.plaid) {
     return NextResponse.json(
       {

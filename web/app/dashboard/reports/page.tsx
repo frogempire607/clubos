@@ -50,7 +50,8 @@ export default function ReportsPage() {
   });
   const [customFrom, setCustomFrom] = useState<string>(search.get("from") ?? "");
   const [customTo, setCustomTo] = useState<string>(search.get("to") ?? "");
-  const [tierBlocked, setTierBlocked] = useState<{ message: string; upgradeTo: string | null } | null>(null);
+  const [tierBlocked] = useState<{ message: string; upgradeTo: string | null } | null>(null);
+  const [membershipOnly, setMembershipOnly] = useState(false);
   const [reliability, setReliability] = useState<{ sections: unknown[]; generatedAt?: string }>({ sections: [] });
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [alertsBadge, setAlertsBadge] = useState<number | null>(null);
@@ -83,7 +84,9 @@ export default function ReportsPage() {
       .then(async (r) => {
         if (r.status === 403) {
           const body = await r.json().catch(() => ({}));
-          if (body.code === "UPGRADE_REQUIRED") setTierBlocked({ message: body.error, upgradeTo: body.upgradeRequired });
+          // Starter: only the Membership tab is included (pricing overhaul
+          // 2026-10-18). The strip is a Pro report, so its 403 is the signal.
+          if (body.code === "UPGRADE_REQUIRED") setMembershipOnly(true);
           return null;
         }
         return r.ok ? r.json() : null;
@@ -140,6 +143,7 @@ export default function ReportsPage() {
 
   // Which tab keys is the caller allowed to see?
   const canSeeTab = (key: TabKey): boolean => {
+    if (membershipOnly) return key === "membership";
     if (scopes == null) return true; // during load, show everything
     if (!scopes.view) return false;
     if (key === "pnl" || key === "costs" || key === "cash_flow" || key === "unit_economics") return !!scopes.financials;
@@ -150,9 +154,9 @@ export default function ReportsPage() {
   const visibleTabs = TABS.filter((t) => canSeeTab(t.key));
   // If the current tab is hidden, fall back to Snapshot.
   useEffect(() => {
-    if (scopes && !canSeeTab(tab)) setTab("snapshot");
+    if ((scopes || membershipOnly) && !canSeeTab(tab)) setTab(membershipOnly ? "membership" : "snapshot");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopes, tab]);
+  }, [scopes, tab, membershipOnly]);
 
   // Scroll the active tab into view on mount (mobile horizontal-scroll bar).
   useEffect(() => {
@@ -174,7 +178,7 @@ export default function ReportsPage() {
           title="Reports require a paid plan"
           description={tierBlocked.message}
           action={{
-            label: `Upgrade to ${tierBlocked.upgradeTo ? tierBlocked.upgradeTo.charAt(0).toUpperCase() + tierBlocked.upgradeTo.slice(1) : "Growth"} →`,
+            label: `Upgrade to ${tierBlocked.upgradeTo ? tierBlocked.upgradeTo.charAt(0).toUpperCase() + tierBlocked.upgradeTo.slice(1) : "Pro"} →`,
             href: "/dashboard/settings/billing",
           }}
           className="bg-surface border border-app-border rounded-xl"
@@ -230,6 +234,13 @@ export default function ReportsPage() {
         sections={reliability.sections as Parameters<typeof ReliabilityStrip>[0]["sections"]}
         generatedAt={reliability.generatedAt}
       />
+
+      {membershipOnly && (
+        <div className="mb-4 rounded-xl border border-app-border bg-surface px-4 py-3 text-sm text-text-muted">
+          Your Starter plan includes the Membership report. Snapshot, Revenue, Costs, Profit &amp; Loss, Unit economics, Cash flow and imports are included on Pro.{" "}
+          <a href="/dashboard/settings?section=plan" className="text-brand hover:underline">See plans</a>
+        </div>
+      )}
 
       {/* Tabs bar. Horizontal scroll below lg. */}
       <div

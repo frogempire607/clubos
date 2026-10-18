@@ -9,7 +9,7 @@ import {
   isOfflineMethod,
   discountAppliedLabel,
 } from "@/lib/staffPayments";
-import { applyProcessingFee } from "@/lib/fees";
+import { applyProcessingFee, feePolicyFor, passesAnyFee } from "@/lib/fees";
 import { membershipDiscountAtPurchase } from "@/lib/membershipSiblingServer";
 
 // Membership reactivation offers — server helpers shared by the owner-side
@@ -414,6 +414,10 @@ export function buildReactivationEmailParams(args: {
     // Whether the Stripe processing fee is passed to the customer — drives the
     // fee-inclusive "total charged" wording (lib/fees.ts owns the math).
     passProcessingFees?: boolean;
+    // Platform-fee pass-through + tier (lib/fees.ts) — the email total must
+    // match what confirm creates.
+    passPlatformFee?: boolean | null;
+    tier?: string | null;
     // CASH/CHECK activation rule (null/undefined ⇒ ON_PAYMENT default) —
     // drives the offline offer's "when does the membership start" wording.
     offlineActivationPolicy?: string | null;
@@ -435,8 +439,11 @@ export function buildReactivationEmailParams(args: {
   const periodLabel = prettyPeriodLabel(offer.billingPeriod);
   // Exact card charge when the club passes the processing fee — matches what
   // confirm creates (recurringUnitWithFee on the same DISCOUNTED cent base).
-  const passFees = !isFree && offer.paymentMode === "CARD" && !!args.club.passProcessingFees;
-  const fees = applyProcessingFee(Math.round(effective * 100), passFees);
+  const feePolicy = !isFree && offer.paymentMode === "CARD"
+    ? feePolicyFor({ passProcessingFees: !!args.club.passProcessingFees, passPlatformFee: args.club.passPlatformFee ?? false, tier: args.club.tier ?? null })
+    : false;
+  const passFees = passesAnyFee(feePolicy);
+  const fees = applyProcessingFee(Math.round(effective * 100), feePolicy);
   // "SIBLING Discount Applied — $480.00 quarterly (was $530.00)"
   const discountLine = offer.discount
     ? `${discountAppliedLabel({ code: offer.discount.code, description: offer.discount.name })} — $${effective.toFixed(2)} ${periodLabel} (was $${offer.price.toFixed(2)})`
@@ -501,7 +508,7 @@ export async function loadReactivationEmailContext(memberId: string, clubId: str
         select: {
           id: true, name: true, logoUrl: true, primaryColor: true, contactEmail: true,
           emailFromName: true, emailReplyTo: true, stripeAccountId: true, passProcessingFees: true,
-          offlineActivationPolicy: true,
+          passPlatformFee: true, tier: true, offlineActivationPolicy: true,
         },
       },
     },

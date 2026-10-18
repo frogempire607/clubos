@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { hasReportScope } from "@/lib/reportsPermissions";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // POST /api/reports/imports/[id]/review/[rowId]
 // Owner picks one of five outcomes for a review row (specs/04 §step 5).
@@ -23,6 +24,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!hasReportScope(session, "imports")) {
     return NextResponse.json({ error: "You don't have permission to run imports." }, { status: 403 });
   }
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullReports");
+  if (tierGate) return tierGate;
 
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);

@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { hasReportScope } from "@/lib/reportsPermissions";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // GET /api/reports/imports/[id] — status + counts (for polling during commit).
 export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
@@ -15,6 +16,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   if (!hasReportScope(session, "imports")) {
     return NextResponse.json({ error: "You don't have permission to view imports." }, { status: 403 });
   }
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullReports");
+  if (tierGate) return tierGate;
 
   const batch = await prisma.importBatch.findFirst({
     where: { id, clubId: session.user.clubId },

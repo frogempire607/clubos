@@ -4,12 +4,16 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "finances", "view");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullFinancials");
+  if (tierGate) return tierGate;
 
   const { searchParams } = new URL(req.url);
   const from = searchParams.get("from");
@@ -64,6 +68,9 @@ export async function POST(req: Request) {
   // guard as editing/deleting one (expenses/[id]: finances:full, read live).
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullFinancials");
+  if (tierGate) return tierGate;
 
   try {
     const data = createSchema.parse(await req.json());

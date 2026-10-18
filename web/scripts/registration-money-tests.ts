@@ -34,9 +34,9 @@ console.log("\nFinger Lakes rows:");
 {
   // Fasulo — AUTO_CARD approved, SCHEDULED for the charge date.
   const m = d(reg({ name: "Jaden Fasulo", paymentMethod: "AUTO_CARD", status: "SCHEDULED", scheduledChargeAt: "2026-11-14T00:00:00Z" }));
-  eq("Fasulo timing", m.timing, "Saved card · charged Nov 14 · $87.47");
+  eq("Fasulo timing", m.timing, "Saved card · charged Nov 14 · $87.85");
   eq("Fasulo method", m.methodLabel, "Saved card");
-  eq("Fasulo amount carries the card fee", m.amountLabel, "$87.47 ($85.00 + $2.47 card fee)");
+  eq("Fasulo amount carries the card fee", m.amountLabel, "$87.85 ($85.00 + $2.85 card fee)");
   eq("Fasulo tone", m.tone, "scheduled");
   eq("Fasulo is not decidable", m.decidable, false);
   eq("Fasulo approve does nothing", m.approveEffect.kind, "NONE");
@@ -65,17 +65,17 @@ console.log("\nFinger Lakes rows:");
 {
   // Colton — APPROVAL_CHARGE, PENDING_REVIEW: one click charges him.
   const m = d(reg({ name: "Colton Waite", paymentMethod: "APPROVAL_CHARGE", status: "PENDING_REVIEW", approvalStatus: "PENDING", formResponses: { division: "Varsity" }, groupValue: "Lincoln High" }));
-  eq("Colton timing", m.timing, "Charges $87.47 the moment you approve");
+  eq("Colton timing", m.timing, "Charges $87.85 the moment you approve");
   eq("Colton marker", [m.chargesOnApprove, m.tone], [true, "chargeOnApprove"]);
-  eq("Colton approve effect", m.approveEffect, { kind: "CHARGE_NOW", sentence: "Approving Colton charges their saved card $87.47 now.", chargeNowCents: 8747 });
+  eq("Colton approve effect", m.approveEffect, { kind: "CHARGE_NOW", sentence: "Approving Colton charges their saved card $87.85 now.", chargeNowCents: 8785 });
   eq("Colton decline", m.declineEffect.sentence, "Declining charges nothing — Colton's saved card is never charged.");
   eq("Colton registered for", m.registeredFor, "Whole event · Division: Varsity · School: Lincoln High");
 }
 {
   // AUTO_CARD pending, approved BEFORE the charge date → scheduled.
   const m = d(reg({ name: "Eli Fasulo", paymentMethod: "AUTO_CARD", status: "PENDING_REVIEW", approvalStatus: "PENDING" }));
-  eq("AUTO_CARD pending timing", m.timing, "Saved card · charged Nov 14 after approval · $87.47");
-  eq("AUTO_CARD pending approve schedules", m.approveEffect, { kind: "SCHEDULE", sentence: "Approving Eli schedules their saved card for $87.47 on Nov 14. Nothing is charged today.", chargeNowCents: 0 });
+  eq("AUTO_CARD pending timing", m.timing, "Saved card · charged Nov 14 after approval · $87.85");
+  eq("AUTO_CARD pending approve schedules", m.approveEffect, { kind: "SCHEDULE", sentence: "Approving Eli schedules their saved card for $87.85 on Nov 14. Nothing is charged today.", chargeNowCents: 0 });
   eq("AUTO_CARD pending is not a charge-on-approve row", m.chargesOnApprove, false);
 }
 {
@@ -83,15 +83,15 @@ console.log("\nFinger Lakes rows:");
   const late = new Date("2026-11-14T17:00:00Z");
   const m = d(reg({ name: "Eli Fasulo", paymentMethod: "AUTO_CARD", status: "PENDING_REVIEW", approvalStatus: "PENDING" }), late);
   eq("late AUTO_CARD charges now", m.approveEffect.kind, "CHARGE_NOW");
-  eq("late AUTO_CARD sentence", m.approveEffect.sentence, "Approving Eli charges their saved card $87.47 now — the event's charge date (Nov 14) has already passed.");
+  eq("late AUTO_CARD sentence", m.approveEffect.sentence, "Approving Eli charges their saved card $87.85 now — the event's charge date (Nov 14) has already passed.");
   eq("late AUTO_CARD marker", m.chargesOnApprove, true);
 }
 {
   // INVOICE pending.
   const m = d(reg({ name: "Titus Reyes", paymentMethod: "INVOICE", status: "PENDING_REVIEW", approvalStatus: "PENDING" }));
-  eq("INVOICE pending timing", m.timing, "Payment link sent when you approve · $87.47");
+  eq("INVOICE pending timing", m.timing, "Payment link sent when you approve · $87.85");
   eq("INVOICE pending approve", m.approveEffect.kind, "SEND_LINK");
-  eq("INVOICE pending approve sentence", m.approveEffect.sentence, "Approving Titus emails them a payment link for $87.47. Nothing is charged until they pay it.");
+  eq("INVOICE pending approve sentence", m.approveEffect.sentence, "Approving Titus emails them a payment link for $87.85. Nothing is charged until they pay it.");
 }
 
 console.log("\nCARD / CASH / CHECK:");
@@ -119,10 +119,10 @@ console.log("\nCARD / CASH / CHECK:");
 console.log("\nFailed / retry / other states:");
 {
   const m = d(reg({ name: "Fail Case", paymentMethod: "AUTO_CARD", status: "PAYMENT_FAILED", lastChargeError: "Your card was declined." }));
-  eq("failed", m.timing, "Card charge failed · $87.47 still due — Your card was declined.");
+  eq("failed", m.timing, "Card charge failed · $87.85 still due — Your card was declined.");
   eq("failed tone", m.tone, "warn");
   const s = d(reg({ name: "Due Now", paymentMethod: "AUTO_CARD", status: "SCHEDULED", scheduledChargeAt: "2026-09-28T00:00:00Z" }));
-  eq("scheduled date passed → charging now", s.timing, "Saved card · charging now · $87.47");
+  eq("scheduled date passed → charging now", s.timing, "Saved card · charging now · $87.85");
   const nm = d(reg({ name: "No Method", paymentMethod: null, status: "PENDING_REVIEW", approvalStatus: "PENDING" }));
   eq("no method pending is BLOCKED", nm.approveEffect.kind, "BLOCKED");
   const free = d(reg({ name: "Free One", paymentMethod: null, status: "PENDING_REVIEW", approvalStatus: "PENDING", amountDue: 0 }));
@@ -141,8 +141,8 @@ console.log("\nBulk approve summary:");
   const other = d(reg({ name: "Ava Bergen", paymentMethod: "APPROVAL_CHARGE", status: "PENDING_REVIEW", approvalStatus: "PENDING" }));
   const eli = d(reg({ name: "Eli Fasulo", paymentMethod: "AUTO_CARD", status: "PENDING_REVIEW", approvalStatus: "PENDING" }));
   const s = approveBatchSummary([{ money: colton }, { money: other }, { money: eli }]);
-  eq("charged-now line", s.chargedLine, "Charged now: $174.94 (2 people)");
-  eq("button", s.buttonLabel, "Approve 3 · charge $174.94 now");
+  eq("charged-now line", s.chargedLine, "Charged now: $175.70 (2 people)");
+  eq("button", s.buttonLabel, "Approve 3 · charge $175.70 now");
   const q = approveBatchSummary([{ money: eli }]);
   eq("nothing today", q.buttonLabel, "Approve 1 · nothing charged today");
   const nm = d(reg({ name: "No Method", paymentMethod: null, status: "PENDING_REVIEW", approvalStatus: "PENDING" }));

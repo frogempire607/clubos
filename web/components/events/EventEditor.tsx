@@ -45,6 +45,7 @@ import {
   type SignupAccess,
   type SplitInvoiceWhen,
 } from "@/lib/eventPricingModel";
+import { canUseFeature } from "@/lib/tier";
 
 // ── Types the page passes in (mirrors page.tsx; kept structural on purpose) ──
 
@@ -344,6 +345,17 @@ export default function EventEditor({
   const initialForm: EditorFormField[] = Array.isArray(ev?.registrationForm) ? (ev!.registrationForm as EditorFormField[]) : [];
   const initialCategories = categoryFieldsFromForm(initialForm);
   const [formFields, setFormFields] = useState<EditorFormField[]>(initialForm.filter((f) => !categoryFieldsFromForm([f]).length));
+  // Pricing overhaul (2026-10-18): participant categories, the roster grid and
+  // private links are the Pro event toolkit. On Starter the add buttons are
+  // locked here (the API refuses them anyway); anything an event already has
+  // can still be edited or removed.
+  const [toolkitOn, setToolkitOn] = useState(true);
+  useEffect(() => {
+    fetch("/api/club/info")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && typeof d.tier === "string") setToolkitOn(canUseFeature(d.tier, "eventToolkit")); })
+      .catch(() => {});
+  }, []);
   const [categories, setCategories] = useState<{ key: string; label: string; optionsText: string; required: boolean; perEntry?: boolean }[]>(
     initialCategories.map((c) => ({
       key: c.key, label: c.label, optionsText: c.options.join("\n"), required: c.required ?? true,
@@ -1004,6 +1016,9 @@ export default function EventEditor({
         {exclusions.publicLinkLocked && <Lock>{exclusions.publicLinkLocked}</Lock>}
         {/* The private link works whatever is chosen above — that is its point. */}
         <div className="rounded-xl bg-app-bg px-3 py-2.5">
+          {!toolkitOn && (
+            <p className="text-xs text-text-muted mb-1">Private share links, participant categories and the roster grid are included on Pro. <a href="/dashboard/settings?section=plan" className="text-brand hover:underline">See plans</a></p>
+          )}
           {ev?.id ? (
             <PrivateShareLink eventId={ev.id} />
           ) : (
@@ -1022,7 +1037,7 @@ export default function EventEditor({
             {/* B16 slice 1 — question TYPES, not sport-named presets. The club
                 writes its own wording. A dropdown is an entry category (a coach
                 can propose changing the answer); the rest are plain questions. */}
-            <button type="button" onClick={() => addCategory()} className="px-2.5 py-1.5 rounded-full text-[11px] border border-app-border text-text-primary">+ Dropdown</button>
+            <button type="button" onClick={() => addCategory()} disabled={!toolkitOn} title={toolkitOn ? undefined : "Participant categories are included on Pro"} className="px-2.5 py-1.5 rounded-full text-[12px] border border-app-border text-text-primary disabled:opacity-50 disabled:cursor-not-allowed">+ Dropdown{toolkitOn ? "" : " · Pro"}</button>
             {([["text", "Short answer"], ["textarea", "Long answer"], ["checkbox", "Checkbox"], ["email", "Email"], ["phone", "Phone"]] as [EditorFormField["type"], string][]).map(([t, l]) => (
               <button key={t} type="button" onClick={() => setFormFields((f) => [...f, { id: `f${Date.now().toString(36)}`, label: "", type: t, required: false }])} className="px-2.5 py-1.5 rounded-full text-[11px] border border-app-border text-text-primary">+ {l}</button>
             ))}
@@ -1118,7 +1133,7 @@ export default function EventEditor({
         <div>
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-medium text-text-primary">Rosters (columns)</span>
-            <button type="button" onClick={() => editRoster(() => setRosterCols((c) => [...c, { id: null, label: "" }]))} className="text-xs text-brand font-medium min-h-[36px]">+ Roster</button>
+            <button type="button" onClick={() => editRoster(() => setRosterCols((c) => [...c, { id: null, label: "" }]))} disabled={!toolkitOn} className="text-xs text-brand font-medium min-h-[36px] disabled:opacity-50 disabled:cursor-not-allowed">+ Roster{toolkitOn ? "" : " · Pro"}</button>
           </div>
           {rosterCols.map((r, i) => (
             <div key={r.id ?? `new-${i}`} className="flex gap-2 mb-1.5">
@@ -1130,7 +1145,7 @@ export default function EventEditor({
         <div>
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-medium text-text-primary">Positions (rows)</span>
-            <button type="button" onClick={() => editRoster(() => setRosterRows((c) => [...c, { id: null, label: "", capacity: "", rosters: [] }]))} className="text-xs text-brand font-medium min-h-[36px]">+ Position</button>
+            <button type="button" onClick={() => editRoster(() => setRosterRows((c) => [...c, { id: null, label: "", capacity: "", rosters: [] }]))} disabled={!toolkitOn} className="text-xs text-brand font-medium min-h-[36px] disabled:opacity-50 disabled:cursor-not-allowed">+ Position{toolkitOn ? "" : " · Pro"}</button>
           </div>
           {rosterRows.length > 0 && (
             <div className="grid grid-cols-[1fr_88px_auto] gap-1.5 items-center text-[10px] uppercase tracking-wide text-text-muted mb-1">

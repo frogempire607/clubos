@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { requirePermission } from "@/lib/apiGuard";
 import { buildReport, REPORT_TYPES, type ReportType } from "@/lib/financialReports";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // GET /api/financials/report?type=&entity=&from=&to=
 // Tax-ready summary as JSON. Share with an accountant — does not file taxes.
@@ -11,6 +12,9 @@ export async function GET(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "finances", "view");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullFinancials");
+  if (tierGate) return tierGate;
 
   const url = new URL(req.url);
   const type = url.searchParams.get("type") as ReportType | null;

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { categoryFieldsFromForm } from "@/lib/eventCategories";
+import { requireTierFeature } from "@/lib/tierGuard";
 import { audienceProblem, audienceSchema, normalizeAudience } from "@/lib/eventAudience";
 import { audienceMembershipProblem } from "@/lib/eventAudienceServer";
 import type { Prisma } from "@prisma/client";
@@ -201,6 +203,13 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const data = createSchema.parse(body);
+
+    // Participant categories are part of the Pro event toolkit (pricing
+    // overhaul 2026-10-18). A plain event (list view) stays on Starter.
+    if (categoryFieldsFromForm(data.registrationForm).length > 0) {
+      const tierGate = await requireTierFeature(session.user.clubId, "eventToolkit");
+      if (tierGate) return tierGate;
+    }
 
     // Staff named on a new event are an assignment: schedule:edit (live), and
     // only this club's OWNER/STAFF (lib/staffSelf.ts). Checked before the

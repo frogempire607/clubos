@@ -6,7 +6,7 @@ import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
-import { processingFeeLineItem } from "@/lib/fees";
+import { processingFeeLineItem, feePolicyFor } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import { trialCoversClass } from "@/lib/freeTrial";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
@@ -382,9 +382,9 @@ export async function POST(req: Request) {
     }
 
     const priceCents = Math.round(finalPrice * 100);
-    const platformFee = calculatePlatformFee(priceCents, club.tier);
+    const platformFee = calculatePlatformFee(priceCents, club);
     const baseUrl = getAppBaseUrl();
-    const feeItem = processingFeeLineItem(priceCents, club.passProcessingFees);
+    const feeItem = processingFeeLineItem(priceCents, feePolicyFor(club));
 
     const checkoutSession = await stripe.checkout.sessions.create(
       {

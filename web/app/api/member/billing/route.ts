@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveCardSnapshot, type CardSnapshot } from "@/lib/memberCard";
-import { feeBreakdown } from "@/lib/fees";
+import { feeBreakdown, feePolicyFor, passesAnyFee } from "@/lib/fees";
 import { displayStripeStatus } from "@/lib/chargeDate";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
@@ -109,7 +109,7 @@ export async function GET() {
     }),
     prisma.club.findUnique({
       where: { id: clubId },
-      select: { stripeAccountId: true, memberBillingVisibility: true, passProcessingFees: true },
+      select: { stripeAccountId: true, memberBillingVisibility: true, passProcessingFees: true, passPlatformFee: true, tier: true },
     }),
   ]);
 
@@ -194,8 +194,8 @@ export async function GET() {
       // The club passes the Stripe processing fee → a RECURRING Stripe sub is
       // actually charged base + fee. Display only; math lives in lib/fees.ts.
       const fees =
-        club?.passProcessingFees && active?.billingType === "RECURRING" && price != null && price > 0
-          ? feeBreakdown(price, true)
+        club && passesAnyFee(feePolicyFor(club)) && active?.billingType === "RECURRING" && price != null && price > 0
+          ? feeBreakdown(price, feePolicyFor(club))
           : null;
       // ── Last payment comes from the LEDGER, not the Stripe snapshot ──────
       //

@@ -8,6 +8,7 @@ import ImageUpload from "@/components/ImageUpload";
 import PageHeader from "@/components/PageHeader";
 import { SkeletonCard } from "@/components/LoadingSkeleton";
 import { mapsDirectionsUrl } from "@/lib/maps";
+import { TIER_PRICES, describePlatformFee, normalizeTier } from "@/lib/tier";
 import SchedulingSection from "@/components/settings/SchedulingSection";
 
 type Club = {
@@ -53,32 +54,20 @@ type Location = {
 // Maps links come from lib/maps.ts: exact coordinates when set, otherwise the
 // address — a location with only an address still gets "Open in Maps".
 
-const TIERS = [
-  {
-    id: "growth",
-    name: "Growth",
-    price: "$50/mo",
-    fee: "Everything you need to run your club.",
-    color: "#fff",
-    features: ["Up to 200 members", "1 location", "Classes, events & attendance", "Memberships & billing", "Private lessons & packages", "Direct & group messaging", "Reports & analytics", "CSV import & custom fields"],
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    price: "$99/mo",
-    fee: "Built for growing, professional organizations.",
-    color: "#fff",
-    features: ["Everything in Growth", "Unlimited members", "Up to 3 locations", "Plaid bank reconciliation", "Email & SMS messaging", "Branded iOS & Android app", "Excel & PDF exports", "Priority support"],
-  },
-  {
-    id: "enterprise",
-    name: "Enterprise",
-    price: "$199+/mo",
-    fee: "Powerful infrastructure for large-scale operations.",
-    color: "var(--color-text)",
-    features: ["Everything in Pro", "Unlimited locations", "Custom onboarding", "Dedicated account manager", "Enterprise reporting"],
-  },
-];
+// Plan cards (pricing overhaul 2026-10-18). Prices + platform rates come from
+// lib/tier.ts so this list can't drift from what is charged.
+const TIERS = (["starter", "pro", "enterprise"] as const).map((id) => ({
+  id,
+  name: TIER_PRICES[id].label,
+  price: TIER_PRICES[id].monthly === 0 ? "$0/mo" : `$${TIER_PRICES[id].monthly}/mo`,
+  color: id === "enterprise" ? "#1F1F23" : "#534AB7",
+  fee: `Platform fee ${describePlatformFee(id)} per transaction · ${TIER_PRICES[id].tagline}`,
+  features: {
+    starter: ["Memberships, classes, events, products & private lessons", "Member portal, family accounts & QR check-in", "Email & group announcements", "Documents, waivers & e-sign", "Family & group discounts", "5 staff seats", "Stripe + cash/offline financials", "Membership report"],
+    pro: ["Everything in Starter", "Branded mobile app", "Private messaging", "Full event toolkit", "Pay plans, payroll & coach calendar feeds", "Full financials & all reports", "Action Center", "25 staff seats · 2 bank accounts"],
+    enterprise: ["Everything in Pro", "Unlimited entities, bank accounts & staff", "Consolidated reporting (coming soon)", "Custom roles & API access (coming soon)", "Priority support & white-glove migration"],
+  }[id],
+}));
 
 const NOTIFICATION_OPTIONS = [
   { key: "newMemberJoins", label: "New member joins", desc: "Email me when a member signs up or is added" },
@@ -402,7 +391,7 @@ function PlanSection({ club, onSaved }: { club: Club; onSaved: () => void }) {
         <h3 className="text-sm font-semibold text-text-primary mb-4">All Plans</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {TIERS.map((tier) => {
-            const isCurrent = tier.id === club.tier;
+            const isCurrent = tier.id === normalizeTier(club.tier);
             return (
               <div
                 key={tier.id}
@@ -419,6 +408,8 @@ function PlanSection({ club, onSaved }: { club: Club; onSaved: () => void }) {
                   </div>
                   {isCurrent ? (
                     <span className="text-[12px] px-2 py-0.5 rounded-full bg-brand text-white font-medium">Current</span>
+                  ) : tier.id === "starter" ? (
+                    <span className="text-[12px] text-text-muted">Free · cancel paid plan to switch</span>
                   ) : (
                     <button
                       onClick={() => upgradeTo(tier.id)}

@@ -5221,3 +5221,31 @@ Tests: new `test:membership-group-rates` (24). sibling 32, event-auto-discounts 
   birth year mistyped, and six same-name pairs where one copy has no birthday). `lib/memberDuplicates` now matches on a
   canonical first name (nicknames, parentheticals stripped), adds "same name & birthday, different year" and "same
   name, one has no birthday". Siblings/twins still never cluster. `npm run test:member-duplicates` (21).
+
+---
+
+### 2026-10-18 — Pricing overhaul: base + platform fee, Starter/Pro/Enterprise, fee-split settings (branch `claude/pricing-overhaul`)
+
+- **Model:** Starter $0 · 2% + $0.30, Pro $99 · 1.6% + $0.30, Enterprise $199 · 1.4% + $0.30 (`lib/tier.ts`). Platform
+  rate floor 1.4% enforced by `assertPlatformRate` (module-load self-check + tests) — platform cost is ~1.21% of volume.
+- **Two independent fees** on the club: `passProcessingFees` (now default true for new clubs) and new `passPlatformFee`
+  (default false). One gross-up, `lib/fees.ts quoteCharge`; every charge, subscription and display routes through it.
+  Fixed the old bug ($100 → $102.90, club netted $99.62): now $103.30 and the club nets $100.00.
+- **Stripe:** `application_fee_amount` on every one-time charge (incl. the saved-card attendance PaymentIntent, which had
+  none), `application_fee_percent` (floored to 2 dp, $0.30 folded in) on every subscription create AND on price/plan
+  changes. Refunds pass `refund_application_fee: REFUND_APPLICATION_FEE` (true) explicitly.
+- **Legacy subscriptions:** the ~52 live Stripe subscriptions still bill the legacy amount and carry a 0% application fee.
+  `baseFromUnitAmount` reads BOTH formulas so the Stripe mirror never rewrites their prices; displays prefer
+  `stripeSnapshot.unitAmount` / live Stripe unit amounts. Not migrated — Julian's decision.
+- **Gating:** server-side via `lib/tierGuard.ts` (`requireTierFeature`, `limitBlocked`), ordered AFTER auth/permission
+  checks. Guarded by `scripts/tier-gating-guard.ts` (in the build gate). Gated-not-built flags: consolidated reporting,
+  saved/scheduled reports, custom roles, API, data export, bulk roster import.
+- **Migration:** `20261018000000_platform_fee_and_tiers` (additive; growth → starter). Must be applied before push.
+- **Security:** hard-coded promo codes (incl. a free-Enterprise one) removed; codes now only via `PROMO_CODES_JSON`.
+- **Follow-ups (same day, Julian):** documents + e-sign moved to Starter (waivers); member total is the formula
+  rounded UP to the cent, never down; Starter member portal shows News instead of Messages; event editor locks the
+  Pro toolkit buttons on Starter. `scripts/backfill-platform-fee.ts` (dry-run default) sets the platform
+  `application_fee_percent` on a club's EXISTING Stripe subscriptions without changing what families pay. Fees switch
+  on at deploy for every club (no 0% notice window — Julian's call). Frog Empire stays Enterprise on its existing
+  100%-discounted AthletixOS subscription; the other three `growth` clubs (empire, club-mthr3ytbset6, demo) have no
+  Stripe account and no transactions, so the rename to Starter charges them nothing.

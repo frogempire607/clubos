@@ -15,7 +15,15 @@ export async function GET() {
 
   if (role !== "STAFF") {
     // Owners (and anyone else) — no permission restrictions to report.
-    return NextResponse.json({ role, permissions: null });
+    // feeChoiceRequired: the club hasn't chosen its fee split since the
+    // 2026-10-18 fee change — the dashboard sends the OWNER to Member
+    // payments once (staff can't save that page, so they're never sent).
+    let feeChoiceRequired = false;
+    if (role === "OWNER") {
+      const club = await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { feeChoiceMadeAt: true } });
+      feeChoiceRequired = !!club && club.feeChoiceMadeAt == null;
+    }
+    return NextResponse.json({ role, permissions: null, feeChoiceRequired });
   }
 
   const profile = await prisma.staffProfile.findUnique({

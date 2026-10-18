@@ -20,7 +20,7 @@
 
 import type { ValidDiscount } from "@/lib/discounts";
 import { describeAmount, type AmountRule } from "@/lib/eventAutoDiscounts";
-import { computeProcessingFeeCents } from "@/lib/fees";
+import { computeProcessingFeeCents, passesAnyFee, type FeePolicyInput } from "@/lib/fees";
 import { offerChargeLine } from "@/lib/chargeDate";
 
 export type DiscountFields = {
@@ -191,7 +191,8 @@ export function composeAssignQuote(input: {
   codeError?: string | null;
   familyNote?: string | null;
   method: AssignMethod;
-  passProcessingFees: boolean;
+  /** Club fee policy (lib/fees.ts feePolicyFor), or false. */
+  passProcessingFees: FeePolicyInput;
 }): AssignQuote {
   const base = r2(input.listPrice);
   const suffix = PERIOD_SUFFIX[input.billingPeriod] ?? "";
@@ -255,11 +256,11 @@ export function composeAssignQuote(input: {
     }
   }
 
-  const fee = input.method === "CARD" && input.passProcessingFees && finalPrice > 0
-    ? computeProcessingFeeCents(Math.round(finalPrice * 100)) / 100
+  const fee = input.method === "CARD" && passesAnyFee(input.passProcessingFees) && finalPrice > 0
+    ? computeProcessingFeeCents(Math.round(finalPrice * 100), input.passProcessingFees) / 100
     : 0;
   const firstCharge = r2(finalPrice + fee);
-  const cardCharge = r2(finalPrice + (input.passProcessingFees && finalPrice > 0 ? computeProcessingFeeCents(Math.round(finalPrice * 100)) / 100 : 0));
+  const cardCharge = r2(finalPrice + (passesAnyFee(input.passProcessingFees) && finalPrice > 0 ? computeProcessingFeeCents(Math.round(finalPrice * 100), input.passProcessingFees) / 100 : 0));
   const first = input.firstName || "This athlete";
   let sentence: string;
   if (override != null) sentence = `${first} pays ${moneyShort(finalPrice)}${suffix} — the price you typed.`;

@@ -11,9 +11,9 @@
 
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
-import { stripe, billingPeriodToStripeInterval } from "@/lib/stripe";
+import { stripe, billingPeriodToStripeInterval, calculatePlatformFeePercent } from "@/lib/stripe";
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
-import { recurringUnitWithFee } from "@/lib/fees";
+import { recurringUnitWithFee, feePolicyFor } from "@/lib/fees";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { addBillingPeriod } from "@/lib/billingAdmin";
 import type { DiscountFields } from "@/lib/membershipAssignQuote";
@@ -26,7 +26,7 @@ export type CardActivationInput = {
   };
   /** When the membership starts (the row's startDate). Callers decide; this never reads a member-level date. */
   startDate: Date;
-  club: { id: string; stripeAccountId: string; passProcessingFees: boolean };
+  club: { id: string; stripeAccountId: string; passProcessingFees: boolean; passPlatformFee: boolean; tier: string };
   membershipId: string;
   planName: string;
   /** Label written on the row. Approval writes the plan name; activation writes the option label. */
@@ -81,7 +81,7 @@ export async function createSavedCardSubscription(input: CardActivationInput): P
     const ts = Math.floor(cancelSource.getTime() / 1000);
     if (!trialEnd || ts > trialEnd) cancelAtUnix = ts;
   }
-  const amountCents = recurringUnitWithFee(Math.round(price * 100), club.passProcessingFees);
+  const amountCents = recurringUnitWithFee(Math.round(price * 100), feePolicyFor(club));
   const interval = billingPeriodToStripeInterval(period) || { interval: "month" as const, interval_count: 1 };
 
   // VERIFY the saved payment method is still attached before charging — a
@@ -147,7 +147,7 @@ export async function createSavedCardSubscription(input: CardActivationInput): P
         ],
         ...(trialEnd ? { trial_end: trialEnd } : {}),
         ...(cancelAtUnix ? { cancel_at: cancelAtUnix } : {}),
-        application_fee_percent: 0,
+        application_fee_percent: calculatePlatformFeePercent(Math.round(price * 100), club),
         metadata: input.metadata,
       },
       {

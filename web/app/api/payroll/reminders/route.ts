@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { requirePermissionLive } from "@/lib/apiGuard";
 import { loadClubReminders } from "@/lib/payReminders";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // GET /api/payroll/reminders  (finances:view)
 // Paydays that need the owner — upcoming (≤ 2 days), due today, or overdue up
@@ -16,6 +17,9 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = await requirePermissionLive(session, "finances", "view");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const data = await loadClubReminders(session.user.clubId);
   // What the Payroll page may offer: Mark paid needs finances:full, and never
   // on your own pay unless you're the owner (mark-paid enforces both).

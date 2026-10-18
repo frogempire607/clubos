@@ -106,9 +106,13 @@ export default function TermsPage() {
 
         <h2 style={h2Style}>3. Subscription plans and billing</h2>
         <p>
-          The Service is offered in paid tiers: Growth ($50/mo), Pro ($99/mo), and Enterprise (starting at $199/mo).
-          New clubs may receive a free trial period as described at signup; when the trial ends, the selected paid plan
-          begins unless cancelled. Plans renew automatically each billing period unless cancelled. Fees are billed in
+          The Service is offered in three plans: Starter ($0/mo), Pro ($99/mo), and Enterprise (starting at $199/mo).
+          Every plan includes a per-transaction platform fee on card payments processed through the Service (Starter
+          2% + $0.30, Pro 1.6% + $0.30, Enterprise 1.4% + $0.30), collected through Stripe at the time of each payment.
+          You choose, in your payment settings, whether your organization or the paying member bears the platform fee
+          and Stripe&apos;s processing fee. When a card payment is refunded, the platform fee is refunded in proportion
+          to the amount refunded. Paid plans may include a free trial as described at signup; when the trial ends, the
+          selected paid plan begins unless cancelled. Plans renew automatically each billing period unless cancelled. Fees are billed in
           advance and are non-refundable except where required by law. We may change pricing with 30 days&apos; notice;
           changes apply at your next renewal.
         </p>

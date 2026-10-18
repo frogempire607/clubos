@@ -3,7 +3,7 @@ import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
-import { processingFeeLineItem } from "@/lib/fees";
+import { processingFeeLineItem, feePolicyFor } from "@/lib/fees";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
 import { registrationReturnUrl, registrationUrl } from "@/lib/registrationUrl";
 import { registrationListPrice } from "@/lib/eventRepricing";
@@ -636,12 +636,12 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // processing fee are both computed on the discounted amount — never on the
   // list price.
   const amountCents = Math.round(amountDue * 100);
-  const platformFee = calculatePlatformFee(amountCents, event.club.tier);
+  const platformFee = calculatePlatformFee(amountCents, event.club);
   // baseUrlFromRequest, not getAppBaseUrl: this is where the visitor's browser
   // is sent back to in a moment, and on a Netlify preview the production
   // origin has no such registration (§5.2.3).
   const baseUrl = baseUrlFromRequest(req);
-  const feeItem = processingFeeLineItem(amountCents, event.club.passProcessingFees);
+  const feeItem = processingFeeLineItem(amountCents, feePolicyFor(event.club));
   const discountMetadata: Record<string, string> = discount
     ? { discountCode: discount.code, discountAmount: String(discountFields.discountAmount ?? 0) }
     : {};

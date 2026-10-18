@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { suggestExpenseMatches } from "@/lib/plaidMatching";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // GET  /api/plaid/transactions/[id]/match  → suggested matches for one row.
 // POST /api/plaid/transactions/[id]/match  → confirm a match (link an
@@ -21,6 +22,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "finances", "view");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "plaid");
+  if (tierGate) return tierGate;
 
   const row = await prisma.plaidTransaction.findFirst({
     where: { id, clubId: session.user.clubId },
@@ -60,6 +64,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "plaid");
+  if (tierGate) return tierGate;
 
   const row = await prisma.plaidTransaction.findFirst({
     where: { id, clubId: session.user.clubId },
@@ -149,6 +156,9 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "plaid");
+  if (tierGate) return tierGate;
 
   const row = await prisma.plaidTransaction.findFirst({
     where: { id, clubId: session.user.clubId },
