@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { parseOffer, compareOfferToCurrent, offerEffectivePrice } from "@/lib/reactivation";
 import { offlineActivationPolicy, isOfflineMethod } from "@/lib/staffPayments";
 import { chargeTiming, prettyPeriod } from "@/lib/billingAdmin";
-import { applyProcessingFee } from "@/lib/fees";
+import { applyProcessingFee, feePolicyFor, passesAnyFee, surchargeLabel } from "@/lib/fees";
 import { resolveCardSnapshot, prettyBrand } from "@/lib/memberCard";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
 
@@ -41,7 +41,7 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
         select: {
           id: true, name: true, logoUrl: true, primaryColor: true, contactEmail: true,
           stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true,
-          offlineActivationPolicy: true,
+          passPlatformFee: true, tier: true, offlineActivationPolicy: true,
         },
       },
     },
@@ -132,8 +132,9 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
   // The exact card charge when the club passes the Stripe processing fee.
   // MUST equal what confirm creates: recurringUnitWithFee on the same
   // DISCOUNTED cent base — both route through lib/fees.ts.
-  const passFees = offer.paymentMode === "CARD" && !isFree && r.club.passProcessingFees;
-  const fees = applyProcessingFee(Math.round(effectivePrice * 100), passFees);
+  const feePolicy = offer.paymentMode === "CARD" && !isFree ? feePolicyFor(r.club) : false;
+  const passFees = passesAnyFee(feePolicy);
+  const fees = applyProcessingFee(Math.round(effectivePrice * 100), feePolicy);
   const totalCharged = fees.totalCents / 100;
 
   // Offline (cash/check) offers: which club rule governs when the membership
@@ -206,7 +207,7 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
         ? `By confirming you accept ${r.club.name}'s membership terms.`
         : offlineMethod
           ? `By confirming you accept ${r.club.name}'s membership terms and agree to pay $${effectivePrice.toFixed(2)} ${prettyPeriod(offer.billingPeriod)} by ${offlineMethod.toLowerCase()}, collected by the club. Confirming does not charge anything online.`
-          : `By confirming you authorize ${r.club.name} to charge the payment method on file $${totalCharged.toFixed(2)} ${prettyPeriod(offer.billingPeriod)}${passFees ? ` ($${(fees.subtotalCents / 100).toFixed(2)} membership + $${(fees.feeCents / 100).toFixed(2)} processing fee)` : ""}${offer.firstChargeDate ? `, starting ${new Date(offer.firstChargeDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}` : ""}, until the membership ends or is canceled per the club's policy.`,
+          : `By confirming you authorize ${r.club.name} to charge the payment method on file $${totalCharged.toFixed(2)} ${prettyPeriod(offer.billingPeriod)}${passFees ? ` ($${(fees.subtotalCents / 100).toFixed(2)} membership + $${(fees.feeCents / 100).toFixed(2)} ${surchargeLabel(feePolicy).toLowerCase()})` : ""}${offer.firstChargeDate ? `, starting ${new Date(offer.firstChargeDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}` : ""}, until the membership ends or is canceled per the club's policy.`,
     },
   });
 }

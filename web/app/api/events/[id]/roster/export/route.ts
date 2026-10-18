@@ -9,6 +9,7 @@ import { resolveEventPolicy } from "@/lib/eventPayments";
 import { gridTable } from "@/lib/eventRoster";
 import { rosterGrid } from "@/lib/eventRosterServer";
 import { buildCsv, todayStamp } from "@/lib/exporters";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // B16 — download the roster grid. GET ?format=csv|pdf (events:view).
 // Positions down the side, one column per roster, names in the cells
@@ -19,6 +20,9 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "events", "view");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "eventToolkit");
+  if (tierGate) return tierGate;
   const event = await prisma.event.findFirst({
     where: { id, clubId: session.user.clubId, deletedAt: null },
     include: { customEventType: { select: { defaultPolicy: true } } },

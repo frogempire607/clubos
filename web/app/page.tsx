@@ -14,6 +14,7 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import { TIER_PRICES, describePlatformFee, type Tier } from "@/lib/tier";
 
 const features: { Icon: LucideIcon; title: string; desc: string }[] = [
   {
@@ -29,7 +30,7 @@ const features: { Icon: LucideIcon; title: string; desc: string }[] = [
   {
     Icon: CreditCard,
     title: "Memberships & billing",
-    desc: "Flexible membership plans with multiple pricing options. Stripe Connect sends payments straight to your bank — 0% platform fee.",
+    desc: "Flexible membership plans with multiple pricing options. Stripe Connect sends payments straight to your bank — and you choose who covers each fee.",
   },
   {
     Icon: CheckCircle2,
@@ -48,28 +49,32 @@ const features: { Icon: LucideIcon; title: string; desc: string }[] = [
   },
 ];
 
-const tiers = [
+// Pricing overhaul (2026-10-18) — prices and rates from lib/tier.ts.
+const tiers: { id: Tier; name: string; price: number; desc: string; highlights: string[]; cta: string; featured: boolean }[] = [
   {
-    name: "Growth",
-    price: 50,
-    desc: "Everything you need to run your club.",
-    highlights: ["Up to 200 members", "1 location", "Classes, events & attendance", "Memberships & billing", "Messaging & private lessons", "Reports & analytics"],
-    cta: "Start free trial",
+    id: "starter",
+    name: TIER_PRICES.starter.label,
+    price: TIER_PRICES.starter.monthly,
+    desc: "Take payments and run your club — no monthly fee.",
+    highlights: ["Memberships, classes & attendance", "Events, products & private lessons", "Member portal & family accounts", "Email & group announcements", "Family & group discounts", "Stripe + cash/offline payments"],
+    cta: "Start free",
     featured: true,
   },
   {
-    name: "Pro",
-    price: 99,
-    desc: "Built for growing, professional organizations.",
-    highlights: ["Everything in Growth", "Unlimited members", "Up to 3 locations", "Plaid bank sync", "Email & SMS messaging", "Branded iOS + Android app"],
-    cta: "Start free trial",
+    id: "pro",
+    name: TIER_PRICES.pro.label,
+    price: TIER_PRICES.pro.monthly,
+    desc: "A lower rate plus the tools that save your staff hours.",
+    highlights: ["Everything in Starter", "Branded mobile app", "Private messaging", "Full event toolkit", "Payroll & coach calendar feeds", "Full financials & every report"],
+    cta: "Start 14-day trial",
     featured: false,
   },
   {
-    name: "Enterprise",
-    price: 199,
-    desc: "Powerful infrastructure for large-scale operations.",
-    highlights: ["Everything in Pro", "Unlimited locations", "Custom onboarding", "Dedicated account manager"],
+    id: "enterprise",
+    name: TIER_PRICES.enterprise.label,
+    price: TIER_PRICES.enterprise.monthly,
+    desc: "Multiple entities, unlimited accounts, lowest rate.",
+    highlights: ["Everything in Pro", "Unlimited entities & bank accounts", "Unlimited staff seats", "Priority support & white-glove migration"],
     cta: "Contact us",
     featured: false,
   },
@@ -90,8 +95,8 @@ const valueProps = [
   },
   {
     Icon: ShieldCheck,
-    title: "0% platform fee. Ever.",
-    desc: "Your flat monthly subscription is all we charge. Members pay you directly through Stripe Connect — every dollar lands in your bank.",
+    title: "You choose who pays which fee",
+    desc: "Two separate switches — Stripe processing and the AthletixOS platform fee. Pass either to members, or both, and your club can net the full price. Members pay you directly through Stripe Connect.",
   },
   {
     Icon: Smartphone,
@@ -103,12 +108,12 @@ const valueProps = [
 export const metadata = {
   title: "AthletixOS — Sports Club Management Software for Wrestling, Martial Arts & Youth Sports",
   description:
-    "Run your gym without spreadsheets. Members, classes, payments, attendance, messaging — all in one. 14-day free trial. 0% platform fee. Built for wrestling, BJJ, MMA, gymnastics, and youth sports.",
+    "Run your gym without spreadsheets. Members, classes, payments, attendance, messaging — all in one. Start free on Starter. Built for wrestling, BJJ, MMA, gymnastics, and youth sports.",
   alternates: { canonical: "/" },
   openGraph: {
     title: "AthletixOS — Run your club. All in one system.",
     description:
-      "All-in-one platform for gym and sports club owners. 14-day free trial. 0% platform fee.",
+      "All-in-one platform for gym and sports club owners. Starter is $0/month — you choose who pays which fee.",
     type: "website",
   },
 };
@@ -185,7 +190,7 @@ export default function Home() {
             }}
           >
             <Sparkles size={14} strokeWidth={2.5} />
-            14-day free trial · 0% platform fee
+            Starter is $0/month · you choose who pays which fee
           </div>
 
           <h1
@@ -460,7 +465,7 @@ export default function Home() {
               Simple, honest pricing
             </h2>
             <p style={{ color: "#78716C", fontSize: 17 }}>
-              One flat monthly price. 0% platform fee. 14-day free trial on every plan.
+              Starter is free — a small platform fee per payment, and you decide whether your club or your members cover it.
             </p>
           </div>
           <div
@@ -491,7 +496,7 @@ export default function Home() {
                       padding: "4px 12px", borderRadius: 100, letterSpacing: "0.04em",
                     }}
                   >
-                    MOST POPULAR
+                    START HERE
                   </div>
                 )}
                 <div style={{ marginBottom: 20 }}>
@@ -505,7 +510,7 @@ export default function Home() {
                     <span style={{ color: t.featured ? "rgba(255,255,255,0.4)" : "#78716C", fontSize: 14 }}>/mo</span>
                   </div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: t.featured ? "rgba(163,230,53,0.85)" : "#1D9E75" }}>
-                    14-day free trial · 0% platform fee
+                    Platform fee {describePlatformFee(t.id)} per payment
                   </div>
                   <div style={{ fontSize: 13, color: t.featured ? "rgba(255,255,255,0.6)" : "#78716C", marginTop: 8 }}>
                     {t.desc}

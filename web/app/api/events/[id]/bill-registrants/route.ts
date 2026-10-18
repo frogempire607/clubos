@@ -5,7 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { withEntryCounts } from "@/lib/eventRosterServer";
-import { computeProcessingFeeCents } from "@/lib/fees";
+import { computeProcessingFeeCents, feePolicyFor } from "@/lib/fees";
 import { billOneRegistrant, escapeHtml } from "@/lib/eventInvoicing";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 
@@ -213,9 +213,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       : expectedAmount(event, activeCount, reg);
     const amount = isVariable ? rowExpected : amountToCollect(event, reg, activeCount);
     // Fee on the DISCOUNTED amount, never the list price.
-    const feeCents = event.club.passProcessingFees
-      ? computeProcessingFeeCents(Math.round(amount * 100))
-      : 0;
+    const feeCents = computeProcessingFeeCents(Math.round(amount * 100), feePolicyFor(event.club));
     const bd = collectionBreakdown(event, reg, activeCount);
     return {
       registrationId: reg.id,
@@ -251,7 +249,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       divisor,
       attendees: activeCount,
       expected: eventExpected,
-      passProcessingFees: event.club.passProcessingFees,
+      passProcessingFees: feePolicyFor(event.club),
       lines,
       mismatched: mismatched.length,
       grandTotal: +lines.reduce((s, l) => s + l.chargedTotal, 0).toFixed(2),
@@ -344,6 +342,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         stripeAccountId: event.club.stripeAccountId,
         tier: event.club.tier,
         passProcessingFees: event.club.passProcessingFees,
+        passPlatformFee: event.club.passPlatformFee,
       },
       registration: { id: reg.id, name: reg.name },
       recipientEmail,

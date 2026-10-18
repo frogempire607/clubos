@@ -1,3 +1,4 @@
+import { feePolicyFor } from "@/lib/fees";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -71,7 +72,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       // the session count, and whether the club passes the card fee on.
       autoDiscounts: true,
       _count: { select: { sessions: true } },
-      club: { select: { passProcessingFees: true, timezone: true } },
+      club: { select: { passProcessingFees: true, passPlatformFee: true, tier: true, timezone: true } },
     },
   });
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -124,7 +125,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     summaryFields: resolveCategoryFields(event, resolveEventPolicy(event)).map((f) => ({ id: f.key, label: f.label })),
     groupLabel: autoDiscountView(event.autoDiscounts).group?.label ?? null,
   };
-  const moneyClub = { passProcessingFees: !!event.club?.passProcessingFees, timezone: event.club?.timezone ?? null };
+  const moneyClub = { passProcessingFees: event.club ? feePolicyFor(event.club) : false, timezone: event.club?.timezone ?? null };
   const registrations = rows.map((r) => ({
     ...r,
     // Method, amount (card fee included), charge timing and what Approve /

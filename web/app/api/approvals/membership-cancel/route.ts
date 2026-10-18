@@ -1,3 +1,4 @@
+import { REFUND_APPLICATION_FEE } from "@/lib/fees";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
@@ -148,7 +149,7 @@ export async function POST(req: Request) {
       } | undefined;
       const piId = typeof inv?.payment_intent === "string" ? inv.payment_intent : inv?.payment_intent?.id;
       if (piId && (inv?.amount_paid ?? 0) > 0) {
-        await stripe.refunds.create({ payment_intent: piId }, { stripeAccount: acct });
+        await stripe.refunds.create({ payment_intent: piId, refund_application_fee: REFUND_APPLICATION_FEE }, { stripeAccount: acct });
         refunded = true;
       }
     } catch (e) {

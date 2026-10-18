@@ -8,15 +8,17 @@ import { stripe } from "@/lib/stripe";
 import { TIER_PRICES, type Tier } from "@/lib/tier";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 
+// Starter is $0/month — there is nothing to check out. Moving to Starter is
+// cancelling the paid plan (Manage billing); the webhook then sets 'starter'.
 const schema = z.object({
-  tier: z.enum(["growth", "pro", "enterprise"]),
+  tier: z.enum(["starter", "pro", "enterprise"]),
 });
 
 // Resolve which Stripe Price ID to use for a tier. These are set in env per
 // environment (test vs live) — see .env.example.
 function priceIdFor(tier: Tier): string | null {
   switch (tier) {
-    case "growth":     return process.env.STRIPE_PRICE_GROWTH ?? null;
+    case "starter":    return null; // free
     case "pro":        return process.env.STRIPE_PRICE_PRO ?? null;
     case "enterprise": return process.env.STRIPE_PRICE_ENTERPRISE ?? null;
     default:           return null;
@@ -24,7 +26,7 @@ function priceIdFor(tier: Tier): string | null {
 }
 
 // POST /api/club/subscription/checkout
-// Body: { tier: "growth" | "pro" | "enterprise" }
+// Body: { tier: "pro" | "enterprise" }  ("starter" → 400: it's free)
 // Returns: { url } — redirect the owner to Stripe Checkout to subscribe to the
 // chosen ClubOS tier. This uses the PLATFORM Stripe account (not Connect),
 // because the club is paying us, not their members paying them.
@@ -36,6 +38,12 @@ export async function POST(req: Request) {
 
   try {
     const { tier } = schema.parse(await req.json());
+    if (tier === "starter") {
+      return NextResponse.json(
+        { error: "Starter is free — no checkout needed. To move to Starter, cancel your paid plan under Manage billing." },
+        { status: 400 },
+      );
+    }
     const priceId = priceIdFor(tier);
     if (!priceId) {
       return NextResponse.json(

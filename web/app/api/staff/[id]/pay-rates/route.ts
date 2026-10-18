@@ -9,6 +9,7 @@ import { actorFrom } from "@/lib/staffActivity";
 import { recordPayChange } from "@/lib/payLedgerApi";
 import { syncPayLines } from "@/lib/payLedgerServer";
 import { prisma } from "@/lib/prisma";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const isSelf = selfRule(session.user.role, session.user.id, params.id, "view_pay") === "allow";
   const denied = isSelf ? null : await requirePermissionLive(session, "finances", "view");
   if (denied) return denied;
@@ -74,6 +78,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const clubId = session.user.clubId;
 
   try {
@@ -118,6 +125,9 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
   }
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const clubId = session.user.clubId;
 
   const { searchParams } = new URL(req.url);

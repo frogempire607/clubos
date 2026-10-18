@@ -26,7 +26,7 @@
 //   no method + owes approve is REFUSED (NO_PAYMENT_METHOD)
 // If that file changes, change this one and scripts/registration-money-tests.ts.
 
-import { applyProcessingFee } from "@/lib/fees";
+import { applyProcessingFee, type FeePolicyInput } from "@/lib/fees";
 import { approvedAutoCardChargeAt } from "@/lib/eventPayments";
 
 /** How a registration pays, in the words the Approvals page already used. */
@@ -75,7 +75,7 @@ export type MoneyEvent = {
   groupLabel?: string | null;
 };
 
-export type MoneyClub = { passProcessingFees: boolean; timezone?: string | null };
+export type MoneyClub = { passProcessingFees: FeePolicyInput; timezone?: string | null };
 
 export type ApproveEffectKind = "CHARGE_NOW" | "SCHEDULE" | "SEND_LINK" | "NONE" | "REFUND_ON_DECLINE" | "BLOCKED";
 export type DeclineEffectKind = "REFUND" | "VOID_OFFLINE" | "NONE";
@@ -172,7 +172,7 @@ export function describeRegistrationMoney(
   // What the family pays for the money still to move. The charge engine and
   // the payment link both add the processing fee to amountDue at charge time.
   const baseCents = Math.round(due * 100);
-  const fee = applyProcessingFee(baseCents, isCard && method !== "CARD" && club.passProcessingFees && baseCents > 0);
+  const fee = applyProcessingFee(baseCents, isCard && method !== "CARD" && baseCents > 0 ? club.passProcessingFees : false);
   const settled = status === "PAID" || paid > 0;
   const paidCents = Math.round(paid * 100);
   const totalCents = settled && paidCents > 0 ? paidCents : fee.totalCents;

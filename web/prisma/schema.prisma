@@ -49,13 +49,21 @@ model Club {
   id                       String                @id @default(cuid())
   name                     String
   slug                     String                @unique
-  // Plans: growth | pro | enterprise. There is no free/Starter tier — every
-  // club is on at least Growth. Definitions live in lib/tier.ts.
-  tier                     String                @default("growth")
-  // When true, Stripe processing fees are transparently added to the
-  // member/customer's checkout total so the club nets the full amount.
-  // Centralized math lives in lib/fees.ts — never hardcode the % elsewhere.
-  passProcessingFees       Boolean               @default(false)
+  // Plans: starter | pro | enterprise (2026-10-18). Starter is $0/month; every
+  // plan charges a per-transaction platform fee. Definitions live in
+  // lib/tier.ts. Legacy "growth" rows are migrated to "starter".
+  tier                     String                @default("starter")
+  // When true, Stripe processing (2.9% + $0.30) is grossed up onto the
+  // member's checkout total so the club nets the full amount. Default ON for
+  // new clubs. Centralized math lives in lib/fees.ts — never hardcode the %.
+  passProcessingFees       Boolean               @default(true)
+  // When true, the AthletixOS platform fee (tier rate + $0.30) is ALSO passed
+  // to the member. Independent of passProcessingFees. Default OFF (club absorbs).
+  passPlatformFee          Boolean               @default(false)
+  // When the owner last saved their fee split on Member payments. NULL = they
+  // haven't chosen since the 2026-10-18 fee change; owners are redirected to
+  // the settings page (with an explainer) until they save once.
+  feeChoiceMadeAt          DateTime?
   // B3 slice 2 — the sibling membership discount (lib/membershipSiblingDiscount):
   // { on, shape, each?, tiers?, discountWhich: CHEAPER|PRICIER, membershipIds[] }.
   siblingDiscount          Json                  @default("{}")

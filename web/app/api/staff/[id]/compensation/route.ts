@@ -12,6 +12,7 @@ import { writeBillingAudit } from "@/lib/billingAudit";
 import { clubTodayYmd } from "@/lib/classStaff";
 import { planActiveOn, type LedgerPlan, type PlanInput } from "@/lib/payLedger";
 import { PayLedgerError, archivePlan, createPlan, listPlans, updatePlan } from "@/lib/payLedgerServer";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 const SCOPE_TYPES = ["CLASS", "EVENT", "MEMBERSHIP", "PRIVATE_LESSON_TYPE"] as const;
 
@@ -65,6 +66,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   // B21: a staff member may always SEE their own pay plan (read-only).
   if (selfRule(session.user.role, session.user.id, id, "view_pay") !== "allow") {
     const denied = await requirePermissionLive(session, "finances", "view");
@@ -146,6 +150,9 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
   if (denied) return denied;
   const staff = await requireStaff(id, session.user.clubId);
   if (!staff) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const clubId = session.user.clubId;
 
   let data: z.infer<typeof planSchema>;
@@ -223,6 +230,9 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
   }
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const clubId = session.user.clubId;
   const plans = (await listPlans(clubId, [id])).filter((p) => !p.archived);
   for (const p of plans) {

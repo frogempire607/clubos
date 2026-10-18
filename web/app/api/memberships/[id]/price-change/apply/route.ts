@@ -1,10 +1,11 @@
+import { feePolicyFor } from "@/lib/fees";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { stripe } from "@/lib/stripe";
+import { stripe, calculatePlatformFeePercent } from "@/lib/stripe";
 import { requireOwner } from "@/lib/apiGuard";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { sendClubEmail } from "@/lib/sendClubEmail";
@@ -149,7 +150,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     where: { id: clubId },
     select: {
       id: true, name: true, logoUrl: true, primaryColor: true,
-      passProcessingFees: true, stripeAccountId: true, stripeChargesEnabled: true,
+      passProcessingFees: true, passPlatformFee: true, tier: true, stripeAccountId: true, stripeChargesEnabled: true,
       publicEmail: true, contactEmail: true, publicPhone: true, contactPhone: true,
       websiteUrl: true, mailingAddress: true, mailingAddress2: true, mailingCity: true,
       mailingState: true, mailingZip: true, mailingCountry: true,
@@ -372,7 +373,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
 
   const stripeAccount = club.stripeAccountId ?? undefined;
-  const targetCents = stripeUnitAmountCents(body.newPrice, club.passProcessingFees);
+  const targetCents = stripeUnitAmountCents(body.newPrice, feePolicyFor(club));
 
   for (const row of plan.rows) {
     // A moved row has left this option — repricing it here would write the
@@ -397,6 +398,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // Set when Stripe has been moved and may need restoring.
     let stripeItemId: string | null = null;
     let stripeOldCents: number | null = null;
+    let stripeOldFeePct: number | null = null;
 
     // ── 1. Stripe side, verified by read-back ──────────────────────────────
     if (row.channel === "stripe" && row.stripe) {
@@ -424,6 +426,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         if (!item) throw new Error("subscription has no billable item");
         stripeItemId = item.id;
         stripeOldCents = item.price?.unit_amount ?? null;
+        stripeOldFeePct = live.application_fee_percent ?? null;
         // Prefer the PLAN's catalog product over whatever this item happens to
         // point at. Subscriptions created before the catalog landed (2026-07-06)
         // carry a throwaway per-member product, and Stripe refuses to create a
@@ -459,6 +462,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             // Explicit. The default (`create_prorations`) would issue a credit
             // note or an immediate charge on every touched subscription.
             proration_behavior: "none",
+            // The platform percent is specific to the unit amount (the $0.30
+            // is folded in), so a reprice restates it (pricing overhaul).
+            application_fee_percent: calculatePlatformFeePercent(Math.round(body.newPrice * 100), club),
           },
           {
             stripeAccount,
@@ -512,6 +518,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
                     },
                   }],
                   proration_behavior: "none",
+                  application_fee_percent: stripeOldFeePct ?? 0,
                 },
                 { stripeAccount },
               );
@@ -589,6 +596,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
                   },
                 }],
                 proration_behavior: "none",
+                application_fee_percent: stripeOldFeePct ?? 0,
               },
               { stripeAccount },
             );
@@ -730,7 +738,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           billingPeriod: option.billingPeriod,
           fromPrice: rowResult.fromPrice ?? 0,
           toPrice: rowResult.toPrice ?? 0,
-          passProcessingFees: club.passProcessingFees,
+          passProcessingFees: feePolicyFor(club),
           effectiveDate: notifyBeforeDate,
           channel: (rowResult.channel ?? "offline") as "stripe" | "offline",
           credit: rowResult.credit!,

@@ -4,7 +4,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
-import { stripe } from "@/lib/stripe";
+import { stripe, calculatePlatformFee } from "@/lib/stripe";
+import { feePolicyFor, passesAnyFee } from "@/lib/fees";
 import { resolveCardSnapshot, resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { resolveStaffDiscount, quotePayment, discountAppliedLabel } from "@/lib/staffPayments";
 import { recordDiscountUse } from "@/lib/discounts";
@@ -107,7 +108,7 @@ export async function GET(req: Request) {
 
   const club = await prisma.club.findUnique({
     where: { id: clubId },
-    select: { stripeAccountId: true, passProcessingFees: true },
+    select: { stripeAccountId: true, passProcessingFees: true, passPlatformFee: true, tier: true },
   });
   if (!club?.stripeAccountId) return NextResponse.json({ error: "Stripe is not connected" }, { status: 409 });
 
@@ -140,7 +141,8 @@ export async function GET(req: Request) {
     })),
     payerManagesOthers: sharedWith.map((m) => `${m.firstName} ${m.lastName ?? ""}`.trim()),
     allowedPrices: allowed ?? [],
-    passProcessingFees: !!club.passProcessingFees,
+    passProcessingFees: passesAnyFee(feePolicyFor(club)),
+    feePolicy: feePolicyFor(club),
   });
 }
 
@@ -190,7 +192,7 @@ export async function POST(req: Request) {
     }),
     prisma.club.findUnique({
       where: { id: clubId },
-      select: { id: true, name: true, stripeAccountId: true, passProcessingFees: true },
+      select: { id: true, name: true, stripeAccountId: true, passProcessingFees: true, passPlatformFee: true, tier: true },
     }),
   ]);
   if (!member) return NextResponse.json({ error: "Member not found" }, { status: 404 });
@@ -219,7 +221,7 @@ export async function POST(req: Request) {
     originalPrice: data.amount,
     discount,
     method: "SAVED_CARD",
-    passProcessingFees: !!club.passProcessingFees,
+    passProcessingFees: feePolicyFor(club),
   });
   if (!quoted.ok) return NextResponse.json({ error: quoted.error }, { status: 400 });
   const quote = quoted.quote;
@@ -265,6 +267,8 @@ export async function POST(req: Request) {
       {
         amount: totalCents,
         currency: "usd",
+        // AthletixOS platform fee on the club's price (after discount).
+        application_fee_amount: calculatePlatformFee(Math.round(quote.finalPrice * 100), club),
         customer: customerId,
         payment_method: paymentMethodId,
         off_session: true,

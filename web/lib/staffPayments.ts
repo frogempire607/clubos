@@ -3,7 +3,7 @@
 // the pricing quote every surface displays and every route charges. No page
 // may implement its own variant of any of these.
 import { findValidDiscountFor, discountedPrice, type DiscountItemType } from "@/lib/discounts";
-import { applyProcessingFee } from "@/lib/fees";
+import { applyProcessingFee, type FeePolicyInput } from "@/lib/fees";
 
 // ── Payment methods a staff member can choose ─────────────────────────────
 export const STAFF_PAYMENT_METHODS = [
@@ -117,7 +117,8 @@ export function quotePayment(args: {
   originalPrice: number;
   discount: ResolvedStaffDiscount | null;
   method: StaffPaymentMethod | null; // null = unknown yet → treat as card for fee display
-  passProcessingFees: boolean;
+  /** The club's fee policy (lib/fees.ts feePolicyFor), or false for none. */
+  passProcessingFees: FeePolicyInput;
 }): { ok: true; quote: PaymentQuote } | { ok: false; error: string } {
   const original = Math.max(0, Math.round(args.originalPrice * 100) / 100);
   const final = args.discount
@@ -130,7 +131,8 @@ export function quotePayment(args: {
     : original;
   const discountAmount = Math.round((original - final) * 100) / 100;
   const isCard = args.method === "SAVED_CARD" || args.method === "NEW_CARD" || args.method == null;
-  const fees = applyProcessingFee(Math.round(final * 100), isCard && args.passProcessingFees && final > 0);
+  const policy = isCard && final > 0 ? args.passProcessingFees : false;
+  const fees = applyProcessingFee(Math.round(final * 100), policy);
   const quote: PaymentQuote = {
     originalPrice: original,
     discountAmount,

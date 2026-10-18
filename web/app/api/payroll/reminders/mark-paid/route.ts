@@ -19,6 +19,7 @@ import {
 } from "@/lib/paySchedule";
 import { PayLedgerError, createLedgerPayout, getLedgerStart, periodLines, syncPayLines } from "@/lib/payLedgerServer";
 import { writeBillingAudit } from "@/lib/billingAudit";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // POST /api/payroll/reminders/mark-paid  (finances:full)
 // { userId, payday, amount, method } → records the payment in the Payouts
@@ -35,6 +36,9 @@ const schema = z.object({
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
 
   let data: z.infer<typeof schema>;
   try {

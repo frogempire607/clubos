@@ -14,6 +14,7 @@
 // Change dates. Change plan (Stripe) still hands off to B12's dialog in
 // the Membership panel (B16 retired Advanced billing).
 
+import { computeProcessingFeeCents, type FeePolicy, type FeePolicyInput } from "@/lib/fees";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
@@ -32,7 +33,7 @@ type Payload = {
   /** B16 — the money summary, payments and actions for the current membership. */
   money?: MoneyPayload | null;
   member: { id: string; firstName: string; lastName: string; isMinor: boolean; guardianEmail: string | null; email: string | null };
-  club: { passProcessingFees: boolean; stripeReady: boolean };
+  club: { passProcessingFees: boolean; feePolicy?: FeePolicy; stripeReady: boolean };
   hasCard: boolean;
   cardLabel: string | null;
   requestedPaymentMethod: string | null;
@@ -80,7 +81,8 @@ function addPeriodUTC(start: Date, period: string): Date {
   if (period === "WEEKLY") { const d = new Date(start.getTime()); d.setUTCDate(d.getUTCDate() + 7); return d; }
   return addMonthsUTC(start, PERIOD_MONTHS[period] ?? 1);
 }
-const feeOf = (p: number) => Math.round(p * 100 * 0.029) / 100;
+// Fee math lives in lib/fees.ts only (never hardcode 2.9% here).
+const feeOf = (p: number, policy: FeePolicyInput) => computeProcessingFeeCents(Math.round(p * 100), policy) / 100;
 
 async function post(url: string, body: unknown) {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -431,7 +433,7 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
   const end = o && !o.autoRenew ? (commit ?? addPeriodUTC(startD, o.billingPeriod)) : null;
   const throughD = through ? new Date(through + "T00:00:00Z") : o ? addPeriodUTC(startD, o.billingPeriod) : startD;
   const amt = amount !== "" ? Number(amount) || 0 : price;
-  const total = quote && pay === "CARD" ? quote.firstCharge : data.club.passProcessingFees ? price + feeOf(price) : price;
+  const total = quote && pay === "CARD" ? quote.firstCharge : data.club.passProcessingFees ? price + feeOf(price, data.club.feePolicy ?? true) : price;
   const nowD = new Date();
   const chargeChoices = assignChargeChoices(start, nowD);
   const chargeChoice: AssignChargeChoice = chargePick && chargeChoices.includes(chargePick) ? chargePick : defaultAssignChargeChoice(start, nowD);

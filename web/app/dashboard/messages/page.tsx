@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { MessageSquare } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import UpgradeNotice from "@/components/UpgradeNotice";
+import { canUseFeature } from "@/lib/tier";
 
 type GroupMessage = {
   id: string;
@@ -81,6 +83,30 @@ type Conversation = {
 
 export default function MessagesPage() {
   const [tab, setTab] = useState<"groups" | "dms">("groups");
+  // Private messaging is Pro (pricing overhaul 2026-10-18). The routes 403 on
+  // Starter; this shows the plan notice instead of two empty, failing tabs.
+  const [locked, setLocked] = useState(false);
+  useEffect(() => {
+    fetch("/api/club/info")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && typeof d.tier === "string") setLocked(!canUseFeature(d.tier, "privateMessaging")); })
+      .catch(() => {});
+  }, []);
+
+  if (locked) {
+    return (
+      <div className="p-4 sm:p-8 max-w-6xl">
+        <PageHeader
+          title="Messages"
+          description={<>Posting to the whole club? <a href="/dashboard/announcements" className="text-brand hover:underline font-medium">Announcements</a> are included on every plan.</>}
+        />
+        <UpgradeNotice
+          title="Private messaging is included on Pro"
+          body="Starter includes email and group announcements. Pro adds one-to-one and group chat threads with families and staff."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 max-w-6xl">

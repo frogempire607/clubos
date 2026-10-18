@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
 import { staffFeedIcs } from "@/lib/staffCalendarFeed";
+import { prisma } from "@/lib/prisma";
+import { canUseFeature } from "@/lib/tier";
+import { clubTier } from "@/lib/tierGuard";
 
 // GET /api/public/staff-calendar/<token>[.ics]
 // A coach's personal calendar subscription. No session: the unguessable token
@@ -14,7 +17,15 @@ export async function GET(req: Request, context: { params: Promise<{ token: stri
   const { token: raw } = await context.params;
   const rl = rateLimit({ key: `staffcal:${ipFromRequest(req)}`, limit: 60, windowMs: 60_000 });
   if (!rl.allowed) return rateLimitedResponse(rl);
-  const ics = await staffFeedIcs(raw.replace(/\.ics$/i, ""));
+  const token = raw.replace(/\.ics$/i, "");
+  // Coach calendar feeds are Pro (pricing overhaul 2026-10-18). A club that
+  // drops to Starter keeps the feed rows; they just stop serving until it
+  // upgrades again. Same 404 as an unknown token — nothing to probe.
+  const feedRow = await prisma.staffCalendarFeed.findFirst({ where: { token }, select: { clubId: true } });
+  if (feedRow && !canUseFeature(await clubTier(feedRow.clubId), "calendarFeeds")) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  const ics = await staffFeedIcs(token);
   if (!ics) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return new NextResponse(ics, {
     headers: {

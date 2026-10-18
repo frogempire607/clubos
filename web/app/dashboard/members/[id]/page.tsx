@@ -28,7 +28,7 @@ import { PasswordResetDialog, type ResetState } from "@/components/members/Passw
 import { NextActionBanner, NextActionButton } from "@/components/members/MemberTracks";
 import type { NextAction } from "@/lib/memberTracks";
 import { ArrowLeft, Pencil } from "lucide-react";
-import { feeBreakdown } from "@/lib/fees";
+import { feeBreakdown, passesAnyFee, type FeePolicy } from "@/lib/fees";
 import { hasPermission } from "@/lib/permissions";
 import {
   AttendanceSummaryCard,
@@ -136,6 +136,7 @@ type MemberDetail = {
   legacyMembershipName?: string | null;
   trialEndsAt?: string | null;
   passProcessingFees?: boolean;
+  feePolicy?: FeePolicy;
   // Phase 4.5.3 — the SAME derived tracks the roster row renders, so the
   // profile can never disagree with the list it was opened from.
   tracks?: ProfileTracks | null;
@@ -666,7 +667,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
     activeSub && activeSub.billingType === "RECURRING" && activeSub.autoRenew !== false && !activeSub.canceledAt && Number(activeSub.price) > 0
       ? {
           amount:
-            m.passProcessingFees ? feeBreakdown(Number(activeSub.price), true).total : Number(activeSub.price),
+            passesAnyFee(m.feePolicy) ? feeBreakdown(Number(activeSub.price), m.feePolicy!).total : Number(activeSub.price),
           date: activeSub.currentPeriodEnd ?? null,
           label: activeSub.membership?.name ?? null,
         }
@@ -1080,7 +1081,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           ) : (
             <div className="space-y-2">
               {[activeSub, ...pastSubs].filter(Boolean).map((s) => (
-                <SubRow key={s!.id} sub={s!} passFees={m.passProcessingFees} onEdit={() => setEditingSub(s!)} onTransfer={canTransfer ? () => setTransferringSubId(s!.id) : undefined} />
+                <SubRow key={s!.id} sub={s!} passFees={m.feePolicy ?? false} onEdit={() => setEditingSub(s!)} onTransfer={canTransfer ? () => setTransferringSubId(s!.id) : undefined} />
               ))}
             </div>
           )}
@@ -1759,7 +1760,7 @@ function SubRow({
   onTransfer,
 }: {
   sub: Sub;
-  passFees?: boolean;
+  passFees?: FeePolicy | false;
   onEdit: () => void;
   /** Undefined when the viewer may not move memberships. */
   onTransfer?: () => void;
@@ -1767,8 +1768,8 @@ function SubRow({
   // When the club passes the Stripe processing fee, a recurring paid sub is
   // actually charged base + fee — show the full equation so the number always
   // reconciles with Stripe (display only; math lives in lib/fees.ts).
-  const showFee = passFees && sub.billingType === "RECURRING" && Number(sub.price) > 0;
-  const fb = showFee ? feeBreakdown(Number(sub.price), true) : null;
+  const showFee = passesAnyFee(passFees) && sub.billingType === "RECURRING" && Number(sub.price) > 0;
+  const fb = showFee ? feeBreakdown(Number(sub.price), passFees || false) : null;
   return (
     <div className="flex items-center justify-between border border-app-border rounded-lg p-3">
       <div>

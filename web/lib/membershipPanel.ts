@@ -11,7 +11,7 @@
 // the owner-set sticky label, and the row carries no pause date until the
 // slice-2 migration, so the label is what we have.
 
-import { feeBreakdown } from "@/lib/fees";
+import { feeBreakdown, passesAnyFee, type FeePolicyInput } from "@/lib/fees";
 import { prettyPeriod } from "@/lib/billingAdmin";
 
 export type PanelSub = {
@@ -38,6 +38,10 @@ export type PanelSub = {
   /** B13 slice 2 — set while paused; `pausedUntil` null = open-ended. */
   pausedAt: Date | null;
   pausedUntil: Date | null;
+  /** What Stripe actually bills per period (stripeSnapshot.unitAmount), when
+   *  known. Preferred over the formula: subscriptions created before the
+   *  2026-10-18 fee fix bill the legacy amount, which no formula reproduces. */
+  stripeUnitCents?: number | null;
 };
 
 export type PanelInput = {
@@ -50,7 +54,8 @@ export type PanelInput = {
   cardLabel: string | null;
   requestedPaymentMethod: string | null;
   payerName: string | null;
-  passProcessingFees: boolean;
+  /** Club fee policy (lib/fees.ts feePolicyFor), or false. */
+  passProcessingFees: FeePolicyInput;
   now: Date;
 };
 
@@ -151,7 +156,9 @@ export function derivePanel(input: PanelInput): PanelView {
   if (current && current.hasStripe) {
     const pastDue = current.status === "past_due" || current.stripeStatus === "past_due" || current.stripeStatus === "unpaid";
     const stripeLive = !current.stripeStatus || LIVE_STRIPE.has(current.stripeStatus);
-    const charged = input.passProcessingFees ? feeBreakdown(current.price, true).total : current.price;
+    const charged = current.stripeUnitCents != null && current.stripeUnitCents > 0
+      ? current.stripeUnitCents / 100
+      : passesAnyFee(input.passProcessingFees) ? feeBreakdown(current.price, input.passProcessingFees).total : current.price;
     const ending = current.cancelAt ?? (current.autoRenew ? null : current.endDate);
     const next = current.currentPeriodEnd;
     let moneyLine: string;

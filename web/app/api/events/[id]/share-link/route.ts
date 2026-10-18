@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermissionLive } from "@/lib/apiGuard";
 import { sharePath } from "@/lib/eventShareLink";
 import { generateShareToken } from "@/lib/eventShareLinkServer";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // /api/events/[id]/share-link — the event's PRIVATE share link (/e/s-<token>).
 //
@@ -43,6 +44,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const { id } = await context.params;
   const g = await gate(id);
   if (g.denied) return g.denied;
+  // Private share links are part of the Pro event toolkit (pricing overhaul
+  // 2026-10-18). Only CREATING/rotating is gated — an existing link keeps
+  // working (it carries registrations, i.e. payment volume) and can be turned off.
+  const tierGate = await requireTierFeature(g.session.user.clubId, "eventToolkit");
+  if (tierGate) return tierGate;
   const body = (await req.json().catch(() => ({}))) as { rotate?: unknown };
   const rotate = body?.rotate === true;
 

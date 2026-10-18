@@ -31,6 +31,7 @@
 // Stripe idempotency key, the offline void's conditional updateMany. What the
 // lock guarantees is that only ONE caller ever reaches the dispatch.
 
+import { REFUND_APPLICATION_FEE } from "@/lib/fees";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { writeBillingAudit } from "@/lib/billingAudit";
@@ -114,7 +115,7 @@ const REG_FOR_MUTATION = {
         tier: true,
         stripeAccountId: true,
         stripeChargesEnabled: true,
-        passProcessingFees: true,
+        passProcessingFees: true, passPlatformFee: true,
       },
     },
   },
@@ -453,6 +454,7 @@ async function billFirstInvoice(
       stripeAccountId: reg.club.stripeAccountId,
       tier: reg.club.tier,
       passProcessingFees: reg.club.passProcessingFees,
+      passPlatformFee: reg.club.passPlatformFee,
     },
     registration: { id: reg.id, name: reg.name },
     recipientEmail: recipient.email,
@@ -589,7 +591,7 @@ export async function declineRegistration(args: {
     result.refund = { attempted: true };
     try {
       const refund = await stripe.refunds.create(
-        { payment_intent: reg.stripePaymentIntentId },
+        { payment_intent: reg.stripePaymentIntentId, refund_application_fee: REFUND_APPLICATION_FEE },
         {
           stripeAccount: reg.club.stripeAccountId,
           // A replay returns Stripe's cached refund rather than issuing a second one.
@@ -1108,7 +1110,7 @@ export async function respondToProposal(args: {
       result.refund = { attempted: true };
       try {
         const refund = await stripe.refunds.create(
-          { payment_intent: reg.stripePaymentIntentId },
+          { payment_intent: reg.stripePaymentIntentId, refund_application_fee: REFUND_APPLICATION_FEE },
           { stripeAccount: reg.club.stripeAccountId, idempotencyKey: `aox-eventreg-refund-${reg.id}` },
         );
         result.refund.refundId = refund.id;

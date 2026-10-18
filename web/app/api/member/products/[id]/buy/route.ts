@@ -6,7 +6,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
-import { processingFeeLineItem } from "@/lib/fees";
+import { processingFeeLineItem, feePolicyFor } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { resolveFamilyContext } from "@/lib/memberContext";
@@ -98,7 +98,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const unitPrice = discount ? discountedPrice(listPrice, discount) : listPrice;
     const totalAmount = unitPrice * quantity;
     const totalCents = Math.round(totalAmount * 100);
-    const platformFee = calculatePlatformFee(totalCents, club.tier);
+    const platformFee = calculatePlatformFee(totalCents, club);
     if (totalCents <= 0) {
       return NextResponse.json(
         { error: "That code makes this free — ask your club to record the sale for you." },
@@ -145,7 +145,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     });
 
     const baseUrl = getAppBaseUrl();
-    const feeItem = processingFeeLineItem(totalCents, club.passProcessingFees);
+    const feeItem = processingFeeLineItem(totalCents, feePolicyFor(club));
 
     const checkoutSession = await stripe.checkout.sessions.create(
       {

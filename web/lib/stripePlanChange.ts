@@ -13,7 +13,7 @@
 //
 // Everything here is pure so scripts/stripe-plan-change-tests.ts can pin it.
 
-import { computeProcessingFeeCents, recurringUnitWithFee } from "@/lib/fees";
+import { recurringUnitWithFee, legacyRecurringUnitWithFee, toPolicy, type FeePolicyInput } from "@/lib/fees";
 import type { BillingPeriod, MembershipOption, PlanDefaults } from "@/lib/membershipOptions";
 import { resolveTerms } from "@/lib/membershipOptions";
 
@@ -22,30 +22,50 @@ import { resolveTerms } from "@/lib/membershipOptions";
 /**
  * The club price behind a Stripe unit_amount.
  *
- * With fees passed, recurringUnitWithFee(base) = base + round(base × 2.9%),
- * which is not invertible by division alone (rounding). We search the two or
- * three candidates around unit / 1.029 for the one that round-trips exactly.
- * When none does — someone typed a round number like $150 straight into Stripe
- * without the fee — the unit IS the price and `feeFolded` is false, so the
- * caller can say so instead of inventing a $145.77 nobody agreed to.
+ * Two formulas have produced unit amounts on live subscriptions:
+ *   - CURRENT (2026-10-18+): lib/fees.ts quoteCharge — (net + fixed fees) /
+ *     (1 − rates), rounded up; may include the platform fee when passed.
+ *   - LEGACY (before 2026-10-18): base + round(base × 2.9%), no $0.30.
+ * Every subscription created before the fix still bills the legacy amount, so
+ * BOTH readings are tried — inverting a legacy unit with the new formula
+ * would invent a price nobody agreed to and the mirror would write it back.
+ *
+ * Neither is invertible by division alone (rounding), so we search the
+ * candidates around each inverse for one that round-trips exactly. When none
+ * does — someone typed a round number like $150 straight into Stripe without
+ * the fee — the unit IS the price and `feeFolded` is false.
  */
-export function baseFromUnitAmount(unitCents: number, passProcessingFees: boolean): { baseCents: number; feeFolded: boolean } {
+export function baseFromUnitAmount(unitCents: number, policy: FeePolicyInput): { baseCents: number; feeFolded: boolean } {
   if (!Number.isFinite(unitCents) || unitCents <= 0) return { baseCents: Math.max(0, unitCents | 0), feeFolded: false };
-  if (!passProcessingFees) return { baseCents: unitCents, feeFolded: false };
-  const guess = Math.round(unitCents / (1 + 0.029));
-  let folded: number | null = null;
-  for (const b of [guess, guess - 1, guess + 1, guess - 2, guess + 2]) {
-    if (b > 0 && b + computeProcessingFeeCents(b) === unitCents) { folded = b; break; }
+  const p = toPolicy(policy);
+  if (!p.passProcessing && !p.passPlatform) return { baseCents: unitCents, feeFolded: false };
+
+  const search = (f: (b: number) => number, guess: number): number | null => {
+    for (const d of [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]) {
+      const b = guess + d;
+      if (b > 0 && f(b) === unitCents) return b;
+    }
+    return null;
+  };
+  const readings: number[] = [];
+  // Current formula, with this club's policy.
+  const rate = (p.passProcessing ? 0.029 : 0) + (p.passPlatform ? p.platformRate : 0);
+  const fixed = (p.passProcessing ? 30 : 0) + (p.passPlatform ? p.platformFixedCents : 0);
+  const cur = search((b) => recurringUnitWithFee(b, p), Math.round(unitCents * (1 - rate) - fixed));
+  if (cur != null) readings.push(cur);
+  // Legacy formula (processing only, pre-fix).
+  if (p.passProcessing) {
+    const leg = search((b) => legacyRecurringUnitWithFee(b), Math.round(unitCents / 1.029));
+    if (leg != null && !readings.includes(leg)) readings.push(leg);
   }
-  // Almost every unit inverts to SOMETHING (15000 → $145.77 + $4.23), so an
-  // exact round-trip alone can't tell "$150 typed by hand" from "$145.77 +
-  // fee". Club prices are whole dollars; fee-inclusive totals almost never
-  // are. Prefer the whole-dollar reading when only one side has it.
-  if (folded == null) return { baseCents: unitCents, feeFolded: false };
-  const foldedWhole = folded % 100 === 0;
-  const unitWhole = unitCents % 100 === 0;
-  if (unitWhole && !foldedWhole) return { baseCents: unitCents, feeFolded: false };
-  return { baseCents: folded, feeFolded: true };
+  if (readings.length === 0) return { baseCents: unitCents, feeFolded: false };
+  // Almost every unit inverts to SOMETHING (15000 → $145.77 + $4.23), so a
+  // round-trip alone can't tell "$150 typed by hand" from "$145.77 + fee".
+  // Club prices are whole dollars; fee-inclusive totals almost never are.
+  const whole = readings.find((b) => b % 100 === 0);
+  if (whole != null) return { baseCents: whole, feeFolded: true };
+  if (unitCents % 100 === 0) return { baseCents: unitCents, feeFolded: false };
+  return { baseCents: readings[0], feeFolded: true };
 }
 
 // ── Interval ↔ billing period ─────────────────────────────────────────────────
@@ -77,7 +97,8 @@ export type MirrorInput = {
   unitCents: number | null;
   interval: string | null;
   intervalCount: number | null;
-  passProcessingFees: boolean;
+  /** The club's fee policy (lib/fees.ts feePolicyFor) — or the legacy boolean. */
+  passProcessingFees: FeePolicyInput;
   options: MembershipOption[];
   current: { optionId: string | null; optionLabel: string; price: number; billingPeriod: string | null };
 };
@@ -182,7 +203,7 @@ export function planChangeTerms(input: PlanChangeTermsInput): PlanChangeTerms {
 }
 
 /** The unit amount Stripe should charge for an option under this club. */
-export function unitAmountFor(price: number, passProcessingFees: boolean): number {
+export function unitAmountFor(price: number, passProcessingFees: FeePolicyInput): number {
   return recurringUnitWithFee(Math.round(price * 100), passProcessingFees);
 }
 

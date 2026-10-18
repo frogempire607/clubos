@@ -1,3 +1,4 @@
+import { feePolicyFor } from "@/lib/fees";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -32,7 +33,7 @@ export async function GET() {
   if (people.length === 0) return NextResponse.json({ rows: [] });
 
   const [club, members] = await Promise.all([
-    prisma.club.findUnique({ where: { id: clubId }, select: { stripeAccountId: true, passProcessingFees: true } }),
+    prisma.club.findUnique({ where: { id: clubId }, select: { stripeAccountId: true, passProcessingFees: true, passPlatformFee: true, tier: true } }),
     prisma.member.findMany({
       where: { id: { in: people.map((p) => p.memberId) }, clubId, deletedAt: null },
       select: {
@@ -66,7 +67,7 @@ export async function GET() {
         describeForPortal({
           sub,
           person,
-          passProcessingFees: !!club?.passProcessingFees,
+          passProcessingFees: club ? feePolicyFor(club) : false,
           card,
           lastPaidMethod: lastTx?.paymentSource ?? lastTx?.paymentMethod ?? null,
           now,

@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { memberCanMessage } from "@/lib/parentalControls";
 import { userCanAccessEventChat, ensureEventChatMember } from "@/lib/eventChat";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 const MESSAGING_DISABLED = {
   error:
@@ -104,6 +105,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "privateMessaging");
+  if (tierGate) return tierGate;
 
   // P4 — guardian-disabled messaging for a controlled minor.
   if (!(await memberCanMessage(session.user.id, session.user.clubId))) {

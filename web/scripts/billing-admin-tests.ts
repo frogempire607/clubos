@@ -308,7 +308,7 @@ console.log("\nstaffPayments:");
   const q = quotePayment({ originalPrice: 530, discount: d, method: "CHECK", passProcessingFees: true });
   check("percent quote math (offline: no fee)", q.ok && q.quote.finalPrice === 477 && q.quote.discountAmount === 53 && q.quote.processingFee === 0 && q.quote.totalCharged === 477);
   const qc = quotePayment({ originalPrice: 530, discount: d, method: "SAVED_CARD", passProcessingFees: true });
-  check("card quote adds fee on the DISCOUNTED price", qc.ok && qc.quote.finalPrice === 477 && qc.quote.totalCharged === 477 + Math.round(47700 * 0.029) / 100);
+  check("card quote adds fee on the DISCOUNTED price", qc.ok && qc.quote.finalPrice === 477 && qc.quote.totalCharged === 491.56); // 2026-10-18: (477 + 0.30) / 0.971, rounded up
   const fixed = { id: "d2", code: "50OFF", description: null, type: "FIXED" as const, value: 50 };
   const qf = quotePayment({ originalPrice: 40, discount: fixed, method: "CASH", passProcessingFees: false });
   check("fixed discount clamps at $0 (never negative)", qf.ok && qf.quote.finalPrice === 0);

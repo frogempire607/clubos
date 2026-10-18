@@ -290,7 +290,7 @@ async function handleBulkEmail(
   });
   if (!club) return NextResponse.json({ error: "Club not found." }, { status: 404 });
 
-  const features = getTierFeatures(club.tier ?? "growth");
+  const features = getTierFeatures(club.tier ?? "starter");
   if (!features.emailSms) {
     return NextResponse.json(
       {

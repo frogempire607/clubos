@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendMemberMessage } from "@/lib/memberMessaging";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 export async function GET(
   req: Request,
@@ -12,6 +13,9 @@ export async function GET(
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "privateMessaging");
+  if (tierGate) return tierGate;
 
   // Scope to a single thread: a specific athlete ("about") or the self thread
   // (no subject). Mirrors the member portal so a parent↔coach thread about a
@@ -65,6 +69,9 @@ export async function POST(
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "privateMessaging");
+  if (tierGate) return tierGate;
 
   const recipient = await prisma.user.findFirst({
     where: { id: params.userId, clubId: session.user.clubId, deletedAt: null },

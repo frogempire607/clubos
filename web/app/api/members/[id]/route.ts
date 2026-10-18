@@ -1,3 +1,4 @@
+import { feePolicyFor } from "@/lib/fees";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
@@ -83,7 +84,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       // Whether the club passes the Stripe processing fee to customers — the
       // profile page needs it to show the true total charged next to a
       // recurring price (display only; fee math lives in lib/fees.ts).
-      club: { select: { passProcessingFees: true } },
+      club: { select: { passProcessingFees: true, passPlatformFee: true, tier: true } },
       membership: true,
       subscriptions: {
         include: { membership: { select: { name: true } } },
@@ -472,6 +473,8 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     documents,
     migrationEvents,
     passProcessingFees: _c.passProcessingFees,
+    // The full fee split (processing + platform) — displays must use this, not the boolean.
+    feePolicy: feePolicyFor(_c),
     tracks: tracks?.tracks ?? null,
     nextAction: tracks?.nextAction ?? null,
     sourceLabel: tracks?.sourceLabel ?? null,

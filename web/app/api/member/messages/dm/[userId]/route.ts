@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { memberCanMessage } from "@/lib/parentalControls";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 const MESSAGING_DISABLED = {
   error:
@@ -123,6 +124,9 @@ export async function POST(req: Request, context: { params: Promise<{ userId: st
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "privateMessaging");
+  if (tierGate) return tierGate;
 
   if (!(await memberCanMessage(session.user.id, session.user.clubId))) {
     return NextResponse.json(MESSAGING_DISABLED, { status: 403 });

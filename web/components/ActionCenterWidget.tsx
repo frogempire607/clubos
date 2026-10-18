@@ -25,11 +25,20 @@ function dotColor(severity: string): string {
 
 export default function ActionCenterWidget() {
   const [items, setItems] = useState<ActionItem[] | null>(null);
+  // Starter clubs: the route answers 403 UPGRADE_REQUIRED (Action Center is Pro).
+  const [locked, setLocked] = useState(false);
 
   useEffect(() => {
     let alive = true;
     fetch("/api/dashboard/action-center")
-      .then((r) => (r.ok ? r.json() : null))
+      .then(async (r) => {
+        if (r.status === 403) {
+          const b = await r.json().catch(() => null);
+          if (alive && b?.code === "UPGRADE_REQUIRED") setLocked(true);
+          return null;
+        }
+        return r.ok ? r.json() : null;
+      })
       .then((d) => {
         if (alive && d && Array.isArray(d.items)) setItems(d.items);
         else if (alive) setItems([]);
@@ -53,7 +62,13 @@ export default function ActionCenterWidget() {
         )}
       </div>
 
-      {items === null ? (
+      {locked ? (
+        <div className="p-6 text-center">
+          <p className="text-sm font-medium text-text-primary">The Action Center is included on Pro</p>
+          <p className="text-xs text-text-muted mt-1">It flags stalled checkouts, unbilled training, renewals and unreconciled money so nothing slips.</p>
+          <Link href="/dashboard/settings?section=plan" className="inline-block mt-3 text-xs font-medium text-brand hover:underline">See plans</Link>
+        </div>
+      ) : items === null ? (
         <div className="p-4 space-y-2">
           {[0, 1, 2].map((i) => (
             <div key={i} className="h-10 rounded-lg bg-app-bg animate-pulse" />

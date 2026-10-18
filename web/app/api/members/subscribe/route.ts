@@ -10,9 +10,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionLive } from "@/lib/apiGuard";
-import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/lib/stripe";
+import { stripe, calculatePlatformFee, calculatePlatformFeePercent, billingPeriodToStripeInterval } from "@/lib/stripe";
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
-import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
+import { processingFeeLineItem, recurringUnitWithFee, feePolicyFor, passesAnyFee } from "@/lib/fees";
 import { activateMemberStatus } from "@/lib/memberStatus";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { recordDiscountUse } from "@/lib/discounts";
@@ -300,7 +300,7 @@ export async function POST(req: Request) {
     }
 
     const amountInCents = Math.round(finalPrice * 100);
-    const platformFee = calculatePlatformFee(amountInCents, club.tier);
+    const platformFee = calculatePlatformFee(amountInCents, club);
     const stripeInterval = billingPeriodToStripeInterval(option.billingPeriod);
 
     // Create the MemberSubscription record first
@@ -339,7 +339,7 @@ export async function POST(req: Request) {
     const isRecurring = resolvedBillingType === "RECURRING" && stripeInterval !== null;
 
     const checkoutMode: "subscription" | "payment" = isRecurring ? "subscription" : "payment";
-    const passFees = club.passProcessingFees;
+    const passFees = feePolicyFor(club);
     const recurringAmount =
       checkoutMode === "subscription" ? recurringUnitWithFee(amountInCents, passFees) : amountInCents;
 
@@ -355,7 +355,7 @@ export async function POST(req: Request) {
             ...((() => {
               const d =
                 (membership.description ?? "") +
-                (checkoutMode === "subscription" && passFees ? " (includes processing fee)" : "");
+                (checkoutMode === "subscription" && passesAnyFee(passFees) ? " (includes processing fee)" : "");
               return d.trim() ? { description: d.trim() } : {};
             })()),
           },
@@ -387,7 +387,7 @@ export async function POST(req: Request) {
 
     // Build subscription_data with optional billing anchor. AthletixOS takes
     // no per-transaction platform cut on any plan.
-    const appFeePercent = 0;
+    const appFeePercent = calculatePlatformFeePercent(amountInCents, club);
     const subscriptionData: Record<string, unknown> = {
       application_fee_percent: appFeePercent,
       metadata: { memberSubscriptionId: memberSub.id, memberId, clubId: club.id },

@@ -167,7 +167,7 @@ export default function BrandedAppPage() {
             These settings are scoped to {clubInfo?.name || "this club"}.
         </>}
         actions={<>
-          {clubInfo?.tier === "growth" && (
+          {(clubInfo?.tier === "starter" || clubInfo?.tier === "growth") && (
             <span className="text-xs bg-orange-accent/10 text-orange-accent rounded-full px-3 py-1 font-medium">
               Pro feature
             </span>

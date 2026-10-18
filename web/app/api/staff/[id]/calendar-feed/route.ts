@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { hasPermissionLive, isOwnerLive, requirePermissionLive } from "@/lib/apiGuard";
 import { recordStaffActivity, actorFrom } from "@/lib/staffActivity";
 import { ensureFeed, feedStatus, regenerateFeed, revokeFeed, setFeedChoices, staffFeedUrls, validChoices } from "@/lib/staffCalendarFeed";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const notStaff = await requirePermissionLive(session, "schedule", "none");
   if (notStaff) return notStaff;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "calendarFeeds");
+  if (tierGate) return tierGate;
   const access = await accessTo(session, id);
   if (!access.self && !access.admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const clubId = session.user.clubId;
@@ -66,6 +70,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const notStaff = await requirePermissionLive(session, "schedule", "none");
   if (notStaff) return notStaff;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "calendarFeeds");
+  if (tierGate) return tierGate;
   const access = await accessTo(session, id);
   if (!access.self && !access.admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   let body: z.infer<typeof schema>;
@@ -98,6 +105,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const notStaff = await requirePermissionLive(session, "schedule", "none");
   if (notStaff) return notStaff;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "calendarFeeds");
+  if (tierGate) return tierGate;
   if (session.user.id !== id) return NextResponse.json({ error: "Only the staff member chooses what goes on their own calendar." }, { status: 403 });
   let c: z.infer<typeof choicesSchema>;
   try {
@@ -119,6 +129,9 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const notStaff = await requirePermissionLive(session, "schedule", "none");
   if (notStaff) return notStaff;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "calendarFeeds");
+  if (tierGate) return tierGate;
   const access = await accessTo(session, id);
   if (!access.self && !access.admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const clubId = session.user.clubId;

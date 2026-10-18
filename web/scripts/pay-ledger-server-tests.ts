@@ -118,7 +118,7 @@ const user = (id: string, role: string, perms: Record<string, unknown> | null) =
   id, clubId: CLUB, role, deletedAt: null, firstName: id, lastName: "Test", email: `${id}@example.test`, resetToken: null,
   staffProfile: perms ? { title: "Coach", permissions: perms } : null,
 });
-fake.seed("club", [{ id: CLUB, name: "Test Club", timezone: NY }]);
+fake.seed("club", [{ id: CLUB, name: "Test Club", timezone: NY, tier: "pro" }]); // payroll is Pro (pricing overhaul 2026-10-18)
 fake.seed("clubScheduleSettings", [{ clubId: CLUB, assignmentsStartOn: d("2026-10-07"), payLedgerStartsOn: d("2026-10-13") }]);
 fake.seed("user", [
   user("owner", "OWNER", null),

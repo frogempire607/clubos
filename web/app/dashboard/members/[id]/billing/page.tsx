@@ -24,7 +24,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, RefreshCw } from "lucide-react";
-import { feeBreakdown } from "@/lib/fees";
+import { feeBreakdown, surchargeLabel, type FeePolicy } from "@/lib/fees";
 import StaffDiscountPicker, { previewDiscountMath, useEligibleDiscounts } from "@/components/StaffDiscountPicker";
 import EnrollAlreadyPaidCard from "@/components/EnrollAlreadyPaidCard";
 import PaymentMethodsCard from "@/components/members/PaymentMethodsCard";
@@ -71,7 +71,7 @@ type Data = {
   offlineActivationPolicy?: "ON_PAYMENT" | "ON_ACCEPTANCE";
   // What the customer is actually charged when the club passes the Stripe
   // processing fee (computed server-side from the effective price).
-  feeBreakdown?: { passFees: boolean; feePercentLabel: string; base: number; fee: number; totalCharged: number };
+  feeBreakdown?: { passFees: boolean; feePolicy?: FeePolicy; feePercentLabel: string; base: number; fee: number; totalCharged: number };
   billing: {
     // FALSE ⇒ this member has NO membership configured: planName/optionLabel/
     // price/period/periodLabel are null and the fee breakdown is zeroed.
@@ -586,8 +586,8 @@ function ReactivationCard({ data, canCreate, onOpen, onMsg }: { data: Data; canC
               {data.feeBreakdown?.passFees && (r.offer.price ?? 0) > 0 && r.offer.paymentMode === "CARD" && (() => {
                 const effective = r.offer.discount?.finalPrice ?? r.offer.price!;
                 if (effective <= 0) return null;
-                const fb = feeBreakdown(effective, true);
-                return <Row label="Total charged">{fmtMoney(fb.total)} (includes {fmtMoney(fb.fee)} processing fee)</Row>;
+                const fb = feeBreakdown(effective, data.feeBreakdown?.feePolicy ?? true);
+                return <Row label="Total charged">{fmtMoney(fb.total)} (includes {fmtMoney(fb.fee)} {surchargeLabel(data.feeBreakdown?.feePolicy ?? true).toLowerCase()})</Row>;
               })()}
               <Row label="Start">{fmtDateUTC(r.offer.startDate)}</Row>
               <Row label="First payment">{r.offer.firstChargeDate ? fmtDateUTC(r.offer.firstChargeDate) : "No charge"}</Row>

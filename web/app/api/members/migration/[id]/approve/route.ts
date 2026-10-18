@@ -573,7 +573,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       stripeSetupPaymentMethodId: member.stripeSetupPaymentMethodId,
     },
     startDate: member.membershipStartDate ?? new Date(),
-    club: { id: club.id, stripeAccountId: club.stripeAccountId!, passProcessingFees: club.passProcessingFees },
+    club: { id: club.id, stripeAccountId: club.stripeAccountId!, passProcessingFees: club.passProcessingFees, passPlatformFee: club.passPlatformFee, tier: club.tier },
     membershipId: membershipId!,
     planName,
     // The label this path writes is the PLAN name (unchanged behaviour).

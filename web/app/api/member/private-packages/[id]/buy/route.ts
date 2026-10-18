@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
-import { processingFeeLineItem } from "@/lib/fees";
+import { processingFeeLineItem, feePolicyFor } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { applyParentalControls } from "@/lib/parentalControls";
@@ -326,8 +326,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json({ error: "Your club hasn't enabled online payments yet." }, { status: 400 });
   }
 
-  const platformFee = calculatePlatformFee(totalCents, club.tier);
-  const feeItem = processingFeeLineItem(totalCents, club.passProcessingFees);
+  const platformFee = calculatePlatformFee(totalCents, club);
+  const feeItem = processingFeeLineItem(totalCents, feePolicyFor(club));
   const baseUrl = getAppBaseUrl();
 
   const checkoutSession = await stripe.checkout.sessions.create(

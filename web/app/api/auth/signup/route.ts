@@ -36,7 +36,11 @@ export async function POST(req: Request) {
     if (data.mode === "create") {
       const tempSlug = `club-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
       const club = await prisma.club.create({
-        data: { name: "My Club", slug: tempSlug },
+        // New clubs start on Starter with the default fee split (processing
+        // passed, platform absorbed — schema defaults). feeChoiceMadeAt is set
+        // so the one-time "our fees changed" redirect is only for clubs that
+        // existed before 2026-10-18; a new owner never saw the old model.
+        data: { name: "My Club", slug: tempSlug, feeChoiceMadeAt: new Date() },
       });
       clubId = club.id;
       clubSlug = club.slug;

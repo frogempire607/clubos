@@ -9,7 +9,7 @@ import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
-import { processingFeeLineItem } from "@/lib/fees";
+import { processingFeeLineItem, feePolicyFor } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { getAppBaseUrl, baseUrlFromRequest } from "@/lib/baseUrl";
@@ -940,7 +940,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       const intent = parentPicks ? (paymentMethod ?? null) : policy.approvalPaymentIntent;
 
       if (!intent || (parentPicks && !approvalOptions.includes(intent))) {
-        const fee = applyProcessingFee(priceCents, club.passProcessingFees);
+        const fee = applyProcessingFee(priceCents, feePolicyFor(club));
         const card = savedCardAvailable ? await resolveCardSnapshot(customerId, club.stripeAccountId) : null;
         return NextResponse.json(
           {
@@ -982,7 +982,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         const chargeOn = chargeAt.toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
         // What the card will actually see — the processing fee included when
         // the club passes it on, same figure the payment picker quoted.
-        const cardTotal = applyProcessingFee(priceCents, club.passProcessingFees).totalCents / 100;
+        const cardTotal = applyProcessingFee(priceCents, feePolicyFor(club)).totalCents / 100;
         if (!pmId) {
           return NextResponse.json(
             {
@@ -1171,7 +1171,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         data: { approvalStatus: "PENDING", approvalRequestedAt: new Date() },
       });
       await stampCode(reg.id);
-      const feeItem = processingFeeLineItem(priceCents, club.passProcessingFees);
+      const feeItem = processingFeeLineItem(priceCents, feePolicyFor(club));
       const checkout = await stripe.checkout.sessions.create(
         {
           mode: "payment",
@@ -1197,7 +1197,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           success_url: registrationReturnUrl(baseUrlFromRequest(req), event, reg.id, "paid"),
           cancel_url: registrationReturnUrl(baseUrlFromRequest(req), event, reg.id, "canceled"),
           payment_intent_data: {
-            application_fee_amount: calculatePlatformFee(priceCents, club.tier),
+            application_fee_amount: calculatePlatformFee(priceCents, club),
             metadata: { eventRegistrationId: reg.id, eventId: event.id, clubId: club.id, memberId: member.id },
           },
           metadata: { eventRegistrationId: reg.id, eventId: event.id, clubId: club.id, memberId: member.id },
@@ -1234,7 +1234,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       // Exact totals per method so the client confirms the real number: card
       // methods include the processing fee when the club passes it; cash and
       // check owe the sticker price.
-      const fee = applyProcessingFee(priceCents, club.passProcessingFees);
+      const fee = applyProcessingFee(priceCents, feePolicyFor(club));
       const customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId;
       const card = savedCardAvailable ? await resolveCardSnapshot(customerId, club.stripeAccountId) : null;
       const [allDocs, missingSign, ackDocs2] = await Promise.all([
@@ -1461,9 +1461,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     //
     // What IS fixed here is the origin: baseUrlFromRequest, so a Netlify
     // preview returns to itself instead of bouncing to production.
-    const platformFee = calculatePlatformFee(priceCents, club.tier);
+    const platformFee = calculatePlatformFee(priceCents, club);
     const baseUrl = baseUrlFromRequest(req);
-    const feeItem = processingFeeLineItem(priceCents, club.passProcessingFees);
+    const feeItem = processingFeeLineItem(priceCents, feePolicyFor(club));
 
     // An event that asks questions needs somewhere to keep the answers, and
     // this path otherwise writes no registration until the webhook. So for

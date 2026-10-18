@@ -9,6 +9,7 @@ import { actorFrom } from "@/lib/staffActivity";
 import { isYmd } from "@/lib/payLedger";
 import { copyPlan, getPlan, syncPayLines } from "@/lib/payLedgerServer";
 import { payErrorResponse, recordPayChange } from "@/lib/payLedgerApi";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 const schema = z.object({
   toUserIds: z.array(z.string().min(1)).min(1, "Choose who gets the copy.").max(50),
@@ -27,6 +28,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const clubId = session.user.clubId;
 
   let body: z.infer<typeof schema>;

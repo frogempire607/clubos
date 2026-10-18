@@ -10,6 +10,7 @@ import { PAYOUT_METHODS } from "@/lib/payouts";
 import { fmtCents } from "@/lib/payLedger";
 import { createLedgerPayout } from "@/lib/payLedgerServer";
 import { payErrorResponse, recordPayChange } from "@/lib/payLedgerApi";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 const schema = z.object({
   userId: z.string().min(1),
@@ -27,6 +28,9 @@ const schema = z.object({
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   let body: z.infer<typeof schema>;
   try {
     body = schema.parse(await req.json());

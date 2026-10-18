@@ -8,6 +8,7 @@ import { selfRule, SELF_DENY_MESSAGE } from "@/lib/staffSelf";
 import { actorFrom } from "@/lib/staffActivity";
 import { archivePlan, getPlan, syncPayLines, updatePlan } from "@/lib/payLedgerServer";
 import { payErrorResponse, planInputSchema, recordPayChange, toPlanInput } from "@/lib/payLedgerApi";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // PATCH /api/staff/[id]/pay-plans/[planId] — edit a pay plan IN PLACE.
 // finances:full (live); never your own pay. Unpaid pay lines the plan priced
@@ -21,6 +22,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   }
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const clubId = session.user.clubId;
 
   let body: z.infer<typeof planInputSchema>;
@@ -60,6 +64,9 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
   }
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const clubId = session.user.clubId;
   try {
     const cur = await getPlan(clubId, planId);

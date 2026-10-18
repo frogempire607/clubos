@@ -10,6 +10,7 @@ import { actorFrom } from "@/lib/staffActivity";
 import { fmtCents, isYmd } from "@/lib/payLedger";
 import { editManualLine, setLineOverride, voidManualLine } from "@/lib/payLedgerServer";
 import { payErrorResponse, recordPayChange } from "@/lib/payLedgerApi";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 const schema = z.discriminatedUnion("action", [
   // Pay THIS line a set amount (a class day, a salary period, a plan bonus). The plan is not changed.
@@ -35,6 +36,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ lineId: s
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const clubId = session.user.clubId;
   const line = await prisma.payLine.findFirst({ where: { id: lineId, clubId }, select: { id: true, userId: true } });
   if (!line) return NextResponse.json({ error: "Pay line not found.", code: "NOT_FOUND" }, { status: 404 });

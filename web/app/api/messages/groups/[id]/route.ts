@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 export async function GET(_: Request, context: { params: Promise<{ id: string }> }) {
   const params = await context.params;
@@ -14,6 +15,9 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   if (session.user.role !== "OWNER" && session.user.role !== "STAFF") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "privateMessaging");
+  if (tierGate) return tierGate;
 
   const group = await prisma.messageGroup.findFirst({
     where: { id: params.id, clubId: session.user.clubId },
@@ -82,6 +86,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // still post to any group. Same key as creating a group (messages:send).
   const denied = requirePermission(session, "messages", "send");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "privateMessaging");
+  if (tierGate) return tierGate;
 
   const group = await prisma.messageGroup.findFirst({
     where: { id: params.id, clubId: session.user.clubId },

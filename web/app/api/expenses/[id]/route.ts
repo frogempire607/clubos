@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionLive } from "@/lib/apiGuard";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 const updateSchema = z.object({
   description: z.string().min(1).optional(),
@@ -27,6 +28,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullFinancials");
+  if (tierGate) return tierGate;
 
   const expense = await prisma.expense.findFirst({ where: { id: params.id, clubId: session.user.clubId } });
   if (!expense) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -50,6 +54,9 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullFinancials");
+  if (tierGate) return tierGate;
 
   const expense = await prisma.expense.findFirst({ where: { id: params.id, clubId: session.user.clubId } });
   if (!expense) return NextResponse.json({ error: "Not found" }, { status: 404 });

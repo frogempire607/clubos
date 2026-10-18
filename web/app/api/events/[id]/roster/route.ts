@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/apiGuard";
 import { resolveEventPolicy } from "@/lib/eventPayments";
 import { validateRosterDef } from "@/lib/eventRoster";
 import { loadRosterDef, rosterGrid, saveRosterDef, backfillEntriesFromAnswers } from "@/lib/eventRosterServer";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // B16 — the event's roster positions.
 //
@@ -63,6 +64,13 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
     positions: Array.isArray(body?.positions) ? body.positions : [],
   });
   if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
+  // The roster grid is part of the Pro event toolkit (pricing overhaul
+  // 2026-10-18). Reading, and clearing to empty, stay open on every plan so a
+  // club that downgraded can still remove one.
+  if ((body?.rosters?.length ?? 0) > 0 || (body?.positions?.length ?? 0) > 0) {
+    const tierGate = await requireTierFeature(session.user.clubId, "eventToolkit");
+    if (tierGate) return tierGate;
+  }
   const saved = await saveRosterDef(event.id, checked.def);
   if (!saved.ok) return NextResponse.json({ error: saved.error, code: "ROSTER_IN_USE" }, { status: saved.status });
 

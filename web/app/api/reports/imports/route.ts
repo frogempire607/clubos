@@ -1,3 +1,4 @@
+import { requireTierFeature } from "@/lib/tierGuard";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -27,6 +28,9 @@ export async function GET() {
   if (!hasReportScope(session, "imports")) {
     return NextResponse.json({ error: "You don't have permission to run imports." }, { status: 403 });
   }
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullReports");
+  if (tierGate) return tierGate;
 
   const batches = await prisma.importBatch.findMany({
     where: { clubId: session.user.clubId },
@@ -51,6 +55,9 @@ export async function POST(req: Request) {
   if (!hasReportScope(session, "imports")) {
     return NextResponse.json({ error: "You don't have permission to run imports." }, { status: 403 });
   }
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullReports");
+  if (tierGate) return tierGate;
 
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");

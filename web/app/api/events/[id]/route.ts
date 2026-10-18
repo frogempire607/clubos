@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { categoryFieldsFromForm } from "@/lib/eventCategories";
+import { requireTierFeature } from "@/lib/tierGuard";
 import { audienceProblem, audienceSchema, normalizeAudience } from "@/lib/eventAudience";
 import { audienceMembershipProblem } from "@/lib/eventAudienceServer";
 import { validateAutoDiscounts } from "@/lib/eventAutoDiscounts";
@@ -183,6 +185,17 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   try {
     const body = await req.json();
     const { sessions, staffUserIds: requestedStaff, ...rest } = updateSchema.parse(body);
+
+    // Participant categories are Pro (event toolkit). Only ADDING categories is
+    // gated, so a club that downgraded can still edit an event that has them.
+    if (
+      rest.registrationForm !== undefined &&
+      categoryFieldsFromForm(rest.registrationForm).length >
+        categoryFieldsFromForm((event as { registrationForm?: unknown }).registrationForm).length
+    ) {
+      const tierGate = await requireTierFeature(session.user.clubId, "eventToolkit");
+      if (tierGate) return tierGate;
+    }
 
     // "Staff on this event" is an ASSIGNMENT, not an event detail: changing it
     // needs schedule:edit (live); without it the one allowed change is taking

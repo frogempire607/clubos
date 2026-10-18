@@ -12,7 +12,7 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://athletix-os.com";
 const SITE_NAME = "AthletixOS";
 const SITE_TAGLINE = "Sports Club Management Software";
 const SITE_DESCRIPTION =
-  "Run your wrestling, martial arts, gymnastics, or youth sports club without spreadsheets. Members, classes, payments, attendance, messaging — all in one. 14-day free trial. 0% platform fee.";
+  "Run your wrestling, martial arts, gymnastics, or youth sports club without spreadsheets. Members, classes, payments, attendance, messaging — all in one. Start free — you choose who pays which fee.";
 
 const KEYWORDS = [
   "wrestling gym software",
@@ -114,7 +114,7 @@ const SOFTWARE_JSONLD = {
   operatingSystem: "Web, iOS, Android",
   description: SITE_DESCRIPTION,
   offers: [
-    { "@type": "Offer", name: "Growth",     price: "50",  priceCurrency: "USD", category: "subscription" },
+    { "@type": "Offer", name: "Starter",    price: "0",   priceCurrency: "USD", category: "subscription" },
     { "@type": "Offer", name: "Pro",        price: "99",  priceCurrency: "USD", category: "subscription" },
     { "@type": "Offer", name: "Enterprise", price: "199", priceCurrency: "USD", category: "subscription" },
   ],

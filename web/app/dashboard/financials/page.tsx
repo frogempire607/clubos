@@ -21,6 +21,13 @@ import { hasPermission } from "@/lib/permissions";
 import BankAccountsCard from "@/components/financials/BankAccountsCard";
 import ReceiptsTab from "@/components/financials/ReceiptsTab";
 import ImportTab from "@/components/financials/ImportTab";
+import UpgradeNotice from "@/components/UpgradeNotice";
+import { canUseFeature } from "@/lib/tier";
+
+// Tabs included on Pro+ (pricing overhaul 2026-10-18). Starter keeps
+// Overview, Money In, Donations, Stripe and Cash & Offline. The routes behind
+// these tabs 403 on Starter; this only swaps the tab body for a notice.
+const PRO_TABS = new Set(["out", "tax", "bank", "receipts", "import"]);
 import { SkeletonList, SkeletonCard } from "@/components/LoadingSkeleton";
 
 type Entity = { id: string; name: string; entityType: string };
@@ -171,8 +178,14 @@ export default function FinancialsPage() {
   const [bankConnections, setBankConnections] = useState<BankConnection[]>([]);
   const [bank, setBank] = useState("all");
   const { from, to } = rangeFor(preset);
+  // null while loading → render normally (the server still gates).
+  const [fullFinancials, setFullFinancials] = useState<boolean | null>(null);
 
   useEffect(() => {
+    fetch("/api/club/info")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && typeof d.tier === "string") setFullFinancials(canUseFeature(d.tier, "fullFinancials")); })
+      .catch(() => {});
     fetch("/api/club/legal-entities")
       .then((r) => (r.ok ? r.json() : []))
       .then((d) => setEntities(Array.isArray(d) ? d : []));
@@ -245,10 +258,20 @@ export default function FinancialsPage() {
             }`}
           >
             {t.label}
+            {fullFinancials === false && PRO_TABS.has(t.key) && (
+              <span className="ml-1.5 text-[12px] font-medium text-brand">Pro</span>
+            )}
           </button>
         ))}
       </div>
 
+      {fullFinancials === false && PRO_TABS.has(tab) ? (
+        <UpgradeNotice
+          title="Full financials are included on Pro"
+          body="Starter includes Stripe and cash & offline payments. Pro adds bank connections, expense matching, Money Out, receipts, imports and the tax summary."
+        />
+      ) : (
+      <>
       {tab === "overview" && <OverviewTab qs={qs} />}
       {tab === "in" && <MoneyInTab qs={qs} entity={entity} entities={entities} />}
       {tab === "out" && <MoneyOutTab entity={entity} entities={entities} bank={bank} bankConnections={bankConnections} />}
@@ -259,6 +282,8 @@ export default function FinancialsPage() {
       {tab === "bank" && <BankTab initialNeedsReviewOnly={show === "review"} entity={entity} canEdit={canEditMoney} />}
       {tab === "receipts" && <ReceiptsTab canEdit={canEditMoney} />}
       {tab === "import" && <ImportTab canEdit={canEditMoney} />}
+      </>
+      )}
     </div>
   );
 }

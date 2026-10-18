@@ -4,7 +4,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
-import { processingFeeLineItem } from "@/lib/fees";
+import { processingFeeLineItem, feePolicyFor, REFUND_APPLICATION_FEE } from "@/lib/fees";
 import { normalizeProductSettings, isBookable, type ProductSettings } from "@/lib/productSettings";
 import {
   DEFAULT_TZ,
@@ -123,7 +123,7 @@ export async function createProductBooking(args: {
 
   const club = await prisma.club.findUnique({
     where: { id: product.clubId },
-    select: { id: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true, tier: true },
+    select: { id: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true, passPlatformFee: true, tier: true },
   });
   if (!club) return { ok: false, status: 404, message: "Club not found." };
   const needsCard = args.channel !== "STAFF" && quote.dueNow > 0;
@@ -192,7 +192,7 @@ export async function createProductBooking(args: {
   if (!needsCard) return { ok: true, bookingId: created.id, status: created.status, url: null, quote };
 
   const cents = Math.round(quote.dueNow * 100);
-  const feeItem = processingFeeLineItem(cents, club.passProcessingFees);
+  const feeItem = processingFeeLineItem(cents, feePolicyFor(club));
   const what = quote.option.tierName ?? minsLabel(quote.option.mins);
   try {
     const cs = await stripe.checkout.sessions.create(
@@ -216,7 +216,7 @@ export async function createProductBooking(args: {
         success_url: args.successUrl ?? "",
         cancel_url: args.cancelUrl ?? "",
         payment_intent_data: {
-          application_fee_amount: calculatePlatformFee(cents, club.tier),
+          application_fee_amount: calculatePlatformFee(cents, club),
           metadata: { productBookingId: created.id, productId: product.id, clubId: club.id },
         },
         metadata: { productBookingId: created.id, productId: product.id, clubId: club.id, ...(args.who.memberId ? { memberId: args.who.memberId } : {}) },
@@ -310,7 +310,7 @@ export async function staffBookingAction(args: {
     const club = await prisma.club.findUnique({ where: { id: b.clubId }, select: { stripeAccountId: true } });
     try {
       const r = await stripe.refunds.create(
-        { payment_intent: b.stripePaymentIntentId },
+        { payment_intent: b.stripePaymentIntentId, refund_application_fee: REFUND_APPLICATION_FEE },
         { stripeAccount: club?.stripeAccountId ?? undefined, idempotencyKey: `aox-pbook-refund-${b.id}` },
       );
       refunded = (r.amount ?? 0) / 100;

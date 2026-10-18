@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionLive } from "@/lib/apiGuard";
 import { getObject } from "@/lib/storage";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = await requirePermissionLive(session, "finances", "view");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullFinancials");
+  if (tierGate) return tierGate;
   const rc = await prisma.receipt.findFirst({ where: { id, clubId: session.user.clubId }, select: { fileId: true } });
   if (!rc) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const file = await prisma.uploadedFile.findFirst({ where: { id: rc.fileId, clubId: session.user.clubId }, select: { storageKey: true, mimeType: true, originalName: true } });

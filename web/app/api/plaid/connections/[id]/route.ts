@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // PATCH /api/plaid/connections/[id] — rename the bank connection. The
 // label is the friendly name owners use to tell their accounts apart
@@ -15,6 +16,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   if (!session || session.user.role !== "OWNER") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "plaid");
+  if (tierGate) return tierGate;
 
   const conn = await prisma.plaidConnection.findFirst({
     where: { id: params.id, clubId: session.user.clubId, deletedAt: null },
@@ -45,6 +49,9 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
   if (!session || session.user.role !== "OWNER") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "plaid");
+  if (tierGate) return tierGate;
 
   const conn = await prisma.plaidConnection.findFirst({
     where: { id: params.id, clubId: session.user.clubId, deletedAt: null },

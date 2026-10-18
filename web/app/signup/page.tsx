@@ -88,10 +88,10 @@ export default function SignupPage() {
           <div className="mb-4 rounded-xl bg-gradient-to-br from-[#534AB7] to-[#1a1560] p-4 text-white">
             <div className="flex items-center gap-2 text-xs font-semibold mb-2">
               <Sparkles className="h-4 w-4" strokeWidth={2.5} />
-              YOUR 14-DAY FREE TRIAL STARTS NOW
+              STARTER IS FREE — NO TRIAL CLOCK
             </div>
             <ul className="space-y-1.5 text-xs text-white/85">
-              {["No credit card required", "Full access to all Growth features", "Cancel anytime from settings"].map((b) => (
+              {["No credit card required", "Memberships, events & payments included", "Upgrade to Pro any time"].map((b) => (
                 <li key={b} className="flex items-center gap-2">
                   <Check className="h-3.5 w-3.5 text-lime-accent" strokeWidth={3} />
                   {b}

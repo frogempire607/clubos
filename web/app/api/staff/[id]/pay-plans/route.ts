@@ -10,6 +10,7 @@ import { actorFrom } from "@/lib/staffActivity";
 import { planWarnings } from "@/lib/payLedger";
 import { createPlan, getLedgerStart, listPlans, syncPayLines } from "@/lib/payLedgerServer";
 import { loadPayOptions, payErrorResponse, planInputSchema, recordPayChange, toPlanInput } from "@/lib/payLedgerApi";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,9 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const isSelf = selfRule(session.user.role, session.user.id, id, "view_pay") === "allow";
   if (!isSelf) {
     const denied = await requirePermissionLive(session, "finances", "view");
@@ -62,6 +66,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
   const denied = await requirePermissionLive(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const clubId = session.user.clubId;
 
   let body: z.infer<typeof planInputSchema>;

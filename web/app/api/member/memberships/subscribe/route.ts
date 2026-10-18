@@ -9,9 +9,9 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { stripe, calculatePlatformFee, billingPeriodToStripeInterval } from "@/lib/stripe";
+import { stripe, calculatePlatformFee, calculatePlatformFeePercent, billingPeriodToStripeInterval } from "@/lib/stripe";
 import { ensureMembershipProduct } from "@/lib/stripeCatalog";
-import { processingFeeLineItem, recurringUnitWithFee } from "@/lib/fees";
+import { processingFeeLineItem, recurringUnitWithFee, feePolicyFor, passesAnyFee } from "@/lib/fees";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import {
   recordSubscriptionCreated,
@@ -290,13 +290,13 @@ export async function POST(req: Request) {
       source: SUBSCRIPTION_EVENT_SOURCE.MEMBER_ACTION,
       detail: { route: "POST /api/member/memberships/subscribe", billingType },
     });
-    const platformFee = calculatePlatformFee(amountInCents, club.tier);
+    const platformFee = calculatePlatformFee(amountInCents, club);
     const stripeInterval = billingPeriodToStripeInterval(option.billingPeriod);
     const isRecurring = billingType === "RECURRING" && stripeInterval !== null;
 
     const baseUrl = getAppBaseUrl();
     const checkoutMode: "subscription" | "payment" = isRecurring ? "subscription" : "payment";
-    const passFees = club.passProcessingFees;
+    const passFees = feePolicyFor(club);
 
     // Subscription line items can't carry a one-time add-on, so fold the
     // optional processing fee into the recurring amount. One-time payments get
@@ -317,7 +317,7 @@ export async function POST(req: Request) {
             ...((() => {
               const d =
                 (membership.description ?? "") +
-                (checkoutMode === "subscription" && passFees ? " (includes processing fee)" : "");
+                (checkoutMode === "subscription" && passesAnyFee(passFees) ? " (includes processing fee)" : "");
               return d.trim() ? { description: d.trim() } : {};
             })()),
           },
@@ -334,7 +334,7 @@ export async function POST(req: Request) {
     const feeItem =
       checkoutMode === "payment" ? processingFeeLineItem(amountInCents, passFees) : null;
 
-    const appFeePercent = 0;
+    const appFeePercent = calculatePlatformFeePercent(amountInCents, club);
 
     // Honor trial rules — same central Free Trial offer as owner-side
     // subscribe — and the buyer's choice of paying today or after the trial.

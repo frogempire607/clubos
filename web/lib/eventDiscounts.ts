@@ -15,7 +15,7 @@
 
 import type { ValidDiscount } from "@/lib/discounts";
 import type { AppliedDiscount } from "@/lib/eventAutoDiscounts";
-import { applyProcessingFee } from "@/lib/fees";
+import { applyProcessingFee, type FeePolicyInput } from "@/lib/fees";
 
 /**
  * The columns to write on an EventRegistration for a resolved discount.
@@ -104,7 +104,8 @@ export function registrationDiscountName(reg: {
 export function eventChargeBreakdown(args: {
   gross: number;
   discount: ValidDiscount | null;
-  passProcessingFees: boolean;
+  /** Club fee policy (lib/fees.ts feePolicyFor), or false. */
+  passProcessingFees: FeePolicyInput;
 }): {
   gross: number;
   discountOff: number;
@@ -116,7 +117,7 @@ export function eventChargeBreakdown(args: {
 } {
   const f = registrationDiscountFields(args.discount, args.gross);
   const netCents = Math.round(f.amountDue * 100);
-  const fees = applyProcessingFee(netCents, args.passProcessingFees && f.amountDue > 0);
+  const fees = applyProcessingFee(netCents, f.amountDue > 0 ? args.passProcessingFees : false);
   return {
     gross: Math.max(0, Math.round(args.gross * 100) / 100),
     discountOff: f.discountAmount ?? 0,

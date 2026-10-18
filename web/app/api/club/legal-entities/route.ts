@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { clubTier, limitBlocked } from "@/lib/tierGuard";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -29,6 +30,13 @@ export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "OWNER") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Entity limit by plan (Starter/Pro 1, Enterprise unlimited).
+  {
+    const count = await prisma.legalEntity.count({ where: { clubId: session.user.clubId } });
+    const lim = limitBlocked(await clubTier(session.user.clubId), "maxEntities", count);
+    if (lim) return lim;
   }
 
   try {

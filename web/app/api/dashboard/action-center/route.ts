@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getActionCenter } from "@/lib/actionCenter";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // GET /api/dashboard/action-center
 // Permission-filtered, self-clearing list of items that need owner/staff
@@ -12,6 +13,9 @@ export async function GET() {
   if (!session || (session.user.role !== "OWNER" && session.user.role !== "STAFF")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "actionCenter");
+  if (tierGate) return tierGate;
   const data = await getActionCenter(session);
   return NextResponse.json(data);
 }

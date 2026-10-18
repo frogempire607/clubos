@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // PATCH /api/plaid/transactions/[id]
 //
@@ -31,6 +32,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "finances", "full");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "plaid");
+  if (tierGate) return tierGate;
 
   const row = await prisma.plaidTransaction.findFirst({
     where: { id, clubId: session.user.clubId },

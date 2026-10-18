@@ -6,6 +6,7 @@ import { hasPermissionLive, requirePermissionLive } from "@/lib/apiGuard";
 import { planWarnings } from "@/lib/payLedger";
 import { getLedgerStart, listPlans } from "@/lib/payLedgerServer";
 import { loadPayOptions } from "@/lib/payLedgerApi";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,9 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = await requirePermissionLive(session, "finances", "view");
   if (denied) return denied;
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const clubId = session.user.clubId;
   const [staff, plans, options, schedules, ledgerStart, canEdit] = await Promise.all([
     prisma.user.findMany({

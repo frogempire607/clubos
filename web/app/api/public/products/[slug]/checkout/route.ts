@@ -3,7 +3,7 @@ import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
-import { processingFeeLineItem } from "@/lib/fees";
+import { processingFeeLineItem, feePolicyFor } from "@/lib/fees";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
 import { checkStock, findVariant, isBookable, normalizeProductSettings, stockMessage, unitPriceFor, unitPriceAtQuantity } from "@/lib/productSettings";
@@ -41,7 +41,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   }
   const product = await prisma.product.findUnique({
     where: { publicSlug: slug },
-    include: { club: { select: { id: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true, tier: true } } },
+    include: { club: { select: { id: true, stripeAccountId: true, stripeChargesEnabled: true, passProcessingFees: true, passPlatformFee: true, tier: true } } },
   });
   if (!product || !onPublicLink(product)) return NextResponse.json({ error: "This product isn't available." }, { status: 404 });
   const base = baseUrlFromRequest(req);
@@ -83,7 +83,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       notes: body.phone ? `Phone: ${body.phone}` : null,
     },
   });
-  const feeItem = processingFeeLineItem(totalCents, club.passProcessingFees);
+  const feeItem = processingFeeLineItem(totalCents, feePolicyFor(club));
   const cs = await stripe.checkout.sessions.create(
     {
       mode: "payment",
@@ -94,7 +94,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       ],
       success_url: `${page}?bought=1`,
       cancel_url: `${page}?canceled=1`,
-      payment_intent_data: { application_fee_amount: calculatePlatformFee(totalCents, club.tier), metadata: { saleId: sale.id, productId: product.id, clubId: club.id } },
+      payment_intent_data: { application_fee_amount: calculatePlatformFee(totalCents, club), metadata: { saleId: sale.id, productId: product.id, clubId: club.id } },
       metadata: { saleId: sale.id, productId: product.id, clubId: club.id },
     },
     { stripeAccount: club.stripeAccountId },

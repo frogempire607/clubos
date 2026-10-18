@@ -7,6 +7,7 @@ import { selfRule } from "@/lib/staffSelf";
 import { clubTodayYmd } from "@/lib/classStaff";
 import { isYmd, planWarnings } from "@/lib/payLedger";
 import { getLedgerStart, listPlans, loadLedger, syncPayLines } from "@/lib/payLedgerServer";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,9 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "payroll");
+  if (tierGate) return tierGate;
   const url = new URL(req.url);
   const userId = url.searchParams.get("userId");
   const isSelf = session.user.role === "STAFF" && !!userId && selfRule(session.user.role, session.user.id, userId, "view_pay") === "allow";

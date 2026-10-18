@@ -13,7 +13,7 @@
 import Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
-import { applyProcessingFee, processingFeeLineItem } from "@/lib/fees";
+import { applyProcessingFee, processingFeeLineItem, feePolicyFor } from "@/lib/fees";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { writeBillingAudit } from "@/lib/billingAudit";
 import { sendEmail, sendPaymentReceiptEmail, receiptDiscountLine } from "@/lib/email";
@@ -63,7 +63,7 @@ function loadRegistration(id: string) {
           tier: true,
           stripeAccountId: true,
           stripeChargesEnabled: true,
-          passProcessingFees: true,
+          passProcessingFees: true, passPlatformFee: true,
         },
       },
     },
@@ -215,7 +215,7 @@ async function recordFailure(reg: RegForCharge, error: string) {
   if (baseCents <= 0) return;
   try {
     const baseUrl = getAppBaseUrl();
-    const feeItem = processingFeeLineItem(baseCents, reg.club.passProcessingFees);
+    const feeItem = processingFeeLineItem(baseCents, feePolicyFor(reg.club));
     // The live confirmation surface (§5.2.3) — it reads the row, so it says
     // the right thing whether they pay now, abandon, or open the link later.
     const returnUrl = (outcome: "paid" | "canceled") =>
@@ -238,7 +238,7 @@ async function recordFailure(reg: RegForCharge, error: string) {
         success_url: returnUrl("paid"),
         cancel_url: returnUrl("canceled"),
         payment_intent_data: {
-          application_fee_amount: calculatePlatformFee(baseCents, reg.club.tier),
+          application_fee_amount: calculatePlatformFee(baseCents, reg.club),
           metadata: { eventRegistrationId: reg.id, eventId: reg.eventId, clubId: reg.clubId },
         },
         metadata: { eventRegistrationId: reg.id, eventId: reg.eventId, clubId: reg.clubId },
@@ -308,7 +308,7 @@ export async function chargeEventRegistration(registrationId: string): Promise<A
     return { registrationId, outcome: "skipped", error: "Stripe is not enabled for the club" };
   }
 
-  const fee = applyProcessingFee(Math.round(baseAmount * 100), reg.club.passProcessingFees);
+  const fee = applyProcessingFee(Math.round(baseAmount * 100), feePolicyFor(reg.club));
   const totalCents = fee.totalCents;
   const totalCharged = totalCents / 100;
 
@@ -435,7 +435,7 @@ export async function chargeEventRegistration(registrationId: string): Promise<A
         confirm: true,
         description: `Event registration — ${reg.event.name} — ${reg.name}`,
         expand: ["latest_charge.balance_transaction"],
-        application_fee_amount: calculatePlatformFee(totalCents, reg.club.tier),
+        application_fee_amount: calculatePlatformFee(totalCents, reg.club),
         metadata: {
           kind: "event_auto_charge",
           eventRegistrationId: reg.id,

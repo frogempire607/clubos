@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { hasReportScope } from "@/lib/reportsPermissions";
+import { requireTierFeature } from "@/lib/tierGuard";
 
 // POST /api/reports/imports/[id]/rollback
 // Owner-only, 30-day window. `CREATED` members without dependent activity
@@ -19,6 +20,9 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
   if (!hasReportScope(session, "rollback")) {
     return NextResponse.json({ error: "You don't have permission to roll back imports." }, { status: 403 });
   }
+  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
+  const tierGate = await requireTierFeature(session.user.clubId, "fullReports");
+  if (tierGate) return tierGate;
 
   const batch = await prisma.importBatch.findFirst({ where: { id, clubId: session.user.clubId } });
   if (!batch) return NextResponse.json({ error: "Not found" }, { status: 404 });

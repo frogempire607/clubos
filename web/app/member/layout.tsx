@@ -96,6 +96,8 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   const [moreOpen, setMoreOpen] = useState(false);
   const [navHidden, setNavHidden] = useState(false);
   const [unread, setUnread] = useState(0);
+  // false on Starter clubs (no private messaging) — hides Messages, shows News.
+  const [messagingOn, setMessagingOn] = useState(true);
   const [annUnread, setAnnUnread] = useState(0);
 
   // Close the More sheet whenever the route changes so the overlay
@@ -125,6 +127,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
         .then((d) => {
           setUnread(typeof d?.count === "number" ? d.count : 0);
           setAnnUnread(typeof d?.announcements === "number" ? d.announcements : 0);
+          if (d?.messaging === false) setMessagingOn(false);
         })
         .catch(() => {});
     }
@@ -241,7 +244,14 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       ? { textAlign: club.appTextAlign as "left" | "center" | "right" }
       : {}),
   } as React.CSSProperties;
-  const portalNav = buildPortalNav(branded);
+  const portalNav = buildPortalNav(branded).map((item) =>
+    !messagingOn && item.href === "/member/messages"
+      ? { ...item, href: "/member/announcements", label: "News", icon: AnnouncementIcon }
+      : item,
+  );
+  const moreGroups = messagingOn
+    ? MORE_GROUPS
+    : MORE_GROUPS.map((g) => ({ ...g, blurb: g.label === "Inbox" ? "Club news." : g.blurb, items: g.items.filter((i) => i.href !== "/member/messages") }));
   // Branded navs may not include a Messages link — unread DMs then surface on
   // the More slot (and on the Messages row inside the sheet). The two counts
   // stay independent; More just aggregates what lives behind it.
@@ -508,7 +518,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
               </button>
             </div>
             <div className="px-3 pb-4 md:px-5 md:pb-6 md:grid md:grid-cols-3 md:gap-4 md:pt-2">
-              {MORE_GROUPS.map((group) => (
+              {moreGroups.map((group) => (
                 <div key={group.label} className="md:rounded-2xl md:border md:border-stone-200 md:p-1.5">
                   <div className="px-2 pt-3 pb-1 md:pt-2">
                     <p className="text-[11px] font-bold uppercase tracking-[0.05em] text-stone-400">

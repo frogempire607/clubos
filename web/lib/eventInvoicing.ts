@@ -17,7 +17,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
-import { processingFeeLineItem } from "@/lib/fees";
+import { processingFeeLineItem, feePolicyFor } from "@/lib/fees";
 import { sendEmail } from "@/lib/email";
 import { registrationReturnUrl } from "@/lib/registrationUrl";
 
@@ -29,7 +29,7 @@ export type BillOneRegistrantArgs = {
     publicSlug?: string | null;
     isTournament?: boolean | null;
   };
-  club: { stripeAccountId: string; tier: string; passProcessingFees: boolean };
+  club: { stripeAccountId: string; tier: string; passProcessingFees: boolean; passPlatformFee: boolean };
   registration: { id: string; name: string };
   recipientEmail: string;
   /** NET of any discount. Resolved by the caller through lib/eventRepricing. */
@@ -95,14 +95,14 @@ export async function billOneRegistrant(args: BillOneRegistrantArgs): Promise<Bi
             },
           },
           ...(() => {
-            const fi = processingFeeLineItem(amountCents, club.passProcessingFees);
+            const fi = processingFeeLineItem(amountCents, feePolicyFor(club));
             return fi ? [fi] : [];
           })(),
         ],
         success_url: returnUrl("paid"),
         cancel_url: returnUrl("canceled"),
         payment_intent_data: {
-          application_fee_amount: calculatePlatformFee(amountCents, club.tier),
+          application_fee_amount: calculatePlatformFee(amountCents, club),
           metadata: { eventRegistrationId: reg.id, eventId: event.id, clubId: event.clubId },
         },
         metadata: {
