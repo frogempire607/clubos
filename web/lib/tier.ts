@@ -1,7 +1,8 @@
 // Single source of truth for AthletixOS plans (2026-10-18 pricing overhaul).
 //
 // Model: base + platform fee. Every plan charges a per-transaction AthletixOS
-// platform fee (rate + $0.30) collected as a Stripe Connect application fee on
+// platform fee (a percentage only — no fixed per-transaction part since
+// 2026-10-18 pm) collected as a Stripe Connect application fee on
 // the club's connected account. The club chooses, in Member payments settings,
 // whether it or the paying member absorbs (a) Stripe processing and (b) the
 // platform fee — see lib/fees.ts for the math.
@@ -25,7 +26,10 @@ export const TIER_ORDER: Tier[] = ["starter", "pro", "enterprise"];
 // below 1.4% loses money on every transaction. Every place a rate is resolved
 // or set must go through assertPlatformRate().
 export const PLATFORM_RATE_FLOOR = 0.014;
-export const PLATFORM_FIXED_CENTS = 30;
+// The AthletixOS platform fee is PERCENTAGE ONLY (Julian, 2026-10-18 pm). Kept
+// as a field set to 0 so the fee math stays one formula; Stripe's own
+// 2.9% + $0.30 is a separate constant in lib/fees.ts and is unchanged.
+export const PLATFORM_FIXED_CENTS = 0;
 
 export function assertPlatformRate(rate: number): number {
   if (!Number.isFinite(rate) || rate < PLATFORM_RATE_FLOOR) {
@@ -106,7 +110,7 @@ export const TIER_FEATURES = {
     advancedPermissions: false,
   },
   pro: {
-    platformRate: 0.016,
+    platformRate: 0.015,
     platformFixedCents: PLATFORM_FIXED_CENTS,
     maxMembers: null,
     maxLocations: 3,
@@ -230,11 +234,11 @@ export function getPlatformRate(tier: string | null | undefined): number {
   return assertPlatformRate(getTierFeatures(tier).platformRate);
 }
 
-/** Human label, e.g. "2% + $0.30". */
+/** Human label, e.g. "2%" (or "2% + $0.30" if a fixed part is ever set). */
 export function describePlatformFee(tier: string | null | undefined): string {
   const f = getTierFeatures(tier);
   const pct = +(f.platformRate * 100).toFixed(2);
-  return `${pct}% + $${(f.platformFixedCents / 100).toFixed(2)}`;
+  return f.platformFixedCents > 0 ? `${pct}% + $${(f.platformFixedCents / 100).toFixed(2)}` : `${pct}%`;
 }
 
 // Lowest tier that unlocks a boolean feature, or that raises a limit above the

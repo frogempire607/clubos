@@ -250,7 +250,7 @@ export async function commitPlanChange(input: PlanChangeInput & { actorUserId: s
         items: [{ id: item.id, price_data: { currency: "usd", product: productId, unit_amount: unitAmount, recurring: interval } }],
         // The new price starts on the next invoice. Nothing mid-cycle.
         proration_behavior: "none",
-        // The platform percent is specific to this unit amount (the $0.30 is
+        // The platform percent is specific to this unit amount (any fixed part is
         // folded in), so a price change must restate it.
         application_fee_percent: calculatePlatformFeePercent(Math.round(option.price * 100), club),
         metadata: { ...(sub.metadata ?? {}), memberSubscriptionId: row.id, memberId: row.memberId, optionId: option.id ?? "", planChangedAt: new Date().toISOString() },

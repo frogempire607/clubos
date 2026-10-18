@@ -108,7 +108,7 @@ export default function TermsPage() {
         <p>
           The Service is offered in three plans: Starter ($0/mo), Pro ($99/mo), and Enterprise (starting at $199/mo).
           Every plan includes a per-transaction platform fee on card payments processed through the Service (Starter
-          2% + $0.30, Pro 1.6% + $0.30, Enterprise 1.4% + $0.30), collected through Stripe at the time of each payment.
+          2%, Pro 1.5%, Enterprise 1.4% of the payment), collected through Stripe at the time of each payment.
           You choose, in your payment settings, whether your organization or the paying member bears the platform fee
           and Stripe&apos;s processing fee. When a card payment is refunded, the platform fee is refunded in proportion
           to the amount refunded. Paid plans may include a free trial as described at signup; when the trial ends, the

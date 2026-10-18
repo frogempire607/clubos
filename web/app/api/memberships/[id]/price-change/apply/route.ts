@@ -462,7 +462,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             // Explicit. The default (`create_prorations`) would issue a credit
             // note or an immediate charge on every touched subscription.
             proration_behavior: "none",
-            // The platform percent is specific to the unit amount (the $0.30
+            // The platform percent is specific to the unit amount (any fixed part
             // is folded in), so a reprice restates it (pricing overhaul).
             application_fee_percent: calculatePlatformFeePercent(Math.round(body.newPrice * 100), club),
           },

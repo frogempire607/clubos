@@ -83,7 +83,7 @@ export default function FeeChooser() {
           ))}
         </div>
         <Toggle label="Member pays Stripe processing" sub="2.9% + $0.30, added to their total" on={passProcessing} onChange={setPassProcessing} />
-        <Toggle label="Member pays the AthletixOS fee" sub={`${pct}% + $0.30 on ${TIER_PRICES[tier].label}, added to their total`} on={passPlatform} onChange={setPassPlatform} />
+        <Toggle label="Member pays the AthletixOS fee" sub={`${pct}% on ${TIER_PRICES[tier].label}, added to their total`} on={passPlatform} onChange={setPassPlatform} />
         <p style={{ fontSize: 12, color: "#78716C", lineHeight: 1.5, margin: "4px 2px 0" }}>
           Two separate switches, set by your club and changeable any time. Discounts come off first; fees are worked out on the discounted price.
         </p>

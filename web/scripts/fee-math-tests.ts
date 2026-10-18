@@ -25,37 +25,39 @@ function eq(name: string, a: unknown, b: unknown) { check(name, a === b, { got: 
 
 const pol = (tier: string, pp: boolean, pf: boolean): FeePolicy => feePolicyFor({ tier, passProcessingFees: pp, passPlatformFee: pf });
 
-// ── The worked $100 example (Starter, 2% + $0.30) ───────────────────────────
+// ── The worked $100 example (Starter, 2% — percentage only, no fixed part) ──
+// Platform fee has NO fixed component (2026-10-18 pm). Stripe keeps its $0.30.
+const PF = 0;
 {
   const n = quoteCharge(10000, pol("starter", false, false));
   eq("neither: parent pays $100.00", n.totalCents, 10000);
   eq("neither: stripe fee $3.20", n.stripeFeeCents, 320);
-  eq("neither: platform fee $2.30", n.applicationFeeCents, 230);
-  eq("neither: club nets $94.50", n.clubNetCents, 9450);
+  eq("neither: platform fee $2.00", n.applicationFeeCents, 200);
+  eq("neither: club nets $94.80", n.clubNetCents, 9480);
 
   const p = quoteCharge(10000, pol("starter", true, false));
   eq("processing: parent pays $103.30 (not $102.90)", p.totalCents, 10330);
   eq("processing: stripe fee $3.30", p.stripeFeeCents, 330);
-  eq("processing: platform on parent-paid $2.37", p.applicationFeeCents, Math.round(10330 * 0.02) + 30);
-  eq("processing: club nets $97.63", p.clubNetCents, 10000 - (Math.round(10330 * 0.02) + 30));
+  eq("processing: platform on parent-paid $2.07", p.applicationFeeCents, Math.round(10330 * 0.02) + PF);
+  eq("processing: club nets $97.93", p.clubNetCents, 10000 - (Math.round(10330 * 0.02) + PF));
 
   const f = quoteCharge(10000, pol("starter", false, true));
-  eq("platform: parent pays ceil((100.30)/0.98)", f.totalCents, Math.ceil(10030 / 0.98));
+  eq("platform: parent pays ceil(100.00/0.98)", f.totalCents, Math.ceil(10000 / 0.98));
   eq("platform: club nets net − stripe(parent)", f.clubNetCents, 10000 - stripeFeeCents(f.totalCents));
 
   const b = quoteCharge(10000, pol("starter", true, true));
-  eq("both: parent pays ceil(100.60/0.951)", b.totalCents, Math.ceil(10060 / 0.951));
+  eq("both: parent pays ceil(100.30/0.951)", b.totalCents, Math.ceil(10030 / 0.951));
   eq("both: club nets exactly $100.00", b.clubNetCents, 10000);
 }
 
-// The Member payments preview at Enterprise (1.4% + $0.30) — the exact four
+// The Member payments preview at Enterprise (1.4%, no fixed part) — the exact four
 // rows the settings screen shows.
 {
   const row = (pp: boolean, pf: boolean) => { const q = quoteCharge(10000, pol("enterprise", pp, pf)); return [q.totalCents, q.clubNetCents]; };
-  eq("enterprise neither", JSON.stringify(row(false, false)), JSON.stringify([10000, 9510]));
-  eq("enterprise processing", JSON.stringify(row(true, false)), JSON.stringify([10330, 9825]));
-  eq("enterprise platform", JSON.stringify(row(false, true)), JSON.stringify([10173, 9675]));
-  eq("enterprise both", JSON.stringify(row(true, true)), JSON.stringify([10513, 10000]));
+  eq("enterprise neither", JSON.stringify(row(false, false)), JSON.stringify([10000, 9540]));
+  eq("enterprise processing", JSON.stringify(row(true, false)), JSON.stringify([10330, 9855]));
+  eq("enterprise platform", JSON.stringify(row(false, true)), JSON.stringify([10142, 9676]));
+  eq("enterprise both", JSON.stringify(row(true, true)), JSON.stringify([10481, 10000]));
 }
 
 // The old bug, pinned: legacy formula said $102.90 and the club netted $99.62.
@@ -80,23 +82,23 @@ for (const tier of ["starter", "pro", "enterprise"]) {
       if (pp && pf) {
         eq(`${tag} both: club nets exactly net`, q.clubNetCents, net);
         // App fee is at least the nominal platform fee on what was charged, less a cent of rounding.
-        const nominal = Math.round(q.totalCents * p.platformRate) + 30;
+        const nominal = Math.round(q.totalCents * p.platformRate) + PF;
         check(`${tag} both: platform not shortchanged`, q.applicationFeeCents >= nominal - 1, { q, nominal });
-        const ceil = Math.ceil((net + 60) / (1 - 0.029 - p.platformRate) - 1e-7);
+        const ceil = Math.ceil((net + 30 + PF) / (1 - 0.029 - p.platformRate) - 1e-7);
         check(`${tag} both: total = formula rounded UP (never down)`, q.totalCents >= ceil && q.totalCents <= ceil + 1, { q, ceil });
       } else if (pp) {
-        check(`${tag} processing: club ≥ net − platform`, q.clubNetCents >= net - (Math.round(q.totalCents * p.platformRate) + 30), q);
+        check(`${tag} processing: club ≥ net − platform`, q.clubNetCents >= net - (Math.round(q.totalCents * p.platformRate) + PF), q);
         check(`${tag} processing: stripe covered`, q.totalCents - q.stripeFeeCents >= net, q);
         const ceil = Math.ceil((net + 30) / (1 - 0.029) - 1e-7);
         check(`${tag} processing: total = formula rounded UP (never down)`, q.totalCents >= ceil && q.totalCents <= ceil + 1, { q, ceil });
       } else if (pf) {
         eq(`${tag} platform: club = net − stripe(total)`, q.clubNetCents, net - q.stripeFeeCents);
-        check(`${tag} platform: platform ≥ nominal`, q.applicationFeeCents >= Math.round(q.totalCents * p.platformRate) + 30, q);
-        const ceil = Math.ceil((net + 30) / (1 - p.platformRate) - 1e-7);
+        check(`${tag} platform: platform ≥ nominal`, q.applicationFeeCents >= Math.round(q.totalCents * p.platformRate) + PF, q);
+        const ceil = Math.ceil((net + PF) / (1 - p.platformRate) - 1e-7);
         check(`${tag} platform: total = formula rounded UP (never down)`, q.totalCents >= ceil && q.totalCents <= ceil + 1, { q, ceil });
       } else {
         eq(`${tag} neither: total = net`, q.totalCents, net);
-        if (net >= 200) eq(`${tag} neither: club = net − stripe − platform`, q.clubNetCents, net - stripeFeeCents(net) - (Math.round(net * p.platformRate) + 30));
+        if (net >= 200) eq(`${tag} neither: club = net − stripe − platform`, q.clubNetCents, net - stripeFeeCents(net) - (Math.round(net * p.platformRate) + PF));
       }
       // Subscription percent is floored: applied to the total it never exceeds the one-time app fee.
       const pct = applicationFeePercent(net, p);
@@ -134,7 +136,8 @@ threw = false; try { assertPlatformRate(NaN); } catch { threw = true; }
 eq("NaN rejected", threw, true);
 eq("1.4% accepted", assertPlatformRate(0.014), 0.014);
 eq("starter 2%", getPlatformRate("starter"), 0.02);
-eq("pro 1.6%", getPlatformRate("pro"), 0.016);
+eq("pro 1.5%", getPlatformRate("pro"), 0.015);
+eq("no fixed platform part on any tier", Object.values(TIER_FEATURES).every((t) => t.platformFixedCents === 0), true);
 eq("enterprise 1.4%", getPlatformRate("enterprise"), 0.014);
 for (const t of Object.keys(TIER_FEATURES)) check(`${t} rate ≥ floor`, (TIER_FEATURES as any)[t].platformRate >= PLATFORM_RATE_FLOOR);
 
