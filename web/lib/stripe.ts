@@ -30,7 +30,7 @@ export const stripe: Stripe = new Proxy({} as Stripe, {
   },
 });
 
-// The AthletixOS platform fee (2026-10-18): tier rate + $0.30 per charge,
+// The AthletixOS platform fee (2026-10-18): tier rate, percentage only,
 // collected as `application_fee_amount` (one-time) or `application_fee_percent`
 // (subscriptions) on the club's connected account. All math lives in
 // lib/fees.ts — these wrappers exist so every Stripe call site states the

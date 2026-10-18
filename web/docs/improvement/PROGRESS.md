@@ -5226,7 +5226,7 @@ Tests: new `test:membership-group-rates` (24). sibling 32, event-auto-discounts 
 
 ### 2026-10-18 — Pricing overhaul: base + platform fee, Starter/Pro/Enterprise, fee-split settings (branch `claude/pricing-overhaul`)
 
-- **Model:** Starter $0 · 2% + $0.30, Pro $99 · 1.6% + $0.30, Enterprise $199 · 1.4% + $0.30 (`lib/tier.ts`). Platform
+- **Model:** Starter $0 · 2%, Pro $99 · 1.5%, Enterprise $199 · 1.4% (`lib/tier.ts`) — percentage only, no fixed platform part (changed same evening). Platform
   rate floor 1.4% enforced by `assertPlatformRate` (module-load self-check + tests) — platform cost is ~1.21% of volume.
 - **Two independent fees** on the club: `passProcessingFees` (now default true for new clubs) and new `passPlatformFee`
   (default false). One gross-up, `lib/fees.ts quoteCharge`; every charge, subscription and display routes through it.

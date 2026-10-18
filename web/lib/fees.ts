@@ -5,7 +5,7 @@
 // Two independent fees, and the club chooses who absorbs each (2026-10-18):
 //
 //   Stripe processing   2.9% + $0.30   club.passProcessingFees (default ON)
-//   AthletixOS platform tier rate + $0.30 club.passPlatformFee (default OFF)
+//   AthletixOS platform tier rate (no fixed part) club.passPlatformFee (default OFF)
 //
 // `net` = what the club intends to receive (AFTER any discount — discounts
 // always reduce `net` first, then the gross-up runs).
@@ -14,9 +14,9 @@
 //                      club nets   = net − stripe(net) − platform(net)
 //   Processing passed  parent pays = (net + 0.30) / (1 − 0.029)
 //                      club nets   = net − platform(parent pays)
-//   Platform passed    parent pays = (net + 0.30) / (1 − rate)
+//   Platform passed    parent pays = net / (1 − rate)
 //                      club nets   = net − stripe(parent pays)
-//   Both passed        parent pays = (net + 0.60) / (1 − 0.029 − rate)
+//   Both passed        parent pays = (net + 0.30) / (1 − 0.029 − rate)
 //                      club nets   = net
 //
 // The parent-facing total is the formula rounded UP to the cent (plus a cent
@@ -177,7 +177,7 @@ export function applicationFeeCents(netCents: number, policy: FeePolicyInput): n
 /**
  * application_fee_percent for a subscription whose recurring unit is the
  * grossed-up total of `netCents`. Stripe only takes a percent on
- * subscriptions, so the $0.30 fixed part is folded into the percent for this
+ * subscriptions, so any fixed platform part (0 today) is folded into the percent for this
  * unit amount. FLOORED to Stripe's 2-decimal precision so the club is never
  * short; the platform absorbs the sub-cent difference. If a coupon later
  * reduces an invoice, Stripe applies the same percent to the smaller amount.
