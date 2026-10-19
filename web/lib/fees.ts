@@ -185,7 +185,21 @@ export function applicationFeeCents(netCents: number, policy: FeePolicyInput): n
 export function applicationFeePercent(netCents: number, policy: FeePolicyInput): number {
   const q = quoteCharge(netCents, policy);
   if (q.totalCents <= 0 || q.applicationFeeCents <= 0) return 0;
-  return Math.floor((q.applicationFeeCents / q.totalCents) * 10000) / 100;
+  return percentForFee(q.applicationFeeCents, q.totalCents);
+}
+
+/**
+ * The 2-decimal percent Stripe should take so the fee on `totalCents` is the
+ * largest it can be WITHOUT exceeding `feeCents`. Rounds to the nearest
+ * 0.01% and steps down only if that would overshoot — so a 1.4% fee stays
+ * 1.40% (flooring first turned 1.4% into 1.39% and under-collected).
+ */
+export function percentForFee(feeCents: number, totalCents: number): number {
+  if (totalCents <= 0 || feeCents <= 0) return 0;
+  let pct = Math.round((feeCents / totalCents) * 10000) / 100;
+  let guard = 0;
+  while (pct > 0 && Math.round((totalCents * pct) / 100) > feeCents && guard++ < 5) pct = Math.round((pct - 0.01) * 100) / 100;
+  return pct;
 }
 
 // ── Back-compatible helpers (all route through quoteCharge) ─────────────────
