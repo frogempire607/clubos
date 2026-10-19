@@ -10,8 +10,7 @@
  *
  * WHAT IT CHANGES: only `application_fee_percent`. The amount the family pays
  * is NOT changed — the club absorbs the platform fee on these subscriptions
- * (tier rate + $0.30, folded into one percent for each subscription's amount,
- * rounded DOWN to Stripe's 2 decimals so the club is never over-charged).
+ * (the tier rate — 1.4% on Enterprise — never more than that on any amount).
  * Takes effect from each subscription's NEXT invoice. Nothing is charged now.
  *
  * DRY RUN BY DEFAULT. Writing needs --apply AND either --all or --subs.
@@ -28,7 +27,7 @@ import "dotenv/config";
 import { writeFileSync } from "node:fs";
 import Stripe from "stripe";
 import { PrismaClient } from "@prisma/client";
-import { feePolicyFor, platformNominalCents } from "../lib/fees";
+import { feePolicyFor, platformNominalCents, percentForFee } from "../lib/fees";
 import { describePlatformFee } from "../lib/tier";
 
 const argv = process.argv.slice(2);
@@ -71,7 +70,7 @@ async function main() {
         const fromPct = sub.application_fee_percent ?? 0;
         // The family pays `unitCents` (unchanged); the platform fee is taken on it.
         const feeCents = platformNominalCents(unitCents, { ...policy, passPlatform: false });
-        const toPct = unitCents > 0 ? Math.floor((feeCents / unitCents) * 10000) / 100 : 0;
+        const toPct = percentForFee(feeCents, unitCents);
         let action = "update";
         if (unitCents <= 0) action = "skip: $0 subscription";
         else if (Math.abs(fromPct - toPct) < 0.001) action = "skip: already set";

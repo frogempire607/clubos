@@ -71,13 +71,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [status, router]);
 
   // Pricing overhaul (2026-10-18): until the OWNER saves their fee split once,
-  // every dashboard page sends them to Member payments, where a one-time
-  // explainer says what changed. Owners only — the member portal and staff
-  // logins are never redirected. One click ("Keep these settings") ends it.
+  // they're sent to Member payments, where an explainer says what changed.
+  // Owners only — the member portal and staff logins are never redirected.
+  // ONCE per browser session — never a trap: after the first redirect the
+  // owner can go anywhere, and the banner on Member payments stays until they
+  // save. (First version redirected on every page and locked owners out.)
   useEffect(() => {
-    if (me?.role === "OWNER" && me.feeChoiceRequired && pathname !== "/dashboard/settings/billing") {
-      router.replace("/dashboard/settings/billing?feeChange=1");
-    }
+    if (me?.role !== "OWNER" || !me.feeChoiceRequired || pathname === "/dashboard/settings/billing") return;
+    let shown = false;
+    try { shown = sessionStorage.getItem("aox:fee-choice-redirected") === "1"; } catch { shown = true; }
+    if (shown) return;
+    try { sessionStorage.setItem("aox:fee-choice-redirected", "1"); } catch { /* storage blocked: skip redirect */ }
+    router.replace("/dashboard/settings/billing?feeChange=1");
   }, [me, pathname, router]);
   // The billing page fires this once the choice is saved.
   useEffect(() => {

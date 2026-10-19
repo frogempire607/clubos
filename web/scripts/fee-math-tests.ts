@@ -108,6 +108,11 @@ for (const tier of ["starter", "pro", "enterprise"]) {
   }
 }
 
+// Subscription percent is the tier rate exactly (no fixed part to fold in).
+eq("enterprise sub % on $1,500 annual = 1.4 (not 1.39)", applicationFeePercent(150000, pol("enterprise", true, false)), 1.4);
+eq("pro sub % on $175 = 1.5", applicationFeePercent(17500, pol("pro", true, false)), 1.5);
+eq("starter sub % on $110 = 2", applicationFeePercent(11000, pol("starter", true, false)), 2);
+
 // ── Discounts reduce net BEFORE gross-up ───────────────────────────────────
 {
   const p = pol("pro", true, true);
