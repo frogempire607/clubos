@@ -60,6 +60,8 @@ const schema = z.object({
     "change_plan",
     // 2026-10-15 — a family in a free trial who wants to pay now.
     "end_trial_now",
+    // 2026-10-20 — charge a past-due membership's open invoice now.
+    "retry_payment",
   ]),
   confirm: z.literal(true, { errorMap: () => ({ message: "This action requires explicit confirmation." }) }),
   // reassign_subscription:
@@ -449,6 +451,61 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // first period immediately. Refused unless it is a REAL free trial: "Change
   // charge date" also parks paying members in Stripe's trial state, and ending
   // that early would charge them for time they already paid for.
+  // retry_payment — 2026-10-20. A card charge failed (e.g. insufficient
+  // funds) and the family says the money is there now. Stripe retries on its
+  // own schedule; this charges the open invoice immediately, on the card the
+  // subscription bills (or the customer's default). Two steps: without
+  // confirmImmediateCharge it only returns what WOULD be charged. Nothing
+  // local is written on success — invoice.paid (the webhook) records the
+  // payment and reactivates the membership, exactly as an automatic retry.
+  if (data.action === "retry_payment") {
+    if (!data.subscriptionId) return NextResponse.json({ error: "subscriptionId is required." }, { status: 400 });
+    const row = await prisma.memberSubscription.findFirst({
+      where: { id: data.subscriptionId, memberId: member.id },
+      select: { id: true, optionLabel: true, stripeSubscriptionId: true },
+    });
+    if (!row) return NextResponse.json({ error: "That membership no longer exists." }, { status: 404 });
+    if (!row.stripeSubscriptionId) return NextResponse.json({ error: "This membership isn't billed by card — record the payment instead." }, { status: 409 });
+    const club = await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { stripeAccountId: true } });
+    if (!club?.stripeAccountId) return NextResponse.json({ error: "Stripe isn't connected for this club." }, { status: 409 });
+    const acct = { stripeAccount: club.stripeAccountId };
+    let inv: Awaited<ReturnType<typeof stripe.invoices.list>>["data"][number] | undefined;
+    try {
+      const open = await stripe.invoices.list({ subscription: row.stripeSubscriptionId, status: "open", limit: 10 }, acct);
+      inv = open.data.sort((a, b) => (b.created ?? 0) - (a.created ?? 0))[0];
+    } catch (e) {
+      return NextResponse.json({ error: `Couldn't reach Stripe — nothing was charged: ${String(e)}` }, { status: 502 });
+    }
+    if (!inv) {
+      return NextResponse.json({ error: "Stripe shows nothing unpaid on this membership — it may already have gone through. Try Sync from Stripe.", code: "NOTHING_DUE" }, { status: 409 });
+    }
+    const amount = (inv.amount_due ?? 0) / 100;
+    if (data.confirmImmediateCharge !== true) {
+      return NextResponse.json({
+        ok: true,
+        preview: { amount, invoiceId: inv.id, attempts: inv.attempt_count ?? 0, dueSince: inv.created ? new Date(inv.created * 1000).toISOString() : null },
+        message: `Charge $${amount.toFixed(2)} to the card on file now?`,
+      });
+    }
+    try {
+      await stripe.invoices.pay(inv.id!, {}, { ...acct, idempotencyKey: `aox-retry-${inv.id}-${inv.attempt_count ?? 0}` });
+    } catch (e) {
+      const msg = (e as { message?: string })?.message ?? String(e);
+      await writeBillingAudit({
+        clubId: session.user.clubId, memberId: member.id, actorUserId: session.user.id,
+        action: "PAYMENT_RETRY_FAILED", before: { invoiceId: inv.id, amount },
+        note: `Staff retried $${amount.toFixed(2)} on "${row.optionLabel}" — the card was declined: ${msg}`,
+      });
+      return NextResponse.json({ error: `The card was declined again — nothing was charged. Stripe said: ${msg}`, code: "DECLINED" }, { status: 402 });
+    }
+    await writeBillingAudit({
+      clubId: session.user.clubId, memberId: member.id, actorUserId: session.user.id,
+      action: "PAYMENT_RETRIED", before: { invoiceId: inv.id, amount }, after: { paid: true },
+      note: `Staff charged the past-due $${amount.toFixed(2)} on "${row.optionLabel}" now instead of waiting for Stripe's automatic retry.`,
+    });
+    return NextResponse.json({ ok: true, message: `Charged $${amount.toFixed(2)} — it shows under Recent payments in a minute and the membership goes back to active.` });
+  }
+
   if (data.action === "end_trial_now") {
     if (!data.subscriptionId) return NextResponse.json({ error: "subscriptionId is required." }, { status: 400 });
     if (data.confirmImmediateCharge !== true) return NextResponse.json({ error: "Confirm the charge first." }, { status: 400 });

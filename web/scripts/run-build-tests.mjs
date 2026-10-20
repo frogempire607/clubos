@@ -122,6 +122,7 @@ export const GATED = [
   ["scripts/schedule-feeds-pay-tests.ts"],
   ["scripts/email-queue-tests.ts"],
   ["scripts/charge-timing-tests.ts"],
+  ["scripts/retry-payment-tests.ts"],
   ["scripts/finance-entities-tests.ts"],
   ["scripts/permission-behaviour-tests.ts"],
   ["scripts/staff-authz-tests.ts"],

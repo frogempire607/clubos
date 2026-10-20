@@ -22,7 +22,7 @@ import type { PanelView, PanelAction } from "@/lib/membershipPanel";
 import AssignDiscount, { useAssignQuote } from "./AssignDiscount";
 import { offerChargePlan } from "@/lib/membershipAssignQuote";
 import { assignChargeChoices, defaultAssignChargeChoice, assignChargePlan, cashNextDueLine, type AssignChargeChoice } from "@/lib/chargeDate";
-import { MoneySummary, MoneyActions, PaymentsList, PaidSheet, WaiveSheet, SwitchSheet, RefundSheet, AutoRenewSheet, CommitSheet, ChargeDateSheet, EndTrialSheet, type MoneyPayload, type MoneySheet } from "./MembershipMoney";
+import { MoneySummary, MoneyActions, PaymentsList, PaidSheet, WaiveSheet, SwitchSheet, RefundSheet, AutoRenewSheet, CommitSheet, ChargeDateSheet, EndTrialSheet, RetrySheet, type MoneyPayload, type MoneySheet } from "./MembershipMoney";
 
 // ── Payload (mirrors the route) ──────────────────────────────────────────────
 
@@ -189,7 +189,9 @@ export default function MembershipPanel({
       case "change_dates": setDialog("dates"); return;
       case "transfer": setMenu(false); if (v.currentSubId) onTransfer?.(v.currentSubId); return;
       case "retry_payment":
-        // Stripe retries a failed charge on its own schedule; the fix staff can make is a new card.
+        // 2026-10-20 — this used to only show a message ("Stripe retries on its
+        // own"), so the button looked broken. It now charges the open invoice.
+        if (data.money) { setMoneySheet("retry"); return; }
         setMsg("Stripe retries the charge automatically. To use a different card, add it under Payment methods below.");
         document.getElementById("payment-methods")?.scrollIntoView({ behavior: "smooth", block: "start" });
         return;
@@ -355,6 +357,7 @@ export default function MembershipPanel({
         if (moneySheet === "commit") return <CommitSheet {...sp} />;
         if (moneySheet === "chargeDate") return <ChargeDateSheet {...sp} />;
         if (moneySheet === "endTrial") return <EndTrialSheet {...sp} />;
+        if (moneySheet === "retry") return <RetrySheet {...sp} />;
         return <RefundSheet {...sp} payment={moneySheet.refund} />;
       })()}
       {dialog === "cancel_setup" && (

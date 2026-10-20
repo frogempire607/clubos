@@ -40,7 +40,7 @@ export type MoneyPayload = {
   history: { id: string; at: string; text: string }[];
 };
 
-export type MoneySheet = null | "paid" | "waive" | "switch" | "autorenew" | "commit" | "chargeDate" | "endTrial" | { refund: MoneyPayment };
+export type MoneySheet = null | "paid" | "waive" | "switch" | "autorenew" | "commit" | "chargeDate" | "endTrial" | "retry" | { refund: MoneyPayment };
 
 const fmt = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—");
 const fmtS = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }) : "—");
@@ -442,6 +442,35 @@ export function EndTrialSheet({ memberId, first, headline, m, onClose, onDone }:
         The free trial ends now instead of {fmt(t.endsAt)}. {first}&apos;s card{m.pmLabel ? ` (${m.pmLabel})` : ""} is charged <b>{money2(t.amount)}</b> today, and it renews from today.
       </div>
       <div className="mt-2 rounded-xl border border-info-border bg-info-surface px-3 py-2 text-[13px] text-text-primary"><b>Stripe:</b> ends the trial and charges the first period immediately. If the card is declined, the membership shows as past due.</div>
+      <ErrLine err={err} />
+    </AppSheet>
+  );
+}
+
+/** Past due → charge the open Stripe invoice now (2026-10-20). Asks Stripe what is owed first, then charges on confirm. */
+export function RetrySheet({ memberId, first, headline, m, onClose, onDone }: SheetProps) {
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const [owed, setOwed] = useState<{ amount: number; attempts: number } | null>(null);
+  const [loadErr, setLoadErr] = useState("");
+  const url = `/api/members/${memberId}/billing-admin/actions`;
+  useEffect(() => {
+    let live = true;
+    post(url, { action: "retry_payment", subscriptionId: m.subscriptionId, confirm: true }).then((r) => {
+      if (!live) return;
+      if (!r.ok || !r.d.preview) setLoadErr(r.d.error ?? "Couldn't check what's owed.");
+      else setOwed({ amount: r.d.preview.amount, attempts: r.d.preview.attempts });
+    });
+    return () => { live = false; };
+  }, [url, m.subscriptionId]);
+  return (
+    <AppSheet open onClose={onClose} title="Charge the past-due payment" description={`${first} · ${headline}`}
+      footer={<><button type="button" className={btn} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className={btnP} disabled={busy || !owed} onClick={() => commit(url, { action: "retry_payment", subscriptionId: m.subscriptionId, confirmImmediateCharge: true }, setBusy, setErr, onDone)}>{busy ? "Charging…" : owed ? `Charge ${money2(owed.amount)} now` : "Checking…"}</button></>}>
+      {loadErr ? <ErrLine err={loadErr} /> : (
+        <div className="mt-1 rounded-xl bg-app-bg px-3 py-2.5 text-sm text-text-primary">
+          {owed ? <>Stripe shows <b>{money2(owed.amount)}</b> unpaid{owed.attempts ? ` after ${owed.attempts} declined ${owed.attempts === 1 ? "try" : "tries"}` : ""}. This charges {first}&apos;s card on file{m.pmLabel ? ` (${m.pmLabel})` : ""} right now.</> : "Checking with Stripe what's owed…"}
+        </div>
+      )}
+      <div className="mt-2 rounded-xl border border-info-border bg-info-surface px-3 py-2 text-[13px] text-text-primary"><b>Card changed?</b> Add the new card under Payment methods first and make it the default, then charge. If it&apos;s declined again, nothing is charged and Stripe keeps retrying on its own.</div>
       <ErrLine err={err} />
     </AppSheet>
   );
