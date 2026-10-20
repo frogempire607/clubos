@@ -353,6 +353,279 @@ async function main() {
     const bView = await tenantTransactionOn(appBase as any, "club_b", async (tx: any) => tx.member.findMany());
     ok(bView.every((m: any) => m.clubId === "club_b") && bView.length === 1, "T8.3 tenantTransaction for B sees only B");
 
+    // ── 14. the accounting ledger (Phase 1, 2026-10-20) ─────────────────────
+    // Proves club A cannot READ or WRITE club B's books, for all six gl_*
+    // tables. The ledger is the one surface where a cross-tenant leak is not
+    // just a privacy breach but a wrong number on somebody's tax return, so
+    // it gets its own section rather than relying on T0.1's completeness check.
+    console.log("\n[ledger — cross-club isolation]");
+
+    // Seed a minimal chart + one balanced entry per club, via the system client.
+    for (const [c, p] of [["club_a", "a"], ["club_b", "b"]] as const) {
+      await sys.legalEntity.create({
+        data: { id: `ent_${p}1`, clubId: c, name: `${p.toUpperCase()} Entity`, entityType: "LLC" },
+      });
+      await sys.glAccount.create({
+        data: {
+          id: `gla_${p}_cash`, clubId: c, number: "1000", name: "Operating Checking",
+          type: "ASSET", normalBalance: "DEBIT", sortOrder: 0,
+        },
+      });
+      await sys.glAccount.create({
+        data: {
+          id: `gla_${p}_rev`, clubId: c, number: "4000", name: "Membership Revenue",
+          type: "INCOME", normalBalance: "CREDIT", sortOrder: 0,
+        },
+      });
+      await sys.glJournalEntry.create({
+        data: {
+          id: `gle_${p}1`, clubId: c, entryDate: new Date("2026-10-01T00:00:00Z"),
+          memo: `${p} dues`, legalEntityId: `ent_${p}1`, sourceType: "MANUAL", status: "POSTED",
+          lines: {
+            create: [
+              { id: `gll_${p}1`, clubId: c, accountId: `gla_${p}_cash`, debitCents: 10_000, legalEntityId: `ent_${p}1`, lineNumber: 0 },
+              { id: `gll_${p}2`, clubId: c, accountId: `gla_${p}_rev`, creditCents: 10_000, legalEntityId: `ent_${p}1`, lineNumber: 1 },
+            ],
+          },
+        },
+      });
+      await sys.glEntryAttachment.create({
+        data: {
+          id: `glat_${p}1`, clubId: c, entryId: `gle_${p}1`, fileId: `file_${p}1`,
+          fileName: `${p}-invoice.pdf`, mimeType: "application/pdf", sizeBytes: 1234,
+        },
+      });
+      await sys.glLockDate.create({
+        data: { id: `gllk_${p}1`, clubId: c, legalEntityId: `ent_${p}1`, lockedThrough: new Date("2026-09-30T00:00:00Z") },
+      });
+      await sys.glAuditLog.create({
+        data: { id: `glaud_${p}1`, clubId: c, objectType: "ENTRY", objectId: `gle_${p}1`, action: "CREATE", actorName: "Seed" },
+      });
+    }
+
+    // Positive controls — A really can see its own books, so a later "0 rows"
+    // means isolation rather than an empty table.
+    ok((await A.glAccount.count()) === 2, "T9.0 A sees its own 2 accounts");
+    ok((await A.glJournalEntry.count()) === 1, "T9.1 A sees its own 1 entry");
+    ok((await A.glJournalLine.count()) === 2, "T9.2 A sees its own 2 lines");
+    ok((await A.glEntryAttachment.count()) === 1, "T9.3 A sees its own attachment");
+    ok((await A.glLockDate.count()) === 1, "T9.4 A sees its own lock date");
+    ok((await A.glAuditLog.count()) === 1, "T9.5 A sees its own audit row");
+
+    // READ isolation.
+    ok((await A.glAccount.findMany()).every((r: any) => r.clubId === "club_a"), "T9.6 A's accounts are all A's");
+    ok((await A.glAccount.findUnique({ where: { id: "gla_b_cash" } })) === null, "T9.7 A cannot read B's account");
+    ok((await A.glJournalEntry.findUnique({ where: { id: "gle_b1" } })) === null, "T9.8 A cannot read B's journal entry");
+    ok((await A.glJournalLine.findUnique({ where: { id: "gll_b1" } })) === null, "T9.9 A cannot read B's journal LINE");
+    ok((await A.glEntryAttachment.findUnique({ where: { id: "glat_b1" } })) === null, "T9.10 A cannot read B's attachment");
+    ok((await A.glLockDate.findUnique({ where: { id: "gllk_b1" } })) === null, "T9.11 A cannot read B's lock date");
+    ok((await A.glAuditLog.findUnique({ where: { id: "glaud_b1" } })) === null, "T9.12 A cannot read B's audit row");
+    ok((await A.glAccount.count({ where: { clubId: "club_b" } })) === 0, "T9.13 A counting B's accounts gets 0");
+    ok((await A.glJournalLine.count({ where: { clubId: "club_b" } })) === 0, "T9.14 A counting B's lines gets 0");
+
+    // A groupBy is how the balance summary reads the ledger — it must not
+    // aggregate across tenants, which would silently mix two clubs' money
+    // into one number.
+    const aSums = await A.glJournalLine.groupBy({ by: ["accountId"], _sum: { debitCents: true, creditCents: true } });
+    ok(
+      aSums.length === 2 && aSums.every((g: any) => g.accountId.startsWith("gla_a_")),
+      "T9.15 a groupBy aggregate never crosses tenants",
+    );
+    const rawLines = await A.$queryRaw<{ n: bigint }[]>`SELECT count(*)::int AS n FROM gl_journal_lines`;
+    ok(Number(rawLines[0].n) === 2, "T9.16 raw SQL through the tenant client is RLS-scoped too");
+
+    // WRITE isolation — the WITH CHECK half of each policy.
+    await throws(
+      "T9.17 A cannot INSERT an account into club B",
+      () =>
+        A.glAccount.create({
+          data: { id: "evil_acct", clubId: "club_b", number: "9999", name: "Evil", type: "ASSET", normalBalance: "DEBIT" },
+        }),
+      /row-level security|42501/i,
+    );
+    await throws(
+      "T9.18 A cannot INSERT a journal entry into club B",
+      () =>
+        A.glJournalEntry.create({
+          data: { id: "evil_entry", clubId: "club_b", entryDate: new Date("2026-10-01T00:00:00Z"), sourceType: "MANUAL" },
+        }),
+      /row-level security|42501/i,
+    );
+    await throws(
+      "T9.19 A cannot INSERT a line into club B",
+      () =>
+        A.glJournalLine.create({
+          data: { id: "evil_line", clubId: "club_b", entryId: "gle_b1", accountId: "gla_b_cash", debitCents: 1, creditCents: 0 },
+        }),
+      /row-level security|42501/i,
+    );
+    // ── The FK-crossing family ───────────────────────────────────────────────
+    // A clubId-only policy does NOT stop these: the clubId check passes, and
+    // Postgres FK checks deliberately bypass RLS. T9.20 FAILED on the first
+    // cut of the migration (A really could hang a line off B's entry, which
+    // the entry-detail view would then render inside B's own entry). The
+    // policies now verify every FK target is in the same club — see §8 of
+    // 20261020000000_gl_ledger_core.
+    await throws(
+      "T9.20 A cannot INSERT a line onto B's ENTRY while claiming its own club",
+      () =>
+        A.glJournalLine.create({
+          data: { id: "evil_line2", clubId: "club_a", entryId: "gle_b1", accountId: "gla_a_cash", debitCents: 1, creditCents: 0 },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T9.20b A cannot post its own line to B's ACCOUNT (would leak B's account on A's entry)",
+      () =>
+        A.glJournalLine.create({
+          data: { id: "evil_line3", clubId: "club_a", entryId: "gle_a1", accountId: "gla_b_cash", debitCents: 1, creditCents: 0 },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T9.20c A cannot tag its own line with B's ENTITY",
+      () =>
+        A.glJournalLine.create({
+          data: {
+            id: "evil_line4", clubId: "club_a", entryId: "gle_a1", accountId: "gla_a_cash",
+            debitCents: 1, creditCents: 0, legalEntityId: "ent_b1",
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T9.20d A cannot attach a document to B's entry",
+      () =>
+        A.glEntryAttachment.create({
+          data: {
+            id: "evil_att", clubId: "club_a", entryId: "gle_b1", fileId: "f_x",
+            fileName: "x.pdf", mimeType: "application/pdf", sizeBytes: 1,
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T9.20e A cannot put its own entry under B's entity",
+      () =>
+        A.glJournalEntry.create({
+          data: {
+            id: "evil_entry2", clubId: "club_a", entryDate: new Date("2026-10-02T00:00:00Z"),
+            sourceType: "MANUAL", legalEntityId: "ent_b1",
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T9.20f A cannot nest its own account under B's account",
+      () =>
+        A.glAccount.create({
+          data: {
+            id: "evil_child", clubId: "club_a", number: "1001", name: "Child",
+            type: "ASSET", normalBalance: "DEBIT", parentId: "gla_b_cash",
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T9.20g A cannot set a lock date naming B's entity",
+      () =>
+        A.glLockDate.create({
+          data: { id: "evil_lock2", clubId: "club_a", legalEntityId: "ent_b1", lockedThrough: new Date("2026-12-31T00:00:00Z") },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    // Positive control: the SAME shapes must still work within one club, or the
+    // hardened policy has broken legitimate posting.
+    const okLine = await A.glJournalLine.create({
+      data: {
+        id: "good_line", clubId: "club_a", entryId: "gle_a1", accountId: "gla_a_cash",
+        debitCents: 500, creditCents: 0, legalEntityId: "ent_a1", lineNumber: 2,
+      },
+    });
+    ok(okLine.id === "good_line", "T9.20h …but A CAN post a line on its own entry, account and entity");
+    const okAtt = await A.glEntryAttachment.create({
+      data: {
+        id: "good_att", clubId: "club_a", entryId: "gle_a1", fileId: "f_a2",
+        fileName: "ok.pdf", mimeType: "application/pdf", sizeBytes: 2,
+      },
+    });
+    ok(okAtt.id === "good_att", "T9.20i …and CAN attach a document to its own entry");
+    const okChild = await A.glAccount.create({
+      data: {
+        id: "good_child", clubId: "club_a", number: "1001", name: "Petty Cash",
+        type: "ASSET", normalBalance: "DEBIT", parentId: "gla_a_cash",
+      },
+    });
+    ok(okChild.parentId === "gla_a_cash", "T9.20j …and CAN nest a sub-account under its own parent");
+    await A.glJournalLine.delete({ where: { id: "good_line" } });
+    await A.glEntryAttachment.delete({ where: { id: "good_att" } });
+    await A.glAccount.delete({ where: { id: "good_child" } });
+    await throws(
+      "T9.21 A cannot INSERT a lock date for club B — closing another club's books",
+      () =>
+        A.glLockDate.create({
+          data: { id: "evil_lock", clubId: "club_b", legalEntityId: "ent_b1", lockedThrough: new Date("2026-12-31T00:00:00Z") },
+        }),
+      /row-level security|42501/i,
+    );
+    await throws(
+      "T9.22 A cannot forge an audit row in club B",
+      () =>
+        A.glAuditLog.create({
+          data: { id: "evil_audit", clubId: "club_b", objectType: "ENTRY", objectId: "gle_b1", action: "VOID" },
+        }),
+      /row-level security|42501/i,
+    );
+
+    // UPDATE / DELETE isolation.
+    await throws(
+      "T9.23 A cannot UPDATE B's account by id",
+      () => A.glAccount.update({ where: { id: "gla_b_cash" }, data: { name: "Hijacked" } }),
+      /not found|no record|row-level security/i,
+    );
+    ok(
+      (await A.glAccount.updateMany({ where: { clubId: "club_b" }, data: { name: "Hijacked" } })).count === 0,
+      "T9.24 A's updateMany over B touches 0 rows",
+    );
+    await throws(
+      "T9.25 A cannot re-home its own account into club B (WITH CHECK on the new row)",
+      () => A.glAccount.update({ where: { id: "gla_a_cash" }, data: { clubId: "club_b" } }),
+      /row-level security|42501/i,
+    );
+    await throws(
+      "T9.26 A cannot move its own journal entry into club B",
+      () => A.glJournalEntry.update({ where: { id: "gle_a1" }, data: { clubId: "club_b" } }),
+      /row-level security|42501/i,
+    );
+    ok(
+      (await A.glLockDate.updateMany({ where: { clubId: "club_b" }, data: { lockedThrough: new Date("2027-01-01T00:00:00Z") } })).count === 0,
+      "T9.27 A cannot move B's lock date",
+    );
+    ok((await A.glJournalLine.deleteMany({ where: { clubId: "club_b" } })).count === 0, "T9.28 A cannot delete B's lines");
+    ok((await A.glJournalEntry.deleteMany({ where: { id: "gle_b1" } })).count === 0, "T9.29 A cannot delete B's entry");
+    ok((await A.glAuditLog.deleteMany({ where: { clubId: "club_b" } })).count === 0, "T9.30 A cannot delete B's audit rows");
+
+    // Verify through the system client that B's books are untouched after all
+    // of the above — the assertions prove the writes were refused, this proves
+    // nothing leaked through anyway.
+    ok((await sys.glAccount.count({ where: { clubId: "club_b" } })) === 2, "T9.31 system check: B still has exactly 2 accounts");
+    ok((await sys.glAccount.findUnique({ where: { id: "gla_b_cash" } }))?.name === "Operating Checking", "T9.32 system check: B's account name is unchanged");
+    ok((await sys.glJournalLine.count({ where: { clubId: "club_b" } })) === 2, "T9.33 system check: B still has both lines");
+    ok((await sys.glAuditLog.count({ where: { clubId: "club_b" } })) === 1, "T9.34 system check: B's audit row survived");
+    ok((await sys.glAccount.count({ where: { clubId: "club_a" } })) === 2, "T9.35 system check: A's own accounts are intact");
+
+    // Fail closed with no tenant set.
+    ok((await appBase.glAccount.findMany()).length === 0, "T9.36 app role with NO tenant sees 0 accounts (fail closed)");
+    ok((await appBase.glJournalLine.findMany()).length === 0, "T9.37 and 0 journal lines");
+    await throws(
+      "T9.38 app role with NO tenant cannot write a journal entry at all",
+      () =>
+        appBase.glJournalEntry.create({
+          data: { id: "evil_no_tenant", clubId: "club_a", entryDate: new Date("2026-10-01T00:00:00Z"), sourceType: "MANUAL" },
+        }),
+      /row-level security|42501/i,
+    );
+
     await sys.$disconnect().catch(() => {});
     await appBase.$disconnect().catch(() => {});
     await sysPool.end().catch(() => {});

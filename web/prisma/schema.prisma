@@ -263,6 +263,12 @@ model Club {
   memberInvitationDeliveries     MemberInvitationDelivery[]
   savedMemberViews               SavedMemberView[]
   memberSubscriptionEvents       MemberSubscriptionEvent[]
+  glAccounts                     GlAccount[]
+  glJournalEntries               GlJournalEntry[]
+  glJournalLines                 GlJournalLine[]
+  glEntryAttachments             GlEntryAttachment[]
+  glLockDates                    GlLockDate[]
+  glAuditLogs                    GlAuditLog[]
 
   @@index([slug])
   @@map("clubs")
@@ -3075,6 +3081,11 @@ model LegalEntity {
   expenses      Expense[]
   donations     Donation[]
   bankAccounts  BankAccount[]
+  // Accounting (Phase 10). Restrict on all three: an entity that has books
+  // must not be deletable out from under its own ledger history.
+  glJournalEntries GlJournalEntry[]
+  glJournalLines   GlJournalLine[]
+  glLockDates      GlLockDate[]
 
   @@index([clubId])
   @@map("legal_entities")
@@ -4303,4 +4314,261 @@ model ProductBooking {
   @@index([productId, startsAt])
   @@index([clubId, status])
   @@map("product_bookings")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACCOUNTING — double-entry general ledger (Phase 10, 2026-10-20)
+// ═══════════════════════════════════════════════════════════════════════════
+// Plan: docs/accounting/plan.md. Phase 1 = the ledger core; Phase 2 posts
+// automatically from billing; Phase 3 adds reports, close and onboarding.
+//
+// WHY EVERY TABLE IS `gl_` PREFIXED: `ledger` is already taken three times in
+// this schema — LedgerImport (the QuickBooks CSV import), PrivateCreditLedger
+// (prepaid lesson credits), and the staff "pay ledger" (PayLine). `Gl…` /
+// `gl_…` is unambiguous and is standard accounting vocabulary.
+//
+// MONEY IS INTEGER CENTS here, deliberately unlike the Decimal(10,2) used
+// everywhere else in the app. A ledger must never see a rounding artifact, and
+// integer cents make "debits == credits" an exact integer comparison rather
+// than a tolerance check.
+//
+// ALL WRITES GO THROUGH lib/ledgerServer.ts. No route touches these tables
+// directly. The validation rules it enforces live in the pure lib/ledger.ts.
+//
+// RLS: every table carries a NOT NULL clubId and gets the standard
+// `tenant_isolation` policy in migration 20261020000000_gl_ledger_core.
+
+/// One account in a club's chart of accounts. Seeded from the sports-club
+/// template (lib/ledger.ts CHART_TEMPLATE) and then fully the club's own:
+/// renameable, extensible, deactivatable. `isSystem` accounts (Stripe
+/// Clearing, Opening Balance Equity, Retained Earnings, Due To/From) can be
+/// renamed but never deactivated — the posting engine resolves them by
+/// `systemKey`, so losing one would break automatic posting in Phase 2.
+model GlAccount {
+  id     String @id @default(cuid())
+  clubId String
+  /// Display/sort number, e.g. "1000". A STRING, not an Int: real charts use
+  /// sub-numbering like "2100.10" and leading zeros.
+  number String
+  name   String
+  /// ASSET | LIABILITY | EQUITY | INCOME | EXPENSE
+  type   String
+  /// COST_OF_SALES on 5000/5100 so Phase 3's P&L can show a gross-profit line
+  /// instead of burying cost of sales in operating expenses. Null otherwise.
+  /// Deliberately a subtype rather than a sixth `type` — the five accounting
+  /// classes are what every balance-sheet/P&L classifier keys on.
+  subtype String?
+  /// DEBIT | CREDIT — the side that increases this account.
+  normalBalance String
+  /// Contra accounts (1590 Accumulated Depreciation, 4900 Refunds &
+  /// Discounts) sit in their parent's section but carry the opposite balance.
+  isContra Boolean @default(false)
+  /// Self-reference for sub-accounts (2100 Credit Cards → one per card).
+  parentId String?
+  parent   GlAccount?  @relation("GlAccountTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children GlAccount[] @relation("GlAccountTree")
+  active   Boolean     @default(true)
+  /// Renameable, never deactivatable. See the model comment.
+  isSystem Boolean     @default(false)
+  /// Stable machine key for the accounts the posting engine must find by
+  /// identity rather than by number or name: STRIPE_CLEARING, DUE_TO,
+  /// DUE_FROM, OPENING_BALANCE_EQUITY, RETAINED_EARNINGS. Null on every
+  /// ordinary account — Postgres treats NULLs as distinct in a unique index,
+  /// so they all coexist under the (clubId, systemKey) unique.
+  systemKey       String?
+  description     String?
+  sortOrder       Int      @default(0)
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  club  Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  lines GlJournalLine[]
+
+  @@unique([clubId, number], map: "gl_accounts_clubId_number_key")
+  @@unique([clubId, systemKey], map: "gl_accounts_clubId_systemKey_key")
+  @@index([clubId, type, sortOrder], map: "gl_accounts_clubId_type_sortOrder_idx")
+  @@index([clubId, active], map: "gl_accounts_clubId_active_idx")
+  @@index([parentId], map: "gl_accounts_parentId_idx")
+  @@map("gl_accounts")
+}
+
+/// One journal entry — the header. Its lines must balance to the cent, which
+/// lib/ledgerServer.ts enforces before anything is written.
+model GlJournalEntry {
+  id     String @id @default(cuid())
+  clubId String
+  /// The ACCOUNTING date. This — not createdAt — is what the lock date and
+  /// every report compare against. Date-only, stored 00:00 UTC.
+  entryDate DateTime @db.Date
+  memo      String?
+  /// The entry's primary legal entity. Individual lines carry their own, which
+  /// is what makes an intercompany entry possible.
+  legalEntityId String?
+  /// MANUAL in Phase 1. Phase 2 adds STRIPE_CHARGE | PAYOUT | BANK | EXPENSE |
+  /// REFUND | OPENING_BALANCE.
+  sourceType String  @default("MANUAL")
+  /// The originating record's id. Together with sourceType this is the whole
+  /// idempotency story for Phase 2's automatic posting: the unique index below
+  /// makes "each source record posts at most once" structural rather than a
+  /// check somebody has to remember to write.
+  sourceId String?
+  /// POSTED | VOID. A VOID entry keeps all its rows; its reversal is a
+  /// separate entry. Nothing here is ever hard-deleted.
+  status String @default("POSTED")
+  /// Free-text human reference (check number, invoice number, "Oct close").
+  /// Phase 1 deliberately assigns no sequential entry number — a per-club
+  /// counter under concurrency produces either duplicates or gaps that look
+  /// like deleted entries to an auditor. Phase 3's month-close is the place
+  /// for stable numbering if the CPA asks for it.
+  reference String?
+  /// True when the service added balancing Due To / Due From lines because the
+  /// entry spans two legal entities.
+  isIntercompany Boolean @default(false)
+  /// On a reversing entry: the entry it reverses.
+  reversesEntryId String?
+  /// On a voided entry: the reversing entry that cancelled it. The pair is
+  /// cross-linked so either side of the story is reachable from the other.
+  voidedByEntryId String?
+  voidedAt        DateTime?
+  voidReason      String?
+  voidedByUserId  String?
+  createdByUserId String?
+  postedAt        DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  club        Club                @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  legalEntity LegalEntity?        @relation(fields: [legalEntityId], references: [id], onDelete: Restrict)
+  lines       GlJournalLine[]
+  attachments GlEntryAttachment[]
+
+  @@unique([clubId, sourceType, sourceId], map: "gl_journal_entries_clubId_sourceType_sourceId_key")
+  @@index([clubId, entryDate], map: "gl_journal_entries_clubId_entryDate_idx")
+  @@index([clubId, status, entryDate], map: "gl_journal_entries_clubId_status_entryDate_idx")
+  @@index([clubId, legalEntityId], map: "gl_journal_entries_clubId_legalEntityId_idx")
+  @@index([reversesEntryId], map: "gl_journal_entries_reversesEntryId_idx")
+  @@map("gl_journal_entries")
+}
+
+/// One debit or credit. Exactly one of debitCents / creditCents is non-zero —
+/// a line carrying both is rejected by the service, because it hides a netting
+/// decision that belongs in two explicit lines.
+model GlJournalLine {
+  id     String @id @default(cuid())
+  /// Denormalized from the entry so RLS is a direct policy and one index
+  /// lookup, not a correlated EXISTS. The journal is the table that grows
+  /// fastest, so this is the one worth denormalizing.
+  clubId      String
+  entryId     String
+  accountId   String
+  debitCents  Int    @default(0)
+  creditCents Int    @default(0)
+  /// LINE-level legal entity — this is what makes intercompany posting work.
+  /// Each entity's own lines must balance, or its books don't stand alone.
+  legalEntityId String?
+  /// Free-text program / fund / purpose tag. There is no Program model in this
+  /// schema: lib/reportsMembership.ts's "program" GroupBy resolves to
+  /// membership and class names, and Donation already stores fund/program as
+  /// text. A nullable String matches both without inventing an entity the club
+  /// never asked to manage. Phase 2 extends the same tag to expenses.
+  program String?
+  memo    String?
+  /// Loose reference, no FK — money outlives members, exactly as
+  /// Transaction.eventId is loose because money outlives events. NEVER
+  /// reconcile through this column; see the CLAUDE.md note on
+  /// Transaction.memberId.
+  memberId   String?
+  lineNumber Int     @default(0)
+  createdAt  DateTime @default(now())
+
+  club        Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  entry       GlJournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  /// Restrict is the database half of "an account with postings can't be
+  /// deleted". The service refuses first with a readable message; this is the
+  /// backstop if anything ever bypasses it.
+  account     GlAccount      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  legalEntity LegalEntity?   @relation(fields: [legalEntityId], references: [id], onDelete: Restrict)
+
+  @@index([clubId, accountId], map: "gl_journal_lines_clubId_accountId_idx")
+  @@index([entryId, lineNumber], map: "gl_journal_lines_entryId_lineNumber_idx")
+  @@index([accountId], map: "gl_journal_lines_accountId_idx")
+  @@index([clubId, legalEntityId], map: "gl_journal_lines_clubId_legalEntityId_idx")
+  @@index([clubId, program], map: "gl_journal_lines_clubId_program_idx")
+  @@map("gl_journal_lines")
+}
+
+/// A file attached to a journal entry. Reuses the EXISTING storage exactly as
+/// Receipt does: bytes go through lib/storage.ts putObject, an UploadedFile
+/// row is created with kind "LEDGER", and reads go through the existing
+/// club-scoped gate at /api/files/[id]. No new storage path, no new bucket.
+model GlEntryAttachment {
+  id               String   @id @default(cuid())
+  clubId           String
+  entryId          String
+  fileId           String
+  fileName         String
+  mimeType         String
+  sizeBytes        Int
+  uploadedByUserId String?
+  createdAt        DateTime @default(now())
+
+  club  Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  entry GlJournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, entryId], map: "gl_entry_attachments_clubId_entryId_idx")
+  @@index([fileId], map: "gl_entry_attachments_fileId_idx")
+  @@map("gl_entry_attachments")
+}
+
+/// The close date, ONE PER LEGAL ENTITY. The ledger service refuses to create,
+/// edit or void any entry dated on or before `lockedThrough` for the entity it
+/// touches. Only owners may change it, and every change writes a GlAuditLog
+/// row. A club-wide close is a row per entity, so one entity can be closed
+/// while another is still open.
+model GlLockDate {
+  id            String @id @default(cuid())
+  clubId        String
+  legalEntityId String
+  /// Entries dated ON or BEFORE this date are refused. Date-only, 00:00 UTC.
+  lockedThrough   DateTime @db.Date
+  note            String?
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  club        Club        @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  legalEntity LegalEntity @relation(fields: [legalEntityId], references: [id], onDelete: Restrict)
+
+  @@unique([clubId, legalEntityId], map: "gl_lock_dates_clubId_legalEntityId_key")
+  @@index([clubId], map: "gl_lock_dates_clubId_idx")
+  @@map("gl_lock_dates")
+}
+
+/// Append-only audit of every create / edit / void on accounts, entries, lines
+/// and lock dates. Nothing in the codebase updates or deletes a row here —
+/// same discipline as BillingAuditLog. `before`/`after` hold the field-level
+/// JSON so a change is reconstructable without guessing.
+model GlAuditLog {
+  id     String @id @default(cuid())
+  clubId String
+  /// ACCOUNT | ENTRY | LINE | LOCK_DATE
+  objectType String
+  objectId   String
+  /// CREATE | UPDATE | VOID
+  action      String
+  actorUserId String?
+  /// Denormalized at write time so the log stays readable after a staff member
+  /// is removed.
+  actorName String?
+  before    Json?
+  after     Json?
+  note      String?
+  createdAt DateTime @default(now())
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, createdAt], map: "gl_audit_logs_clubId_createdAt_idx")
+  @@index([clubId, objectType, objectId], map: "gl_audit_logs_clubId_objectType_objectId_idx")
+  @@map("gl_audit_logs")
 }

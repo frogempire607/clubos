@@ -71,6 +71,10 @@ export const GATED = [
   ["scripts/billing-retire-tests.ts"],
   ["scripts/invoice-period-tests.ts"],
   ["scripts/bank-reconciliation-tests.ts"],
+  // accounting Phase 1 (2026-10-20): double-entry rules, chart template,
+  // category mapping, tier gate, and the source guarantees (one write path,
+  // every query club-scoped, RLS in the migration).
+  ["scripts/ledger-tests.ts"],
   // attendance, classes, front desk
   ["scripts/attendance-billing-tests.ts", RENDER],
   ["scripts/class-session-reconcile-tests.ts"],

@@ -21,13 +21,15 @@ import { hasPermission } from "@/lib/permissions";
 import BankAccountsCard from "@/components/financials/BankAccountsCard";
 import ReceiptsTab from "@/components/financials/ReceiptsTab";
 import ImportTab from "@/components/financials/ImportTab";
+import ChartOfAccountsTab from "@/components/financials/ChartOfAccountsTab";
+import JournalTab from "@/components/financials/JournalTab";
 import UpgradeNotice from "@/components/UpgradeNotice";
 import { canUseFeature } from "@/lib/tier";
 
 // Tabs included on Pro+ (pricing overhaul 2026-10-18). Starter keeps
 // Overview, Money In, Donations, Stripe and Cash & Offline. The routes behind
 // these tabs 403 on Starter; this only swaps the tab body for a notice.
-const PRO_TABS = new Set(["out", "tax", "bank", "receipts", "import"]);
+const PRO_TABS = new Set(["out", "tax", "bank", "receipts", "import", "accounts", "journal"]);
 import { SkeletonList, SkeletonCard } from "@/components/LoadingSkeleton";
 
 type Entity = { id: string; name: string; entityType: string };
@@ -118,6 +120,9 @@ const TABS = [
   { key: "out", label: "Money Out" },
   { key: "donations", label: "Donations" },
   { key: "tax", label: "Tax Summary" },
+  // Accounting Phase 1 (2026-10-20). Both are Pro+ via PRO_TABS below.
+  { key: "accounts", label: "Chart of Accounts" },
+  { key: "journal", label: "Journal" },
   { key: "stripe", label: "Stripe" },
   { key: "offline", label: "Cash & Offline" },
   { key: "bank", label: "Bank" },
@@ -268,7 +273,7 @@ export default function FinancialsPage() {
       {fullFinancials === false && PRO_TABS.has(tab) ? (
         <UpgradeNotice
           title="Full financials are included on Pro"
-          body="Starter includes Stripe and cash & offline payments. Pro adds bank connections, expense matching, Money Out, receipts, imports and the tax summary."
+          body="Starter includes Stripe and cash & offline payments. Pro adds bank connections, expense matching, Money Out, receipts, imports, the tax summary, and full double-entry books — a chart of accounts and a journal your accountant can work from."
         />
       ) : (
       <>
@@ -282,6 +287,15 @@ export default function FinancialsPage() {
       {tab === "bank" && <BankTab initialNeedsReviewOnly={show === "review"} entity={entity} canEdit={canEditMoney} />}
       {tab === "receipts" && <ReceiptsTab canEdit={canEditMoney} />}
       {tab === "import" && <ImportTab canEdit={canEditMoney} />}
+      {tab === "accounts" && <ChartOfAccountsTab canEdit={canEditMoney} entityQuery={`entity=${entity}&from=${from}&to=${to}`} />}
+      {tab === "journal" && (
+        <JournalTab
+          canEdit={canEditMoney}
+          isOwner={session?.user?.role === "OWNER"}
+          entities={entities}
+          entity={entity}
+        />
+      )}
       </>
       )}
     </div>

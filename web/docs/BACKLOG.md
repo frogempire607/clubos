@@ -76,6 +76,42 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## B — Claude Code sessions (priority order; start at the top unless blocked)
 
+- [ ] **B36 · Accounting Phase 1 — ledger core (double-entry GL). Built 2026-10-20 on `claude/athletixos-accounting-phase-1-94d11d`; MIGRATION NOT APPLIED, nothing shipped.**
+  The first slice of replacing QuickBooks. Full three-phase plan: **`docs/accounting/plan.md`** — read it before touching this.
+  **This is Phase 10** (phases 1–9 are allocated in `docs/improvement/plan.md`; 7 = family model, 8 = membership structure, 9 = family discounts).
+  Migration `20261020000000_gl_ledger_core` — additive only, six new tables, all `gl_`-prefixed because `ledger` is
+  already taken three times (`LedgerImport` = the QuickBooks CSV import, `PrivateCreditLedger`, and the staff "pay ledger").
+  **Julian runs `npx prisma migrate deploy` BEFORE this code deploys** — the new routes 500 without the tables; nothing
+  existing reads them, so every current screen is unaffected either way.
+  Tables: `gl_accounts` (chart of accounts — number/name/type/normalBalance/parent/active/isSystem, system accounts
+  renameable but never deactivatable), `gl_journal_entries` (unique on `(clubId, sourceType, sourceId)` — that index is
+  the whole "post once" story for Phase 2), `gl_journal_lines` (**integer cents**, line-level legal entity, program tag),
+  `gl_entry_attachments` (reuses `UploadedFile` + `lib/storage.ts` — no new storage path), `gl_lock_dates` (one per
+  entity, owner-only), `gl_audit_logs` (append-only, who/when/before/after).
+  **One write path:** `lib/ledgerServer.ts` is the only module that writes a `gl_*` table; `lib/ledger.ts` holds the pure
+  rules. It refuses debits ≠ credits, a line with both a debit and a credit, a zero total, and any entry dated on or
+  before an entity's lock date. **Void = a reversing entry, never a delete.** Intercompany: an entry spanning two
+  entities auto-adds matching Due To (2500) / Due From (1400) lines so each entity's books balance alone. Nothing
+  crosses clubs.
+  **Access: Pro + Enterprise**, via the existing `fullFinancials` tier flag (verified in `lib/tier.ts` — no new flag
+  invented). Server-gated with `requirePermissionLive(finances)` + `requireTierFeature`, never UI-only.
+  RLS on all six tables with the existing `tenant_isolation` shape + explicit `athletix_app` grants; cross-club proof is
+  a new `T9.x` section in `rls/harness/run-tests.ts` (needs the local throwaway Postgres, so it is manual-only).
+  UI: two new tabs on `/dashboard/financials` — **Chart of Accounts** (`?tab=accounts`) and **Journal** (`?tab=journal`,
+  with a live balance indicator, attachments, void, and the owner-only lock-date card). Both join `PRO_TABS`.
+  Seed: `scripts/seed-chart-of-accounts.ts` — **dry-run by default**, `--apply` requires `--clubs <id>,…` (no all-mode),
+  idempotent on `(clubId, number)`, skips non-Pro clubs, audits every row. **Julian runs it from his own terminal.**
+  New eligible clubs get the template by lazy ensure on first accounts read — no cron, no backfill.
+  **FOR JULIAN'S REVIEW: the category→account mapping table in `docs/accounting/plan.md`.** Three mappings want a
+  decision: `classes` → 4000 Membership Revenue (vs 4500 Drop-ins), `cash_payment`/`manual_invoice` → 4950 Other Income
+  (they describe *how* money arrived, not what was sold), and `FEES` → 6400 Processing Fees (vs 6450 Bank Fees).
+  Tests: `scripts/ledger-tests.ts`, registered in `scripts/run-build-tests.mjs` so it gates every build.
+  **Task 10 of the brief was already done** — `?tab=` deep-linking shipped 2026-09-14 and all four Action Item links
+  (UNRECONCILED_DEPOSIT, OFFLINE_PAYMENT_PENDING, UNCATEGORIZED_LARGE_BANK, UPCOMING_RENEWAL_LARGE) already resolve.
+  This phase adds a regression check instead of rebuilding it.
+  Not in Phase 1: automatic posting from billing, payout/bank reconciliation (Phase 2), reports/TB/GL export, month
+  close, fixed assets, 1099, opening-balance import (Phase 3).
+
 - [x] **B9 · Activate a membership from the billing centre (owner action)** · SHIPPED 2026-09-23 on main (2f30dfb, 4959b70, 37386f8); Colton activated through it
   CORRECTED DIAGNOSIS: an owner-side activation DID exist — the "Already paid?" card (lib/enrollPaid.ts,
   since Aug 26) records the cash and creates/revives the MANUAL row. Two real problems: (1) it was
