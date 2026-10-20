@@ -114,7 +114,11 @@ export const GATED = [
   ["scripts/staff-assignments-tests.ts"],
   ["scripts/pay-schedule-tests.ts"],
   ["scripts/pay-ledger-tests.ts"],
-  ["scripts/pay-ledger-server-tests.ts"],
+  // TZ=UTC: payrollRange() mixes a UTC-parsed date with local-time setters, so
+  // in a negative-offset zone the payroll range loses its final day and 4
+  // assertions fail. Netlify runs UTC, so this is what production does. The
+  // file self-pins too; this is belt-and-braces. See the file header.
+  ["scripts/pay-ledger-server-tests.ts", [], { TZ: "UTC" }],
   ["scripts/schedule-feeds-pay-tests.ts"],
   ["scripts/email-queue-tests.ts"],
   ["scripts/charge-timing-tests.ts"],

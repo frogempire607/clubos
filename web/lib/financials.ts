@@ -59,7 +59,12 @@ const METHOD_LABELS: Record<string, string> = Object.fromEntries(
 
 // Stripe transaction `type` → revenue category. Used only as a fallback when
 // the owner hasn't explicitly set a category — we never overwrite their pick.
-const TYPE_TO_CATEGORY: Record<string, RevenueCategoryKey> = {
+//
+// Exported (2026-10-20) because the accounting ledger needs it for the opposite
+// precedence: `cash_payment` and `manual_invoice` describe HOW money arrived,
+// not what was sold, so lib/ledger.revenueAccountForTransaction prefers the
+// type over those two categories. One map, so the two can't drift.
+export const TRANSACTION_TYPE_TO_CATEGORY: Record<string, RevenueCategoryKey> = {
   MEMBERSHIP: "memberships",
   CLASS: "classes",
   EVENT: "events",
@@ -70,6 +75,8 @@ const TYPE_TO_CATEGORY: Record<string, RevenueCategoryKey> = {
 
 // Resolve a transaction's effective revenue category. Returns null when it
 // genuinely can't be inferred so the UI can surface it under "Uncategorized".
+const TYPE_TO_CATEGORY = TRANSACTION_TYPE_TO_CATEGORY;
+
 export function resolveRevenueCategory(tx: {
   category?: string | null;
   type?: string | null;

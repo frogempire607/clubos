@@ -25,6 +25,22 @@ CPA. Three phases; only Phase 1 is built in this session.
    eligible club. Clubs can rename, add and deactivate accounts. Accounts with
    postings can never be deleted.
 
+### Settled 2026-10-20 (Julian), after the Phase 1 review
+
+4. **Mapping:** `classes` → **4000**. `cash_payment` / `manual_invoice` → **map
+   by what was sold when that is known, else 4950**. `FEES` → **6400**.
+   Implemented as `revenueAccountForTransaction()` — see "Category mapping"
+   below.
+5. **1020 Undeposited Funds** joins the template as a **system** account. Cash
+   and cheques land there and move to the bank when the deposit is made. Shipped
+   in Phase 1, including an additive top-up for clubs already seeded.
+6. **Books start date:** a **per-club owner setting**. Nothing posts
+   automatically before it. Phase 2 builds it.
+7. **`payout_matches` RLS is Phase 2's first task** — before anything writes to
+   that table.
+8. **No `eventId` backfill.** Automatic posting starts clean; pre-2026-07-17
+   rows keep their null attribution.
+
 ### Tier gating — verified
 
 `Club.tier` is a `String` defaulting to `"starter"`; `lib/tier.ts` is the single
@@ -75,9 +91,16 @@ levels `none | view | send | edit | full`. **OWNER bypasses everything.**
 
 `finances:edit` (not `full`) for entry creation matches the existing finance
 mutations — `/api/stripe/reconcile` POST and
-`/api/events/[id]/comp/generate-payouts` both use `finances:edit`. Lock dates
-are owner-only because the spec says so, and because a lock date is the control
-that stops everyone else from editing history.
+`/api/events/[id]/comp/generate-payouts` both use `finances:edit`, as do ~20
+routes in total. Lock dates are owner-only because the spec says so, and because
+a lock date is the control that stops everyone else from editing history.
+
+**One thing to know about `finances:edit`:** the `finances` key only exposes
+`none | view | full` (see `PERMISSION_CATALOG`), and `RANK` scores `send` and
+`edit` identically at 2. So requiring `finances:edit` is in practice requiring
+`finances:full` — `view` (1) is refused, `full` (3) passes. It is the house
+idiom and it behaves correctly; it just isn't a middle tier that exists. Don't
+"fix" it to `full`, and don't add an `edit` level to the key to make it literal.
 
 ---
 
@@ -431,21 +454,40 @@ exactly as they are; this table is read when Phase 2 posts a transaction.
 | `other_income` | Other income | 4950 Other Income |
 | *(null / uncategorized)* | Uncategorized | 4950 Other Income |
 
-Three of these want a second look:
+All three open questions are now **settled** (Julian, 2026-10-20):
 
-- **`classes` → 4000 Membership Revenue.** A class drop-in is not membership
-  revenue. The template has no "Class revenue" account. 4500 Drop-ins & Trials
-  is the closer fit for a genuine drop-in, but `classes` also covers
-  membership-covered class bookings. **Flagged for your call** — the mapping is
-  one line to change. Default kept at 4000 so membership-covered bookings don't
-  inflate drop-in revenue.
-- **`cash_payment` → 4950 Other Income.** `cash_payment` describes *how* money
-  arrived, not what was sold, so it cannot be mapped to a revenue account
-  honestly. 4950 keeps the books balanced and the row visible for
-  recategorization. Phase 2 should prefer the transaction's `type`
-  (MEMBERSHIP/CLASS/EVENT/PRODUCT/DONATION/PRIVATE) via the existing
-  `resolveRevenueCategory` fallback before falling back to this mapping.
-- **`manual_invoice` → 4950.** Same reasoning.
+- **`classes` → 4000 Membership Revenue.** Confirmed. The key covers
+  membership-covered class bookings as well as genuine drop-ins, and sending
+  those to 4500 Drop-ins & Trials would inflate drop-in revenue.
+- **`cash_payment` and `manual_invoice` → map by what was sold when known, else
+  4950.** Both describe *how* money arrived, not what was sold, so neither can
+  be mapped honestly on its own. The rule is implemented as
+  **`revenueAccountForTransaction({ category, type })`** in `lib/ledger.ts`, and
+  **that is the function Phase 2 must call** whenever it has a `Transaction` in
+  hand — not the bare `REVENUE_CATEGORY_TO_ACCOUNT` map.
+
+  | Transaction | Account |
+  |---|---|
+  | `cash_payment` + type `MEMBERSHIP` | 4000 Membership Revenue |
+  | `cash_payment` + type `EVENT` | 4200 Events & Tournaments |
+  | `cash_payment` + type `PRODUCT` | 4400 Merchandise Sales |
+  | `cash_payment` + type `PRIVATE` | 4300 Private Lessons |
+  | `cash_payment` + type `DONATION` | 4700 Donations |
+  | `manual_invoice` + type `MEMBERSHIP` | 4000 Membership Revenue |
+  | either + type `CHARGE` / null / unknown | 4950 Other Income |
+
+  **The precedence is deliberately the opposite of
+  `lib/financials.resolveRevenueCategory`**, which prefers an owner-set category
+  over the type and is right to — an owner's pick is authoritative about
+  *classification*. These two particular categories carry no classification at
+  all, so the type wins. **Every other category is used as-is**, and the type
+  must never override it: `sponsorships` + type `MEMBERSHIP` is 4600, not 4000.
+  Getting that backwards would silently reclassify an owner's choice, so it is
+  pinned by tests 7.37–7.40.
+
+  The type→category half reuses the exported
+  `TRANSACTION_TYPE_TO_CATEGORY` from `lib/financials.ts` rather than a second
+  copy, so the two cannot drift.
 
 **Expense categories** (`EXPENSE_CATEGORIES`, all 15) → expense accounts:
 
@@ -467,14 +509,10 @@ Three of these want a second look:
 | `EVENTS` | Event costs | 5100 Event Costs |
 | `OTHER` | Other expense | 6900 Miscellaneous |
 
-One to look at:
-
-- **`FEES` → 6400 Payment Processing Fees**, not 6450 Bank Fees. The label is
-  "Bank / Processing fees" and conflates both. Processing fees are the far
-  larger number for this club and Phase 2 posts Stripe fees to 6400
-  specifically, so sending the manual category there keeps one account
-  authoritative. A club wanting true bank fees separated can recategorize to
-  6450.
+**Settled:** `FEES` → **6400 Payment Processing Fees**, not 6450 Bank Fees. The
+label is "Bank / Processing fees" and conflates both; Phase 2 posts Stripe fees
+to 6400 specifically, so sending the manual category there keeps one account
+authoritative. A club wanting true bank fees separated recategorizes to 6450.
 
 **Payment methods** (`PAYMENT_METHODS`) → the balance-sheet side, used by Phase 2
 to pick the debit account on a money-in entry:
@@ -483,19 +521,26 @@ to pick the debit account on a money-in entry:
 |---|---|
 | `STRIPE` | 1050 Stripe Clearing *(system)* |
 | `CARD` | 1050 Stripe Clearing |
-| `CASH` | 1000 Operating Checking |
-| `CHECK` | 1000 Operating Checking |
+| `CASH` | **1020 Undeposited Funds** *(system)* |
+| `CHECK` | **1020 Undeposited Funds** *(system)* |
 | `BANK` | 1000 Operating Checking |
 | `INVOICE` | 1100 Accounts Receivable |
 | `COMP` | *no entry* — comped attendance is not revenue and never has been |
 | `OTHER` | 1000 Operating Checking |
 
-`CASH` and `CHECK` mapping straight to Operating Checking is a simplification
-worth naming: cash physically sits in a drawer before it is deposited. A true
-`1020 Undeposited Funds` account would model that. The template has no such
-account and the spec fixed the template, so **this is a Phase 2 question** — it
-only matters once automatic posting starts, and it is listed as a Phase 2
-blocker below.
+**Settled (2026-10-20): cash and cheques land in 1020 Undeposited Funds**, not
+straight in Operating Checking. Cash physically sits in a drawer before it is
+deposited, and a bank reconciliation that claims otherwise can never tie out.
+A deposit moves the money 1020 → 1000.
+
+`1020 Undeposited Funds` is a **system** account (`systemKey:
+UNDEPOSITED_FUNDS`): renameable, never deactivatable, resolved by key rather
+than by number. It was added to the template *after* the first clubs were
+seeded, which is why Phase 1 also ships the additive top-up described next.
+
+**Phase 2 owes the second half of this** — a "record a deposit" action that
+moves a batch of cash from 1020 to a bank account. Until that exists 1020 simply
+carries a balance, which is the honest answer rather than a wrong one.
 
 ### Seeding
 
@@ -516,6 +561,35 @@ the club is eligible *and* has zero accounts. No cron, no migration backfill, no
 write on any subsequent read. A club that deliberately deletes every account
 does not get them silently restored, because an account with postings cannot be
 deleted and the club would have had to empty its ledger first.
+
+#### The additive seed update, for clubs already seeded
+
+`ensureChartOfAccounts` returns the moment a club has *any* account —
+deliberately, so it can never overwrite a renamed account or resurrect a
+deactivated one. That also means a club seeded before a template change never
+sees the new account. For an ordinary account that is fine (the club can add
+their own). For a **system** account it is not: Phase 2 resolves those by
+`systemKey`, so a club missing one would fail to post rather than post somewhere
+wrong.
+
+So Phase 1 also ships **`ensureSystemAccounts(clubId)`**, which adds any system
+account the template has gained since a club was set up. First needed the day
+1020 Undeposited Funds was added. It is narrow on purpose:
+
+- it only ever **adds** rows whose `systemKey` the club does not already have —
+  no update, no upsert, no delete, no reactivation (pinned by test 9.33d);
+- it matches on **`systemKey`**, never on number or name, so a club that renamed
+  or renumbered an account still counts as having it;
+- if the template's number is already taken by an account of the club's own, it
+  steps to the next free number in the same block rather than colliding or
+  skipping — the account has to exist, and its number is cosmetic next to its
+  `systemKey`. The audit note records the substitution;
+- it leaves an unseeded club alone, for `ensureChartOfAccounts`;
+- every account it adds gets a `gl_audit_logs` row.
+
+It runs in two places: on the accounts endpoint read (so no operator action is
+needed at all), and in `scripts/seed-chart-of-accounts.ts`, whose dry run now
+also reports which already-seeded clubs would be topped up and with what.
 
 ### UI
 
@@ -576,13 +650,29 @@ rebuilt.
   - The Stripe fee posts to **6400**, and the net goes to **1050 Stripe
     Clearing**.
 - Payouts move Stripe Clearing → bank. This fills the existing, empty
-  `payout_matches` table. **`payout_matches` has no RLS policy today** (harness
-  `T0.1`) — cover it before Phase 2 writes to it.
+  `payout_matches` table — whose RLS policy is Phase 2's first task (above).
 - Categorized Plaid rows and expenses post to the ledger.
 - **Each source record posts at most once**, and only on or after the club's
   "books start date" — this prevents double-counting history that was already
   imported. The `([clubId, sourceType, sourceId])` unique index added in Phase 1
   is what makes this structural rather than a remembered check.
+- **Books start date (settled 2026-10-20): a per-club OWNER setting. Nothing
+  posts automatically before it.** So it is one new nullable `Club` column, an
+  owner-only setting screen, and a guard in the posting path that refuses — not
+  silently skips — a source record dated earlier. Until an owner sets it,
+  automatic posting for that club does not run at all: a null start date means
+  "not configured", never "post everything". Manual journal entries are
+  unaffected; this gates *automatic* posting only.
+- **`payout_matches` RLS is the FIRST task of Phase 2**, before anything writes
+  to that table. It is one of the 27 tables with no policy today (harness
+  `T0.1`), and Phase 2 is what starts filling it.
+- **No `eventId` backfill (settled).** `Transaction.eventId` attribution starts
+  2026-07-17 and older rows stay null. Automatic posting starts clean rather
+  than inferring attribution for historical rows; per-event revenue before that
+  date is simply not available, which is the truthful answer.
+- **Cash deposits:** the "record a deposit" action that moves money from 1020
+  Undeposited Funds to a bank account. Phase 1 posts cash *into* 1020; this is
+  the other half.
 - Receipts attach to entries.
 - Program tags extend to expenses.
 - Monthly statement reconciliation (statement balance, cleared items, saved
@@ -617,6 +707,7 @@ rebuilt.
 |---|---|---|
 | 1000 | Operating Checking | |
 | 1010 | Savings | |
+| 1020 | Undeposited Funds | `[system]` `UNDEPOSITED_FUNDS` — added 2026-10-20 |
 | 1050 | Stripe Clearing | `[system]` `STRIPE_CLEARING` |
 | 1100 | Accounts Receivable | |
 | 1300 | Prepaid Expenses | |
@@ -684,6 +775,48 @@ rebuilt.
 | 6400 | Payment Processing Fees | | 7000 | Interest Expense |
 
 ---
+
+## Found along the way: `payrollRange` is timezone-dependent
+
+Not accounting, but it was found while making `npm run build` pass end to end,
+and it is a real latent bug.
+
+`payrollRange()` in `lib/payrollCalc.ts` does:
+
+```ts
+const to = new Date(toStr);     // "2026-10-12" parses as UTC midnight
+to.setHours(23, 59, 59, 999);   // ...but setHours is LOCAL time
+```
+
+Mixing a UTC-parsed date with local-time setters shifts the whole range by the
+machine's offset. In `America/New_York` the payroll route reported
+`from 2026-10-06T04:00Z to 2026-10-12T03:59:59.999Z` for `?from=2026-10-07&to=2026-10-12`
+— an extra day at the start and **the final day lost**. A coach with a class on
+the last day of the range is not paid for it.
+
+**Production is not affected today:** Netlify functions run in UTC, where the
+same code produces the correct `2026-10-07T00:00:00Z → 2026-10-12T23:59:59.999Z`.
+It is latent, and it fires on any non-UTC server and on every developer machine
+in the Americas.
+
+This was also why four assertions in `scripts/pay-ledger-server-tests.ts`
+failed: the suite pinned its *clock* but not its *zone*. It now pins
+`TZ=UTC` (self-pinning, plus the build runner passes it, plus an assertion that
+fails loudly with the reason if neither took effect), and passes in all of UTC,
+New York, Chicago, Los Angeles, Berlin, Tokyo and Kiritimati.
+
+**The fix is deliberately NOT applied here.** It is pay-ledger behaviour, which
+this session was scoped away from, and it is a one-line change — use
+`Date.UTC(...)` / the `setUTC*` setters, or compose the ISO string directly:
+
+```ts
+const from = new Date(`${fromStr.slice(0, 10)}T00:00:00.000Z`);
+const to = new Date(`${toStr.slice(0, 10)}T23:59:59.999Z`);
+```
+
+With the test now pinned to UTC it would be a no-op for the suite and for
+production, and would make the payroll route correct on any server. Filed as its
+own BACKLOG item.
 
 ## Safety rules honored in this phase
 

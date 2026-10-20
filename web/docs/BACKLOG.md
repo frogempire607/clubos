@@ -76,6 +76,22 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## B — Claude Code sessions (priority order; start at the top unless blocked)
 
+- [ ] **B37 · `payrollRange()` is timezone-dependent — the payroll range loses its final day on any non-UTC server.** Found 2026-10-20 while making `npm run build` pass end to end.
+  `lib/payrollCalc.ts` does `new Date("2026-10-12")` (parses as UTC midnight) then `.setHours(23,59,59,999)` (sets LOCAL time).
+  Mixing the two shifts the whole range by the machine's offset. In `America/New_York` the payroll route returned
+  `from 2026-10-06T04:00Z to 2026-10-12T03:59:59.999Z` for `?from=2026-10-07&to=2026-10-12` — an extra day at the start
+  and **the final day lost**, so a coach with a class on the last day of the range is not paid for it.
+  **Production is NOT affected today:** Netlify functions run in UTC, where the same code is correct. It is latent, and
+  it fires on any non-UTC server and on every developer machine in the Americas.
+  This is also why 4 assertions in `scripts/pay-ledger-server-tests.ts` failed locally while passing on Netlify — the
+  suite pinned its clock but not its zone. **That half is fixed** (the suite now pins `TZ=UTC`, self-pinning plus the
+  build runner plus an assertion that fails loudly with the reason; verified green in UTC, New York, Chicago,
+  Los Angeles, Berlin, Tokyo and Kiritimati). The underlying bug is deliberately NOT fixed — it is pay-ledger behaviour.
+  **The fix** is one line, a no-op in production and for the now-pinned test:
+  `const from = new Date(`${fromStr.slice(0,10)}T00:00:00.000Z`); const to = new Date(`${toStr.slice(0,10)}T23:59:59.999Z`);`
+  Worth doing because it makes the payroll route correct on any server, and because a future test that is NOT pinned to
+  UTC would hit it again. Write-up: `docs/accounting/plan.md` ("Found along the way").
+
 - [ ] **B36 · Accounting Phase 1 — ledger core (double-entry GL). Built 2026-10-20 on `claude/athletixos-accounting-phase-1-94d11d`; MIGRATION NOT APPLIED, nothing shipped.**
   The first slice of replacing QuickBooks. Full three-phase plan: **`docs/accounting/plan.md`** — read it before touching this.
   **This is Phase 10** (phases 1–9 are allocated in `docs/improvement/plan.md`; 7 = family model, 8 = membership structure, 9 = family discounts).
@@ -102,9 +118,13 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   Seed: `scripts/seed-chart-of-accounts.ts` — **dry-run by default**, `--apply` requires `--clubs <id>,…` (no all-mode),
   idempotent on `(clubId, number)`, skips non-Pro clubs, audits every row. **Julian runs it from his own terminal.**
   New eligible clubs get the template by lazy ensure on first accounts read — no cron, no backfill.
-  **FOR JULIAN'S REVIEW: the category→account mapping table in `docs/accounting/plan.md`.** Three mappings want a
-  decision: `classes` → 4000 Membership Revenue (vs 4500 Drop-ins), `cash_payment`/`manual_invoice` → 4950 Other Income
-  (they describe *how* money arrived, not what was sold), and `FEES` → 6400 Processing Fees (vs 6450 Bank Fees).
+  **Mapping REVIEWED AND SETTLED 2026-10-20 (Julian):** `classes` → 4000; `cash_payment`/`manual_invoice` → map by what
+  was sold when known, else 4950 (implemented as `revenueAccountForTransaction()`, which Phase 2 must call in preference
+  to the bare map); `FEES` → 6400. Also settled: **1020 Undeposited Funds** added to the template as a system account
+  (cash/cheques land there until deposited), with `ensureSystemAccounts()` as an additive top-up for clubs already
+  seeded — add-only, matched on systemKey, never updates or reactivates anything. Phase 2 decisions recorded in plan.md:
+  books start date is a per-club owner setting with nothing posting automatically before it; `payout_matches` RLS is
+  Phase 2's first task; no `eventId` backfill.
   Tests: `scripts/ledger-tests.ts`, registered in `scripts/run-build-tests.mjs` so it gates every build.
   **Task 10 of the brief was already done** — `?tab=` deep-linking shipped 2026-09-14 and all four Action Item links
   (UNRECONCILED_DEPOSIT, OFFLINE_PAYMENT_PENDING, UNCATEGORIZED_LARGE_BANK, UPCOMING_RENEWAL_LARGE) already resolve.

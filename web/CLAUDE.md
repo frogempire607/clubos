@@ -266,21 +266,78 @@ Avoid reintroducing random Tailwind color families such as `blue-*`, `green-*`, 
 
 ## Tier Model
 
-**Three paid tiers** stored on `Club.tier` — there is NO free/Starter tier. Definitions live in `lib/tier.ts` (single source of truth; `normalizeTier()` maps any legacy/unknown value incl. `"starter"` → `growth`). `Club.tier` defaults to `growth`.
+**Corrected 2026-10-20.** This section described the pre-2026-10-18 world
+(`growth`, $50/mo, 0% platform fee) for two days after the pricing overhaul
+replaced it. **`lib/tier.ts` is the single source of truth** — if this table and
+that file ever disagree again, the file is right.
 
-| Tier       | Monthly | Tx fee | Members   | Locations  | Notable extras                                                       |
-|------------|---------|--------|-----------|------------|----------------------------------------------------------------------|
-| Growth     | $50     | 0%     | 200       | 1          | Classes/events/attendance, memberships, private lessons, messaging, reports, CSV import |
-| Pro        | $99     | 0%     | Unlimited | 3          | + Plaid, email/SMS, branded app, advanced analytics, priority support |
-| Enterprise | $199+   | 0%     | Unlimited | Unlimited  | + API, SSO, advanced permissions, custom onboarding, enterprise reporting |
+**Three tiers** stored on `Club.tier` (a `String`, default `"starter"`).
+`normalizeTier()` maps any legacy or unknown value — including the old
+`"growth"` — to `starter`.
 
-AthletixOS takes **0% per-transaction platform fee on every tier** (`lib/stripe.ts` `calculatePlatformFee` always 0). Clubs may optionally pass Stripe's processing fee to the customer at checkout — centralized in `lib/fees.ts` (`Club.passProcessingFees`), toggled on the billing settings page, never hardcoded elsewhere.
+```ts
+export type Tier = "starter" | "pro" | "enterprise";
+```
 
-Tier enforcement: `/api/members` (maxMembers 200 on Growth → upgrade to Pro), `/api/club/locations` (maxLocations), `/api/reports/overview` (reports), `/api/plaid/*` (plaid), `/api/announcements` (emailSms). On platform-sub cancel the webhook keeps the tier and only sets `subscriptionStatus:"canceled"` (no Starter fallback).
+| Tier | Monthly | Platform fee | Locations | Entities | Bank accts | Staff seats | Members |
+|------|---------|--------------|-----------|----------|------------|-------------|---------|
+| Starter | **$0** | **2%** | 1 | 1 | 1 | 5 | Unlimited |
+| Pro | $99 | **1.5%** | 3 | 1 | 2 | 25 | Unlimited |
+| Enterprise | $199 | **1.4%** | Unlimited | Unlimited | Unlimited | Unlimited | Unlimited |
+
+**There IS a per-transaction platform fee now, on every tier.** It is a
+**percentage only** — no fixed per-transaction part (`PLATFORM_FIXED_CENTS = 0`,
+Julian 2026-10-18 pm) — collected as a Stripe Connect application fee on the
+club's connected account. `lib/stripe.ts calculatePlatformFee` no longer returns
+0; it delegates to `lib/fees.ts`. Stripe's own 2.9% + $0.30 is a separate
+constant and is unchanged.
+
+**The rate may never go below 1.4%** (`PLATFORM_RATE_FLOOR`). Serving a club
+costs AthletixOS ~1.21% of gross volume in Stripe Connect fees, so anything
+lower loses money per transaction. Every path that resolves or sets a rate goes
+through `assertPlatformRate()`, and `lib/tier.ts` runs it over all three tiers
+at module load — so a typo below the floor fails the build rather than silently
+undercharging.
+
+The club chooses, in Member payments settings, whether it or the paying member
+absorbs (a) Stripe processing and (b) the platform fee. `lib/fees.ts` is the
+only place that math lives (`Club.passProcessingFees`).
+
+### The gating principle
+
+**Never tier-gate a feature that increases a club's payment volume.** Memberships,
+checkout, events, products, private lessons and discounts all stay on Starter.
+**Gate features that save a club LABOR.** Starter is free, so the platform fee is
+how a Starter club pays for itself.
+
+On Pro: branded app, private messaging, the full event toolkit, documents and
+e-sign, payroll, calendar feeds, Plaid, **full financials**, full reports, the
+Action Center, advanced analytics. On Enterprise, additionally: priority
+support, consolidated/saved/scheduled reporting, custom roles, API, data export,
+white-glove migration, SSO, advanced permissions.
+
+`GATED_NOT_BUILT` lists flags that exist and are gated but are **not built yet**
+(consolidated reporting, saved report views, scheduled reports, custom roles,
+API, data export) — the pricing page renders those as "Coming soon".
+
+### Enforcement — server-side, always
+
+**Hiding a nav item is not gating.** Routes enforce with `lib/tierGuard.ts`:
+`requireTierFeature(clubId, feature)` for booleans, `limitBlocked(tier, key, n)`
+for limits, both returning a 403 `UPGRADE_REQUIRED` body built by
+`tierBlockedBody()`. Never hardcode a tier check anywhere — go through
+`canUseFeature` / `tierLimit` / `getPlatformRate`.
+
+On platform-subscription cancel the webhook keeps the tier and only sets
+`subscriptionStatus: "canceled"`.
 
 ## Staff Permissions
 
-`lib/permissions.ts` is the single source of truth (10 keys: members, attendance, classes, events, schedule, messages, documents, finances, reports, staff). Permissions live in the JWT (set at login) + are surfaced live via `/api/me`. Middleware enforces per-section access for STAFF (owners bypass everything). `lib/apiGuard.ts` `requirePermission`/`requireOwner` guard API routes. **Permission-gating ≠ tier-gating** — never tier-gate cash/financial tracking.
+`lib/permissions.ts` is the single source of truth — **11 keys** (members, attendance, classes, events, schedule, messages, documents, finances, **billing**, reports, staff; `billing` was added 2026-07-10 for explicit control over MEMBER billing, distinct from `finances`). Permissions live in the JWT (set at login) + are surfaced live via `/api/me`. Middleware enforces per-section access for STAFF (owners bypass everything). `lib/apiGuard.ts` `requirePermission`/`requireOwner` guard API routes; prefer the `*Live` variants (`requirePermissionLive`/`requireOwnerLive`) on new routes so a revoked staff member loses access without re-logging in.
+
+**Not every key offers every level.** `PERMISSION_CATALOG` lists the levels each key actually exposes — `finances` is `none | view | full` only. `RANK` scores `send` and `edit` the same (2), so asking for `finances:edit` is in practice asking for `finances:full`; ~20 routes do exactly that and it is the house idiom, but don't read it as a middle tier that exists.
+
+**Permission-gating ≠ tier-gating** — they are independent checks and a money-mutating route usually needs both. (This line used to end "never tier-gate cash/financial tracking", which stopped being true on 2026-10-18: `fullFinancials` is a Pro+ feature. Taking a payment is still never tier-gated — see the gating principle under Tier Model.)
 
 ## Member Migration & Activation
 
@@ -359,7 +416,7 @@ Private lessons (`PrivateLessonType`/`PrivatePackage`/`PrivateCreditLedger`/`Pri
 
 ## Financial OS
 
-Lightweight accounting/tax-prep helper (NOT QuickBooks), permission-gated on `finances`, **never tier-gated**. `lib/financials.ts` (categories, payment methods incl. CASH/COMP/INVOICE, `isCashMethod`/`isCompMethod`, disclaimers) + `lib/financialReports.ts` (`buildReport`/`reportToCsv`). Transaction/Expense/Donation carry `legalEntityId` + `category` + `paymentMethod`; `Transaction.manual=true` for cash/comp/invoice (only manual records are deletable — never delete Stripe records). Reports separate Card / Cash / Comp / Invoiced. Cash option exists everywhere via `/api/financials/manual-payment` (Money In tab) and `/api/attendance/charge` (at-the-door non-member drop-in/trial/guest). Disclaimer shown; never claims tax filing.
+Lightweight accounting/tax-prep helper, permission-gated on `finances`. **Tier note (corrected 2026-10-20):** this used to say "never tier-gated". Since the 2026-10-18 pricing overhaul most of Financials is behind the `fullFinancials` flag (Pro and Enterprise) — Starter keeps the Stripe and Cash & Offline tabs; Money Out, Tax Summary, Bank, Receipts, Import, **Chart of Accounts and Journal** are Pro+. Recording a payment is never tier-gated. **"NOT QuickBooks" is also now only half true:** the accounting phases are building real double-entry books on top of this — see `docs/accounting/plan.md`. `lib/financials.ts` (categories, payment methods incl. CASH/COMP/INVOICE, `isCashMethod`/`isCompMethod`, disclaimers) + `lib/financialReports.ts` (`buildReport`/`reportToCsv`). Transaction/Expense/Donation carry `legalEntityId` + `category` + `paymentMethod`; `Transaction.manual=true` for cash/comp/invoice (only manual records are deletable — never delete Stripe records). Reports separate Card / Cash / Comp / Invoiced. Cash option exists everywhere via `/api/financials/manual-payment` (Money In tab) and `/api/attendance/charge` (at-the-door non-member drop-in/trial/guest). Disclaimer shown; never claims tax filing.
 
 ## Dashboard Navigation
 

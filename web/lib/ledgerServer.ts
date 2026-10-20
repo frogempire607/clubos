@@ -198,6 +198,100 @@ export async function ensureChartOfAccounts(clubId: string, actor: Actor): Promi
   return { seeded: result.count };
 }
 
+/// Add any SYSTEM account the template has gained since a club was seeded.
+///
+/// `ensureChartOfAccounts` returns early the moment a club has any account —
+/// deliberately, so it can never overwrite a renamed account or resurrect a
+/// deactivated one. That also means a club seeded before a template change
+/// never sees the new account, which is fine for ordinary accounts (the club
+/// can add their own) and NOT fine for a system account: Phase 2's automatic
+/// posting resolves those by `systemKey`, so a club missing one would fail to
+/// post rather than post somewhere wrong.
+///
+/// So this is the additive half, and it is narrow on purpose:
+///   · it only ever adds rows whose `systemKey` the club does not already have;
+///   · it matches on systemKey, never on number or name, so a club that renamed
+///     or renumbered an account still counts as having it;
+///   · it never updates or reactivates anything that already exists.
+///
+/// First needed 2026-10-20, when 1020 Undeposited Funds was added to the
+/// template after the first clubs had been seeded.
+export async function ensureSystemAccounts(
+  clubId: string,
+  actor: Actor,
+): Promise<{ added: { number: string; name: string; systemKey: string }[] }> {
+  const wanted = CHART_TEMPLATE.filter((r) => r.isSystem && r.systemKey);
+  if (wanted.length === 0) return { added: [] };
+
+  const existing = await prisma.glAccount.findMany({
+    where: { clubId },
+    select: { number: true, systemKey: true },
+  });
+  if (existing.length === 0) return { added: [] }; // not seeded yet — that's ensureChartOfAccounts' job
+
+  const haveKeys = new Set(existing.map((a) => a.systemKey).filter((k): k is string => !!k));
+  const takenNumbers = new Set(existing.map((a) => a.number));
+  const missing = wanted.filter((r) => !haveKeys.has(r.systemKey!));
+  if (missing.length === 0) return { added: [] };
+
+  const order = templateSortOrder();
+  const added: { number: string; name: string; systemKey: string }[] = [];
+
+  for (const row of missing) {
+    // The template number is almost always free. If the club has already used
+    // it for an account of their own, step forward to the next free number in
+    // the same block rather than colliding or silently skipping — the account
+    // has to exist, and its number is cosmetic next to its systemKey.
+    let number = row.number;
+    if (takenNumbers.has(number)) {
+      const base = Number(row.number);
+      let found: string | null = null;
+      for (let n = base + 1; n < base + 30; n++) {
+        if (!takenNumbers.has(String(n))) {
+          found = String(n);
+          break;
+        }
+      }
+      if (!found) continue; // pathological; leave it for a human rather than guess wildly
+      number = found;
+    }
+    takenNumbers.add(number);
+
+    const created = await prisma.$transaction(async (tx) => {
+      const acct = await tx.glAccount.create({
+        data: {
+          clubId,
+          number,
+          name: row.name,
+          type: row.type,
+          subtype: row.subtype ?? null,
+          normalBalance: row.normalBalance,
+          isContra: row.isContra ?? false,
+          isSystem: true,
+          systemKey: row.systemKey,
+          description: row.description ?? null,
+          sortOrder: order.get(row.number) ?? 0,
+          createdByUserId: actor.userId,
+        },
+        select: { id: true, number: true, name: true, systemKey: true },
+      });
+      await writeAudit(tx, clubId, actor, {
+        objectType: "ACCOUNT",
+        objectId: acct.id,
+        action: "CREATE",
+        after: acct,
+        note:
+          `Added the ${acct.name} account, which the chart of accounts template gained after this club was set up.` +
+          (number !== row.number ? ` Numbered ${number} because ${row.number} was already in use.` : ""),
+      });
+      return acct;
+    });
+    added.push({ number: created.number, name: created.name, systemKey: created.systemKey! });
+  }
+
+  return { added };
+}
+
 /// The chart, with each account's posting count so the UI can hide "delete" on
 /// anything that has been used. One groupBy rather than a count per account.
 export async function listAccounts(clubId: string, opts?: { includeInactive?: boolean }): Promise<AccountRow[]> {

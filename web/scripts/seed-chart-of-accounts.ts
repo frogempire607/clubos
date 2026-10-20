@@ -24,6 +24,7 @@
 // time, and for seeing exactly what a club would get before they look.
 import { PrismaClient } from "@prisma/client";
 import { CHART_TEMPLATE, templateSortOrder } from "../lib/ledger";
+import { ensureSystemAccounts } from "../lib/ledgerServer";
 import { canUseFeature } from "../lib/tier";
 
 const prisma = new PrismaClient();
@@ -40,7 +41,14 @@ if (APPLY && allow.size === 0) {
   process.exit(1);
 }
 
-type Plan = { clubId: string; name: string; slug: string; tier: string; existing: number; willCreate: number; skip: string | null };
+type Plan = {
+  clubId: string; name: string; slug: string; tier: string;
+  existing: number; willCreate: number; skip: string | null;
+  /// System accounts the template has gained since this club was seeded. These
+  /// are topped up even on a club that is otherwise left alone — Phase 2 posts
+  /// to them by systemKey, so a club missing one fails to post.
+  missingSystem: { number: string; name: string; systemKey: string }[];
+};
 
 async function collect(): Promise<Plan[]> {
   const clubs = await prisma.club.findMany({ select: { id: true, name: true, slug: true, tier: true } });
@@ -49,13 +57,30 @@ async function collect(): Promise<Plan[]> {
   for (const club of clubs) {
     if (allow.size > 0 && !allow.has(club.id.toLowerCase()) && !allow.has(club.slug.toLowerCase())) continue;
 
-    const existing = await prisma.glAccount.count({ where: { clubId: club.id } });
+    const rows = await prisma.glAccount.findMany({
+      where: { clubId: club.id },
+      select: { number: true, systemKey: true },
+    });
+    const existing = rows.length;
+    const haveKeys = new Set(rows.map((r) => r.systemKey).filter((k): k is string => !!k));
+    const missingSystem =
+      existing > 0
+        ? CHART_TEMPLATE.filter((r) => r.isSystem && r.systemKey && !haveKeys.has(r.systemKey)).map((r) => ({
+            number: r.number,
+            name: r.name,
+            systemKey: r.systemKey!,
+          }))
+        : [];
+
     let skip: string | null = null;
     // Eligibility is the same flag the routes gate on — one definition.
     if (!canUseFeature(club.tier, "fullFinancials")) {
       skip = `tier is ${club.tier} — the ledger is on Pro and Enterprise`;
     } else if (existing > 0) {
-      skip = `already has ${existing} account${existing === 1 ? "" : "s"}`;
+      skip =
+        missingSystem.length > 0
+          ? `already has ${existing} accounts — will TOP UP ${missingSystem.map((m) => `${m.number} ${m.name}`).join(", ")}`
+          : `already has ${existing} account${existing === 1 ? "" : "s"}`;
     }
     plans.push({
       clubId: club.id,
@@ -65,6 +90,7 @@ async function collect(): Promise<Plan[]> {
       existing,
       willCreate: skip ? 0 : CHART_TEMPLATE.length,
       skip,
+      missingSystem: canUseFeature(club.tier, "fullFinancials") ? missingSystem : [],
     });
   }
   return plans;
@@ -115,6 +141,7 @@ async function main() {
   }
 
   const eligible = plans.filter((p) => !p.skip);
+  const topUps = plans.filter((p) => p.missingSystem.length > 0);
   console.log(`\n${APPLY ? "APPLYING" : "DRY RUN"} — chart of accounts (${CHART_TEMPLATE.length} accounts per club)\n`);
   for (const p of plans) {
     const label = `${p.name} (${p.slug}, ${p.tier})`;
@@ -123,10 +150,12 @@ async function main() {
   }
 
   if (!APPLY) {
+    const targets = [...new Set([...eligible, ...topUps].map((p) => p.slug))];
     console.log(
-      `\n${eligible.length} club${eligible.length === 1 ? "" : "s"} would be seeded.` +
-        (eligible.length > 0
-          ? `\nTo apply:  npx tsx scripts/seed-chart-of-accounts.ts --apply --clubs ${eligible.map((p) => p.slug).join(",")}`
+      `\n${eligible.length} club${eligible.length === 1 ? "" : "s"} would be seeded from scratch; ` +
+        `${topUps.length} already seeded would get a system account topped up.` +
+        (targets.length > 0
+          ? `\nTo apply:  npx tsx scripts/seed-chart-of-accounts.ts --apply --clubs ${targets.join(",")}`
           : ""),
     );
     return;
@@ -147,7 +176,26 @@ async function main() {
     );
     if (!ok) console.log(`      ↑ unexpected count — inspect before seeding anything else.`);
   }
-  console.log(`\n✓ ${total} accounts created across ${eligible.length} club${eligible.length === 1 ? "" : "s"}.`);
+  // Top up already-seeded clubs with any system account the template gained
+  // after they were set up (1020 Undeposited Funds, 2026-10-20). Additive only
+  // — lib/ledgerServer.ensureSystemAccounts never touches an existing row.
+  let topped = 0;
+  for (const p of topUps) {
+    const { added } = await ensureSystemAccounts(p.clubId, {
+      userId: null,
+      name: "seed-chart-of-accounts script",
+    });
+    topped += added.length;
+    for (const a of added) console.log(`  +  ${p.name}: added ${a.number} ${a.name}`);
+    const stillMissing = p.missingSystem.filter((m) => !added.some((a) => a.systemKey === m.systemKey));
+    for (const m of stillMissing) console.log(`  ✗  ${p.name}: could NOT add ${m.number} ${m.name} — inspect by hand`);
+  }
+
+  console.log(
+    `\n✓ ${total} accounts created across ${eligible.length} club${eligible.length === 1 ? "" : "s"}` +
+      (topped > 0 ? `; ${topped} system account${topped === 1 ? "" : "s"} topped up on already-seeded clubs` : "") +
+      ".",
+  );
 }
 
 main()

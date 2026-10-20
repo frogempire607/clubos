@@ -12,6 +12,7 @@ import {
   accountBalances,
   createAccount,
   ensureChartOfAccounts,
+  ensureSystemAccounts,
   listAccounts,
   signedBalanceCents,
 } from "@/lib/ledgerServer";
@@ -44,6 +45,9 @@ export async function GET(req: Request) {
   const legalEntityId = url.searchParams.get("entity") ?? undefined;
 
   const seeded = await ensureChartOfAccounts(clubId, actor);
+  // Additive top-up for clubs seeded before the template gained a system
+  // account (1020 Undeposited Funds, 2026-10-20). A no-op once they have it.
+  const topUp = await ensureSystemAccounts(clubId, actor);
   const [accounts, balances] = await Promise.all([
     listAccounts(clubId),
     accountBalances(clubId, {
@@ -66,6 +70,7 @@ export async function GET(req: Request) {
       };
     }),
     seeded: seeded.seeded,
+    addedSystemAccounts: topUp.added,
   });
 }
 

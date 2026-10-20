@@ -14,6 +14,8 @@
 // check. A 32-bit signed int caps one line at $21,474,836.47; aggregates are
 // summed as JS numbers, exact to 2^53 cents (~$90 trillion).
 
+import { TRANSACTION_TYPE_TO_CATEGORY } from "@/lib/financials";
+
 export type AccountType = "ASSET" | "LIABILITY" | "EQUITY" | "INCOME" | "EXPENSE";
 export type NormalBalance = "DEBIT" | "CREDIT";
 
@@ -24,6 +26,7 @@ export const ACCOUNT_TYPES: AccountType[] = ["ASSET", "LIABILITY", "EQUITY", "IN
 /// right one. A system account can be renamed but never deactivated.
 export type SystemAccountKey =
   | "STRIPE_CLEARING"
+  | "UNDEPOSITED_FUNDS"
   | "DUE_TO"
   | "DUE_FROM"
   | "OPENING_BALANCE_EQUITY"
@@ -31,6 +34,7 @@ export type SystemAccountKey =
 
 export const SYSTEM_ACCOUNT_KEYS: SystemAccountKey[] = [
   "STRIPE_CLEARING",
+  "UNDEPOSITED_FUNDS",
   "DUE_TO",
   "DUE_FROM",
   "OPENING_BALANCE_EQUITY",
@@ -76,6 +80,20 @@ export const CHART_TEMPLATE: ChartTemplateRow[] = [
   // ── Assets ────────────────────────────────────────────────────────────────
   { number: "1000", name: "Operating Checking", type: "ASSET", normalBalance: "DEBIT" },
   { number: "1010", name: "Savings", type: "ASSET", normalBalance: "DEBIT" },
+  {
+    // Added 2026-10-20 (Julian's Phase 2 decision). Cash and cheques land here
+    // when they are recorded, and move to the bank account when the deposit is
+    // made — because until then the money is in a drawer, not in the bank, and
+    // a bank reconciliation that says otherwise can never tie out.
+    number: "1020",
+    name: "Undeposited Funds",
+    type: "ASSET",
+    normalBalance: "DEBIT",
+    isSystem: true,
+    systemKey: "UNDEPOSITED_FUNDS",
+    description:
+      "Cash and cheques you have taken in but not yet deposited. A deposit moves the money from here to the bank account.",
+  },
   {
     number: "1050",
     name: "Stripe Clearing",
@@ -253,9 +271,9 @@ export function templateSortOrder(): Map<string, number> {
 /// Revenue category (lib/financials REVENUE_CATEGORIES) → income account number.
 export const REVENUE_CATEGORY_TO_ACCOUNT: Record<string, string> = {
   memberships: "4000",
-  // A class drop-in is arguably 4500 Drop-ins & Trials, but this key also
-  // covers membership-covered class bookings, and sending those to 4500 would
-  // inflate drop-in revenue. FLAGGED FOR REVIEW in plan.md.
+  // SETTLED (Julian, 2026-10-20): 4000. This key covers membership-covered
+  // class bookings as well as genuine drop-ins, and sending those to 4500
+  // Drop-ins & Trials would inflate drop-in revenue.
   classes: "4000",
   events: "4200",
   camps_clinics: "4100",
@@ -264,9 +282,11 @@ export const REVENUE_CATEGORY_TO_ACCOUNT: Record<string, string> = {
   donations: "4700",
   sponsorships: "4600",
   // These two describe HOW money arrived, not what was sold, so neither can be
-  // mapped to a revenue account honestly. 4950 keeps the books balanced and the
-  // row visible for recategorization. Phase 2 should prefer the transaction's
-  // `type` via resolveRevenueCategory before falling back to these.
+  // mapped to a revenue account honestly on its own. SETTLED (Julian,
+  // 2026-10-20): map by what was sold when that is knowable, else 4950. The
+  // "when known" half lives in revenueAccountForTransaction() below — these
+  // entries are the else-branch, and a caller that has a Transaction in hand
+  // should use that function rather than this map.
   manual_invoice: "4950",
   cash_payment: "4950",
   other_income: "4950",
@@ -290,9 +310,10 @@ export const EXPENSE_CATEGORY_TO_ACCOUNT: Record<string, string> = {
   MAINTENANCE: "6300",
   UTILITIES: "6050",
   PROFESSIONAL: "6600",
-  // The label is "Bank / Processing fees" and conflates both. Phase 2 posts
-  // Stripe fees to 6400 specifically, so the manual category goes there too and
-  // one account stays authoritative. FLAGGED FOR REVIEW in plan.md.
+  // SETTLED (Julian, 2026-10-20): 6400. The label is "Bank / Processing fees"
+  // and conflates both; Phase 2 posts Stripe fees to 6400 specifically, so the
+  // manual category goes there too and one account stays authoritative. A club
+  // wanting true bank fees separated recategorizes to 6450.
   FEES: "6400",
   EVENTS: "5100",
   OTHER: "6900",
@@ -307,17 +328,48 @@ export const EXPENSE_FALLBACK_ACCOUNT = "6900";
 export const PAYMENT_METHOD_TO_ACCOUNT: Record<string, string | null> = {
   STRIPE: "1050",
   CARD: "1050",
-  // NOTE for Phase 2: cash physically sits in a drawer before it is deposited,
-  // which a true "1020 Undeposited Funds" account would model. The template
-  // (fixed by the brief) has no such account, and it only matters once
-  // automatic posting starts — listed as a Phase 2 blocker in plan.md.
-  CASH: "1000",
-  CHECK: "1000",
+  // Julian, 2026-10-20: cash and cheques land in 1020 Undeposited Funds, not
+  // straight in the bank. They move to 1000 when the deposit is actually made.
+  // Phase 2 owes a "record a deposit" action for that second step; until it
+  // exists, 1020 simply carries a balance, which is the honest answer.
+  CASH: "1020",
+  CHECK: "1020",
   BANK: "1000",
   INVOICE: "1100",
   COMP: null,
   OTHER: "1000",
 };
+
+/// Categories that record HOW the money arrived rather than WHAT was sold.
+/// Mapping one of these to a revenue account on its own is a guess; the
+/// transaction's `type` is the thing that actually knows.
+export const METHOD_LIKE_REVENUE_CATEGORIES = new Set(["cash_payment", "manual_invoice"]);
+
+/// The income account for one transaction — THE function Phase 2 should call,
+/// in preference to accountForRevenueCategory, whenever it has a Transaction.
+///
+/// Julian's rule (2026-10-20): for `cash_payment` and `manual_invoice`, map by
+/// what was sold when that is knowable, else 4950 Other Income.
+///
+/// So the precedence is deliberately NOT the same as
+/// lib/financials.resolveRevenueCategory, which prefers an owner-set category
+/// over the type and is right to — the owner's pick is authoritative about
+/// classification. Here, those two particular categories carry no
+/// classification at all, so the type wins. Every other category is the
+/// owner's answer and is used as-is.
+export function revenueAccountForTransaction(tx: {
+  category?: string | null;
+  type?: string | null;
+}): string {
+  const fromType = tx.type ? TRANSACTION_TYPE_TO_CATEGORY[tx.type] : undefined;
+  if (tx.category && !METHOD_LIKE_REVENUE_CATEGORIES.has(tx.category)) {
+    return accountForRevenueCategory(tx.category);
+  }
+  // Either a method-like category, or no category at all. Both fall through to
+  // what was sold, and then to Other Income — an unmapped dollar must never
+  // post nowhere.
+  return fromType ? accountForRevenueCategory(fromType) : REVENUE_FALLBACK_ACCOUNT;
+}
 
 export function accountForRevenueCategory(key: string | null | undefined): string {
   if (!key) return REVENUE_FALLBACK_ACCOUNT;

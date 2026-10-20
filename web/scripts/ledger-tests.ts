@@ -22,9 +22,11 @@ import {
   PAYMENT_METHOD_TO_ACCOUNT,
   REVENUE_CATEGORY_TO_ACCOUNT,
   SYSTEM_ACCOUNT_KEYS,
+  METHOD_LIKE_REVENUE_CATEGORIES,
   accountForExpenseCategory,
   accountForPaymentMethod,
   accountForRevenueCategory,
+  revenueAccountForTransaction,
   deriveIntercompanyLines,
   entryTotals,
   formatCents,
@@ -498,14 +500,56 @@ eq(accountForRevenueCategory(null), "4950", "7.16 so does an uncategorized one")
 eq(accountForExpenseCategory("made_up"), "6900", "7.17 an unknown expense category falls back to Miscellaneous");
 eq(accountForExpenseCategory(null), "6900", "7.18 so does an uncategorized one");
 
-// The mappings recorded in plan.md as flagged-for-review. If one changes, this
-// test fails and the plan has to be updated in the same commit — which is the
-// point.
-eq(REVENUE_CATEGORY_TO_ACCOUNT.classes, "4000", "7.19 classes → 4000 (flagged in plan.md for Julian's review)");
-eq(REVENUE_CATEGORY_TO_ACCOUNT.cash_payment, "4950", "7.20 cash_payment → 4950 (flagged — it is a method, not a product)");
-eq(REVENUE_CATEGORY_TO_ACCOUNT.manual_invoice, "4950", "7.21 manual_invoice → 4950 (flagged)");
-eq(EXPENSE_CATEGORY_TO_ACCOUNT.FEES, "6400", "7.22 FEES → 6400 Processing, not 6450 Bank (flagged)");
+// Julian's SETTLED decisions (2026-10-20). If one changes, this test fails and
+// plan.md has to be updated in the same commit — which is the point.
+eq(REVENUE_CATEGORY_TO_ACCOUNT.classes, "4000", "7.19 classes → 4000 (settled: covers membership-covered bookings too)");
+eq(EXPENSE_CATEGORY_TO_ACCOUNT.FEES, "6400", "7.22 FEES → 6400 Processing, not 6450 Bank (settled)");
 eq(EXPENSE_CATEGORY_TO_ACCOUNT.EVENTS, "5100", "7.23 event costs are cost of sales, not an operating expense");
+
+// ── "map by what was sold when known, else 4950" ──────────────────────────
+// cash_payment and manual_invoice record HOW money arrived, not WHAT was sold,
+// so on their own they are a guess. revenueAccountForTransaction prefers the
+// transaction type for exactly those two, and only those two.
+eq([...METHOD_LIKE_REVENUE_CATEGORIES].sort(), ["cash_payment", "manual_invoice"], "7.24 exactly two method-like categories");
+eq(REVENUE_CATEGORY_TO_ACCOUNT.cash_payment, "4950", "7.25 the bare map still says 4950 for cash_payment (the else-branch)");
+eq(REVENUE_CATEGORY_TO_ACCOUNT.manual_invoice, "4950", "7.26 …and for manual_invoice");
+
+// What was sold IS known → use it.
+eq(revenueAccountForTransaction({ category: "cash_payment", type: "MEMBERSHIP" }), "4000", "7.27 cash for a membership → 4000, not 4950");
+eq(revenueAccountForTransaction({ category: "cash_payment", type: "EVENT" }), "4200", "7.28 cash for an event → 4200");
+eq(revenueAccountForTransaction({ category: "cash_payment", type: "PRODUCT" }), "4400", "7.29 cash for merch → 4400");
+eq(revenueAccountForTransaction({ category: "cash_payment", type: "PRIVATE" }), "4300", "7.30 cash for a private lesson → 4300");
+eq(revenueAccountForTransaction({ category: "cash_payment", type: "DONATION" }), "4700", "7.31 cash for a donation → 4700");
+eq(revenueAccountForTransaction({ category: "manual_invoice", type: "MEMBERSHIP" }), "4000", "7.32 an invoice for a membership → 4000");
+
+// Not known → 4950, never nowhere.
+eq(revenueAccountForTransaction({ category: "cash_payment", type: "CHARGE" }), "4950", "7.33 cash with the generic CHARGE type → 4950");
+eq(revenueAccountForTransaction({ category: "cash_payment", type: null }), "4950", "7.34 cash with no type → 4950");
+eq(revenueAccountForTransaction({ category: "manual_invoice" }), "4950", "7.35 an invoice with no type → 4950");
+eq(revenueAccountForTransaction({}), "4950", "7.36 nothing known at all → 4950");
+
+// Every OTHER category is the owner's answer and is used as-is — the type must
+// NOT override it. This is the opposite precedence to resolveRevenueCategory,
+// and getting it backwards would silently reclassify an owner's choice.
+eq(revenueAccountForTransaction({ category: "sponsorships", type: "MEMBERSHIP" }), "4600", "7.37 an owner-set category beats the type");
+eq(revenueAccountForTransaction({ category: "camps_clinics", type: "EVENT" }), "4100", "7.38 …even when the type says something else");
+eq(revenueAccountForTransaction({ category: "donations", type: "PRODUCT" }), "4700", "7.39 …in both directions");
+// And an unknown owner category still lands somewhere.
+eq(revenueAccountForTransaction({ category: "made_up", type: "EVENT" }), "4950", "7.40 an unknown category falls back, it does not silently use the type");
+
+// ── 1020 Undeposited Funds (Julian, 2026-10-20) ───────────────────────────
+// Cash in a drawer is not money in the bank, and a bank reconciliation that
+// says otherwise can never tie out.
+const undeposited = CHART_TEMPLATE.find((r) => r.systemKey === "UNDEPOSITED_FUNDS");
+ok(!!undeposited, "7.41 the template has an Undeposited Funds account");
+eq(undeposited?.number, "1020", "7.42 numbered 1020");
+eq(undeposited?.type, "ASSET", "7.43 it is an asset");
+eq(undeposited?.normalBalance, "DEBIT", "7.44 debit-normal");
+ok(undeposited?.isSystem === true, "7.45 and it is a SYSTEM account — posting resolves it by systemKey");
+eq(accountForPaymentMethod("CASH"), "1020", "7.46 CASH lands in Undeposited Funds, not the bank");
+eq(accountForPaymentMethod("CHECK"), "1020", "7.47 CHECK too");
+eq(accountForPaymentMethod("BANK"), "1000", "7.48 a bank transfer still goes straight to the bank");
+eq(accountForPaymentMethod("STRIPE"), "1050", "7.49 and Stripe still goes to Stripe Clearing");
 
 // ── 8. Tier gating ──────────────────────────────────────────────────────────
 console.log("\n[8] tier gating — Pro and Enterprise only");
@@ -788,6 +832,27 @@ ok(/APPLY && allow\.size === 0/.test(seedSrc), "9.30 the seed script refuses --a
 ok(/process\.exit\(1\)/.test(seedSrc), "9.31 and exits non-zero when it does");
 ok(/canUseFeature\(/.test(seedSrc), "9.32 the seed script checks tier eligibility with the shared helper");
 ok(/skipDuplicates:\s*true/.test(seedSrc), "9.33 the seed is idempotent (skipDuplicates)");
+
+// 9.33b The additive top-up must stay additive. ensureSystemAccounts exists so
+// a club seeded BEFORE the template gained a system account still gets it —
+// Phase 2 posts to those by systemKey, so a club missing one fails to post.
+// The danger is that someone later "improves" it into a general reconciler
+// that overwrites renamed accounts or reactivates deactivated ones.
+const ensureFn = serverSrc.slice(
+  serverSrc.indexOf("export async function ensureSystemAccounts"),
+  serverSrc.indexOf("/// The chart, with each account's posting count"),
+);
+ok(ensureFn.length > 200, "9.33b ensureSystemAccounts exists");
+ok(/haveKeys\.has\(r\.systemKey/.test(ensureFn), "9.33c it matches on systemKey, not number or name");
+ok(
+  !/\.update\(|\.updateMany\(|\.upsert\(|\.delete\(|\.deleteMany\(/.test(ensureFn),
+  "9.33d it only ever CREATEs — no update, upsert or delete",
+);
+ok(/if \(existing\.length === 0\) return \{ added: \[\] \}/.test(ensureFn), "9.33e it leaves an unseeded club to ensureChartOfAccounts");
+ok(/writeAudit\(/.test(ensureFn), "9.33f and audits every account it adds");
+ok(/ensureSystemAccounts\(/.test(seedSrc), "9.33g the seed script tops up already-seeded clubs too");
+const acctRoute = readFileSync(join(ROOT, "app/api/financials/ledger/accounts/route.ts"), "utf8");
+ok(/ensureSystemAccounts\(/.test(acctRoute), "9.33h and the accounts endpoint tops up on read");
 
 // 9.34 Task 10: the four Action Item links must point at a tab that exists.
 // The ?tab= machinery shipped 2026-09-14; this is the regression check that it
