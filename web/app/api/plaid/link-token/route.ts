@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { requireBankConnect } from "@/lib/plaidGate";
 import { plaidClient, PLAID_ENV } from "@/lib/plaid";
-import { prisma } from "@/lib/prisma";
-import { getTierFeatures } from "@/lib/tier";
 import { CountryCode, Products } from "plaid";
 
 export async function POST() {
@@ -12,22 +11,10 @@ export async function POST() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Plaid bank sync requires Pro or higher
-  const club = await prisma.club.findUnique({
-    where: { id: session.user.clubId },
-    select: { tier: true },
-  });
-  const features = getTierFeatures(club?.tier ?? "starter");
-  if (!features.plaid) {
-    return NextResponse.json(
-      {
-        error: "Plaid bank sync is available on Pro and Enterprise plans.",
-        code: "UPGRADE_REQUIRED",
-        upgradeRequired: "pro",
-      },
-      { status: 403 }
-    );
-  }
+  // Phase 11 task 8: ONE hard gate for connecting/syncing a bank.
+  // Starter can never connect, whatever it already has. See lib/plaidGate.ts.
+  const tierGate = await requireBankConnect(session.user.clubId);
+  if (tierGate) return tierGate;
 
   if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
     return NextResponse.json({ error: "Plaid not configured" }, { status: 503 });

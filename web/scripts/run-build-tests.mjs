@@ -75,6 +75,10 @@ export const GATED = [
   // category mapping, tier gate, and the source guarantees (one write path,
   // every query club-scoped, RLS in the migration).
   ["scripts/ledger-tests.ts"],
+  // accounting Phase 2 (2026-10-21): what each kind of money posts, the
+  // double-count guard, reconciliation arithmetic, and the source guarantees
+  // (one write path, immutable keys, FK-aware RLS, every route gated).
+  ["scripts/gl-posting-tests.ts"],
   // attendance, classes, front desk
   ["scripts/attendance-billing-tests.ts", RENDER],
   ["scripts/class-session-reconcile-tests.ts"],
@@ -114,11 +118,14 @@ export const GATED = [
   ["scripts/staff-assignments-tests.ts"],
   ["scripts/pay-schedule-tests.ts"],
   ["scripts/pay-ledger-tests.ts"],
-  // TZ=UTC: payrollRange() mixes a UTC-parsed date with local-time setters, so
-  // in a negative-offset zone the payroll range loses its final day and 4
-  // assertions fail. Netlify runs UTC, so this is what production does. The
-  // file self-pins too; this is belt-and-braces. See the file header.
+  // Run TWICE, in two zones. payrollRange() used to mix a UTC-parsed date with
+  // local-time setters, which lost the payroll range's final day in any
+  // negative-offset zone (B37). It now composes the range in UTC explicitly, so
+  // the suite is zone-independent — and these two runs are what keeps it that
+  // way. A regression fails the build instead of waiting to be noticed on
+  // somebody's laptop. Netlify itself runs UTC.
   ["scripts/pay-ledger-server-tests.ts", [], { TZ: "UTC" }],
+  ["scripts/pay-ledger-server-tests.ts", [], { TZ: "America/New_York" }],
   ["scripts/schedule-feeds-pay-tests.ts"],
   ["scripts/email-queue-tests.ts"],
   ["scripts/charge-timing-tests.ts"],

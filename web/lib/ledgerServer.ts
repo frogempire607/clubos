@@ -953,6 +953,25 @@ export async function voidEntry(clubId: string, entryId: string, reason: string 
     throw new LedgerError("That entry is itself a reversal. Voiding it would undo a correction — post a fresh entry instead.");
   }
 
+  // Phase 2: a line cleared inside a FINISHED reconciliation is frozen.
+  // Voiding its entry would silently stop a reconciled statement tying out,
+  // which defeats the point of having reconciled it. Undoing the
+  // reconciliation is the deliberate, audited escape hatch.
+  //
+  // Imported lazily so lib/glReconcileServer can import this module for
+  // LedgerError and Actor without a cycle.
+  {
+    const { finishedReconciliationBlocking } = await import("@/lib/glReconcileServer");
+    const blocking = await finishedReconciliationBlocking(clubId, entryId);
+    if (blocking) {
+      throw new LedgerError(
+        `This entry has a line that was reconciled on ${blocking.accountName}'s statement ending ${blocking.periodEnd}. ` +
+          "Undo that reconciliation first if you really need to void it — otherwise that statement stops balancing.",
+        409,
+      );
+    }
+  }
+
   const locks = await lockMap(clubId);
   const entityIds = [...new Set(original.lines.map((l) => l.legalEntityId).filter((x): x is string => !!x))];
   const entityNames = new Map(

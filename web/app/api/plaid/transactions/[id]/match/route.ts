@@ -3,6 +3,7 @@ import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { requireBankRead } from "@/lib/plaidGate";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/apiGuard";
 import { suggestExpenseMatches } from "@/lib/plaidMatching";
@@ -22,8 +23,10 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "finances", "view");
   if (denied) return denied;
-  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
-  const tierGate = await requireTierFeature(session.user.clubId, "plaid");
+  // Read gate: categorising bank rows the club already has is tidying its own
+  // data, which the downgrade rule keeps available. Syncing NEW rows is what
+  // stops — see lib/plaidGate.ts.
+  const tierGate = await requireBankRead(session.user.clubId);
   if (tierGate) return tierGate;
 
   const row = await prisma.plaidTransaction.findFirst({
@@ -64,8 +67,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "finances", "full");
   if (denied) return denied;
-  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
-  const tierGate = await requireTierFeature(session.user.clubId, "plaid");
+  // Read gate: categorising bank rows the club already has is tidying its own
+  // data, which the downgrade rule keeps available. Syncing NEW rows is what
+  // stops — see lib/plaidGate.ts.
+  const tierGate = await requireBankRead(session.user.clubId);
   if (tierGate) return tierGate;
 
   const row = await prisma.plaidTransaction.findFirst({
@@ -156,8 +161,10 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const denied = requirePermission(session, "finances", "full");
   if (denied) return denied;
-  // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
-  const tierGate = await requireTierFeature(session.user.clubId, "plaid");
+  // Read gate: categorising bank rows the club already has is tidying its own
+  // data, which the downgrade rule keeps available. Syncing NEW rows is what
+  // stops — see lib/plaidGate.ts.
+  const tierGate = await requireBankRead(session.user.clubId);
   if (tierGate) return tierGate;
 
   const row = await prisma.plaidTransaction.findFirst({

@@ -401,6 +401,17 @@ async function main() {
       await sys.glAuditLog.create({
         data: { id: `glaud_${p}1`, clubId: c, objectType: "ENTRY", objectId: `gle_${p}1`, action: "CREATE", actorName: "Seed" },
       });
+      // Phase 2 needs a bank connection + account per club: bank_accounts
+      // gained a glAccountId FK whose policy this exercises.
+      await sys.plaidConnection.create({
+        data: { id: `pc_${p}1`, clubId: c, accessToken: "tok", itemId: `item_${p}1`, label: `${p} bank` },
+      });
+      await sys.bankAccount.create({
+        data: {
+          id: `ba_${p}1`, clubId: c, plaidConnectionId: `pc_${p}1`, accountId: `acct_${p}1`,
+          name: "Checking", type: "depository", glAccountId: `gla_${p}_cash`,
+        },
+      });
     }
 
     // Positive controls — A really can see its own books, so a later "0 rows"
@@ -625,6 +636,171 @@ async function main() {
         }),
       /row-level security|42501/i,
     );
+
+    // ── 15. Phase 2 tables: payout_matches, gl_reconciliations, gl_deposits ──
+    // payout_matches had NO policy at all until Phase 2 (it is one of the 27
+    // T0.1 reports). The other two are new. All three are FK-aware where they
+    // have an FK, because Phase 1's harness proved a clubId-only policy lets
+    // one club point a row at another's record — Postgres FK checks bypass RLS.
+    console.log("\n[Phase 2 — payouts, reconciliations, deposits]");
+
+    for (const [c, p] of [["club_a", "a"], ["club_b", "b"]] as const) {
+      await sys.payoutMatch.create({
+        data: { id: `pm_${p}1`, clubId: c, stripePayoutId: `po_${p}1`, amount: 500, bankTransactionId: `plaid_${p}1` },
+      });
+      await sys.glReconciliation.create({
+        data: {
+          id: `rec_${p}1`, clubId: c, accountId: `gla_${p}_cash`,
+          periodStart: new Date("2026-10-01T00:00:00Z"), periodEnd: new Date("2026-10-31T00:00:00Z"),
+          statementEndingCents: 10000,
+        },
+      });
+      await sys.glDeposit.create({
+        data: {
+          id: `dep_${p}1`, clubId: c, accountId: `gla_${p}_cash`,
+          depositDate: new Date("2026-10-15T00:00:00Z"), amountCents: 7500, entryId: `gle_${p}1`,
+        },
+      });
+    }
+
+    // Positive controls, so a later "0 rows" means isolation and not emptiness.
+    ok((await A.payoutMatch.count()) === 1, "T10.0 A sees its own payout match");
+    ok((await A.glReconciliation.count()) === 1, "T10.1 A sees its own reconciliation");
+    ok((await A.glDeposit.count()) === 1, "T10.2 A sees its own deposit");
+
+    // Reads.
+    ok((await A.payoutMatch.findUnique({ where: { id: "pm_b1" } })) === null, "T10.3 A cannot read B's payout match");
+    ok((await A.glReconciliation.findUnique({ where: { id: "rec_b1" } })) === null, "T10.4 A cannot read B's reconciliation");
+    ok((await A.glDeposit.findUnique({ where: { id: "dep_b1" } })) === null, "T10.5 A cannot read B's deposit");
+    ok((await A.payoutMatch.count({ where: { clubId: "club_b" } })) === 0, "T10.6 A counting B's payout matches gets 0");
+
+    // Writes into the other club.
+    await throws(
+      "T10.7 A cannot INSERT a payout match into club B",
+      () => A.payoutMatch.create({ data: { id: "evil_pm", clubId: "club_b", stripePayoutId: "po_evil", amount: 1 } }),
+      /row-level security|42501/i,
+    );
+    await throws(
+      "T10.8 A cannot INSERT a reconciliation into club B",
+      () =>
+        A.glReconciliation.create({
+          data: {
+            id: "evil_rec", clubId: "club_b", accountId: "gla_b_cash",
+            periodStart: new Date("2026-10-01T00:00:00Z"), periodEnd: new Date("2026-10-31T00:00:00Z"),
+            statementEndingCents: 1,
+          },
+        }),
+      /row-level security|42501/i,
+    );
+    await throws(
+      "T10.9 A cannot INSERT a deposit into club B",
+      () =>
+        A.glDeposit.create({
+          data: { id: "evil_dep", clubId: "club_b", accountId: "gla_b_cash", depositDate: new Date("2026-10-15T00:00:00Z"), amountCents: 1 },
+        }),
+      /row-level security|42501/i,
+    );
+
+    // ── The FK-crossing family again, for the new tables ────────────────────
+    await throws(
+      "T10.10 A cannot reconcile B's ACCOUNT while claiming its own club",
+      () =>
+        A.glReconciliation.create({
+          data: {
+            id: "evil_rec2", clubId: "club_a", accountId: "gla_b_cash",
+            periodStart: new Date("2026-11-01T00:00:00Z"), periodEnd: new Date("2026-11-30T00:00:00Z"),
+            statementEndingCents: 1,
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T10.11 A cannot deposit into B's ACCOUNT",
+      () =>
+        A.glDeposit.create({
+          data: { id: "evil_dep2", clubId: "club_a", accountId: "gla_b_cash", depositDate: new Date("2026-10-15T00:00:00Z"), amountCents: 1 },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T10.12 A cannot attach its deposit to B's ENTRY",
+      () =>
+        A.glDeposit.create({
+          data: {
+            id: "evil_dep3", clubId: "club_a", accountId: "gla_a_cash",
+            depositDate: new Date("2026-10-15T00:00:00Z"), amountCents: 1, entryId: "gle_b1",
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    // gl_journal_lines gained a reconciliationId FK in this migration — its
+    // policy had to be widened, and this is what proves it was.
+    await throws(
+      "T10.13 A cannot claim its line was cleared in B's RECONCILIATION",
+      () =>
+        A.glJournalLine.create({
+          data: {
+            id: "evil_line_rec", clubId: "club_a", entryId: "gle_a1", accountId: "gla_a_cash",
+            debitCents: 1, creditCents: 0, reconciliationId: "rec_b1",
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    // bank_accounts gained a glAccountId FK; its policy was clubId-only before.
+    await throws(
+      "T10.14 A cannot point its bank account at B's GL ACCOUNT",
+      () =>
+        A.bankAccount.create({
+          data: {
+            id: "evil_bank", clubId: "club_a", plaidConnectionId: "pc_a1", accountId: "acct_evil",
+            glAccountId: "gla_b_cash",
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+
+    // Positive controls: the same shapes must still work inside one club.
+    const okRec = await A.glReconciliation.create({
+      data: {
+        id: "good_rec", clubId: "club_a", accountId: "gla_a_cash",
+        periodStart: new Date("2026-11-01T00:00:00Z"), periodEnd: new Date("2026-11-30T00:00:00Z"),
+        statementEndingCents: 5000,
+      },
+    });
+    ok(okRec.id === "good_rec", "T10.15 …but A CAN reconcile its own account");
+    const okRecLine = await A.glJournalLine.create({
+      data: {
+        id: "good_line_rec", clubId: "club_a", entryId: "gle_a1", accountId: "gla_a_cash",
+        debitCents: 1, creditCents: 0, reconciliationId: "good_rec", clearedAt: new Date(), lineNumber: 9,
+      },
+    });
+    ok(okRecLine.reconciliationId === "good_rec", "T10.16 …and CAN clear a line into its own reconciliation");
+    await A.glJournalLine.delete({ where: { id: "good_line_rec" } });
+    await A.glReconciliation.delete({ where: { id: "good_rec" } });
+
+    // Update / delete isolation.
+    ok(
+      (await A.glReconciliation.updateMany({ where: { clubId: "club_b" }, data: { status: "FINISHED" } })).count === 0,
+      "T10.17 A cannot finish B's reconciliation",
+    );
+    ok((await A.glDeposit.deleteMany({ where: { clubId: "club_b" } })).count === 0, "T10.18 A cannot delete B's deposits");
+    ok((await A.payoutMatch.deleteMany({ where: { clubId: "club_b" } })).count === 0, "T10.19 A cannot delete B's payout matches");
+    await throws(
+      "T10.20 A cannot re-home its reconciliation into club B",
+      () => A.glReconciliation.update({ where: { id: "rec_a1" }, data: { clubId: "club_b" } }),
+      /row-level security|42501/i,
+    );
+
+    // System check: B is untouched.
+    ok((await sys.glReconciliation.count({ where: { clubId: "club_b" } })) === 1, "T10.21 system check: B still has its reconciliation");
+    ok((await sys.glReconciliation.findUnique({ where: { id: "rec_b1" } }))?.status === "OPEN", "T10.22 system check: still OPEN");
+    ok((await sys.glDeposit.count({ where: { clubId: "club_b" } })) === 1, "T10.23 system check: B still has its deposit");
+    ok((await sys.payoutMatch.count({ where: { clubId: "club_b" } })) === 1, "T10.24 system check: B still has its payout match");
+
+    // Fail closed with no tenant.
+    ok((await appBase.glReconciliation.findMany()).length === 0, "T10.25 no tenant → 0 reconciliations (fail closed)");
+    ok((await appBase.glDeposit.findMany()).length === 0, "T10.26 …and 0 deposits");
+    ok((await appBase.payoutMatch.findMany()).length === 0, "T10.27 …and 0 payout matches");
 
     await sys.$disconnect().catch(() => {});
     await appBase.$disconnect().catch(() => {});

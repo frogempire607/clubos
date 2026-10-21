@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { requireBankConnect } from "@/lib/plaidGate";
 import { prisma } from "@/lib/prisma";
 import { plaidClient } from "@/lib/plaid";
 import { syncConnection } from "@/lib/plaidSync";
-import { getTierFeatures } from "@/lib/tier";
 import { requirePermission } from "@/lib/apiGuard";
 
 // POST /api/plaid/sync
@@ -27,14 +27,10 @@ export async function POST(req: Request) {
   const denied = requirePermission(session, "finances", "full");
   if (denied) return denied;
 
-  const club = await prisma.club.findUnique({ where: { id: session.user.clubId } });
-  const features = getTierFeatures(club?.tier ?? "starter");
-  if (!features.plaid) {
-    return NextResponse.json(
-      { error: "Bank integration requires a Pro plan or higher.", upgradeRequired: "pro" },
-      { status: 403 },
-    );
-  }
+  // Phase 11 task 8: ONE hard gate for connecting/syncing a bank.
+  // Starter can never connect, whatever it already has. See lib/plaidGate.ts.
+  const tierGate = await requireBankConnect(session.user.clubId);
+  if (tierGate) return tierGate;
 
   const body = await req.json().catch(() => ({}));
   const parsed = schema.safeParse(body);

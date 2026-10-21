@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { bankConnectState, requireBankAccountRoom, requireBankConnect } from "@/lib/plaidGate";
 import { plaidClient } from "@/lib/plaid";
 import { prisma } from "@/lib/prisma";
-import { getTierFeatures } from "@/lib/tier";
 
 // GET /api/plaid/connections — list every active bank connection for the
 // current club, plus the cached institution name so the UI can label them.
@@ -14,13 +14,17 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const club = await prisma.club.findUnique({ where: { id: session.user.clubId } });
-  const features = getTierFeatures(club?.tier ?? "starter");
-  if (!features.plaid) {
+  // Phase 11 task 8: a club that never had Plaid still gets the soft
+  // empty-list + upgrade hint the UI renders a prompt from. A DOWNGRADED club
+  // with existing data falls through and sees its connections, per the
+  // downgrade rule. See lib/plaidGate.ts.
+  const state = await bankConnectState(session);
+  if (!state.canRead) {
     return NextResponse.json({
       connections: [],
       multipleAllowed: false,
       upgradeRequired: "pro" as const,
+      canConnect: false,
     });
   }
 
@@ -59,14 +63,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const club = await prisma.club.findUnique({ where: { id: session.user.clubId } });
-  const features = getTierFeatures(club?.tier ?? "starter");
-  if (!features.plaid) {
-    return NextResponse.json(
-      { error: "Bank integration requires a Pro plan or higher.", upgradeRequired: "pro" },
-      { status: 403 },
-    );
-  }
+  // Phase 11 task 8: ONE hard gate for connecting/syncing a bank.
+  // Starter can never connect, whatever it already has. See lib/plaidGate.ts.
+  const tierGate = await requireBankConnect(session.user.clubId);
+  if (tierGate) return tierGate;
+  // THIS WAS MISSING (found 2026-10-21). This route is a second
+  // itemPublicTokenExchange path, exactly like /api/plaid/exchange, but it had
+  // no maxBankAccounts check — so a club at its plan's limit could exceed it
+  // here. tier-gating-guard only asserted the limit on /exchange.
+  const roomGate = await requireBankAccountRoom(session.user.clubId);
+  if (roomGate) return roomGate;
 
   try {
     const { publicToken, label } = postSchema.parse(await req.json());

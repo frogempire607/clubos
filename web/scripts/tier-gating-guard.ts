@@ -22,7 +22,17 @@ const gated = (src: string, feature: string) =>
   src.includes(`requireTierFeature(session.user.clubId, "${feature}")`) ||
   src.includes(`requireTierFeature(g.session.user.clubId, "${feature}")`) ||
   new RegExp(`(features|\\))\\.${feature}\\b`).test(src) ||
-  new RegExp(`canUseFeature\\(.*"${feature}"\\)`).test(src);
+  new RegExp(`canUseFeature\\(.*"${feature}"\\)`).test(src) ||
+  // Phase 11 task 8: the bank routes went through three different hand-rolled
+  // forms of the `plaid` check. They now use two NAMED helpers in
+  // lib/plaidGate.ts — requireBankConnect (connecting/syncing: a hard `plaid`
+  // check) and requireBankRead (`plaid` OR the club already has data, which is
+  // the downgrade promise "keep existing bank data viewable").
+  //
+  // Accepting the helper names is NOT a weakening: the assertion right below
+  // this list proves lib/plaidGate.ts actually consults the flag, so the
+  // indirection cannot quietly become a no-op.
+  (feature === "plaid" && /require(BankConnect|BankRead|BankAccountRoom)\(/.test(src));
 
 const GATES: [string, string][] = [
   ["app/api/club/branded-app/route.ts", "brandedApp"],
@@ -66,6 +76,17 @@ const GATES: [string, string][] = [
 ];
 for (const [f, feat] of GATES) check(`${f} gates ${feat}`, gated(read(f), feat));
 
+// The named bank gates must really consult the tier. `gated()` accepts
+// requireBankConnect / requireBankRead by name, so this is what stops that
+// becoming a blank cheque.
+{
+  const gate = read("lib/plaidGate.ts");
+  check("plaidGate: requireBankConnect checks the plaid flag", /canUseFeature\(tier, "plaid"\)/.test(gate));
+  check("plaidGate: it is a HARD check for connecting", /export async function requireBankConnect[\s\S]{0,400}canUseFeature\(tier, "plaid"\)/.test(gate));
+  check("plaidGate: the read gate also consults hasBankData", /export async function requireBankRead[\s\S]{0,500}hasBankData\(clubId\)/.test(gate));
+  check("plaidGate: the room check uses maxBankAccounts", gate.includes('"maxBankAccounts"'));
+}
+
 // Starter features must NOT be gated (volume principle).
 check("membership report stays on Starter", /features\.reports\b/.test(read("app/api/reports/membership/route.ts")));
 for (const f of ["app/api/documents/route.ts", "app/api/documents/[id]/route.ts", "app/api/member/memberships/subscribe/route.ts", "app/api/public/events/[slug]/register/route.ts", "app/api/member/products/[id]/buy/route.ts", "app/api/member/private-packages/[id]/buy/route.ts"]) {
@@ -75,7 +96,27 @@ for (const f of ["app/api/documents/route.ts", "app/api/documents/[id]/route.ts"
 // Limits.
 check("entity limit enforced", read("app/api/club/legal-entities/route.ts").includes('"maxEntities"'));
 check("bank-account limit enforced (manual)", read("app/api/financials/bank-accounts/route.ts").includes('"maxBankAccounts"'));
-check("bank-account limit enforced (Plaid)", read("app/api/plaid/exchange/route.ts").includes('"maxBankAccounts"'));
+check("bank-account limit enforced (Plaid exchange)", read("app/api/plaid/exchange/route.ts").includes('"maxBankAccounts"'));
+// POST /api/plaid/connections is a SECOND itemPublicTokenExchange path and had
+// NO limit check until 2026-10-21 — a club at its plan's limit could exceed it
+// there. This guard only ever asserted the limit on /exchange, which is why it
+// went unnoticed; asserting both is the fix that keeps it fixed.
+check(
+  "bank-account limit enforced (Plaid connections)",
+  /require(BankAccountRoom)\(/.test(read("app/api/plaid/connections/route.ts")),
+);
+// And connecting must be the HARD gate on both paths, not the read gate.
+check("plaid connect is hard-gated (connections)", read("app/api/plaid/connections/route.ts").includes("requireBankConnect("));
+check("plaid connect is hard-gated (link-token)", read("app/api/plaid/link-token/route.ts").includes("requireBankConnect("));
+check("plaid sync is hard-gated", read("app/api/plaid/sync/route.ts").includes("requireBankConnect("));
+// Disconnecting must NOT be tier-gated: a downgraded club has to be able to
+// unplug its own bank. Gating it is how you trap somebody.
+check(
+  "disconnecting a bank is NOT tier-gated",
+  !/requireTierFeature|requireBankConnect/.test(
+    read("app/api/plaid/connections/[id]/route.ts").split("export async function DELETE")[1] ?? "",
+  ),
+);
 check("staff seat limit enforced", read("app/api/staff/route.ts").includes('"maxStaffSeats"'));
 
 // Walk source.

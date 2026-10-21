@@ -87,6 +87,10 @@ const SMALL_TEXT_ALLOW: Record<string, { snippets: string[]; reason: string }> =
     snippets: ["styles: { fontSize: 8, cellPadding: 2"],
     reason: "jsPDF autoTable export — PDF points, not screen pixels",
   },
+  "components/financials/ReconcileTab.tsx": {
+    snippets: ["styles: { fontSize: 10 }", "styles: { fontSize: 9 }"],
+    reason: "jsPDF autoTable export of the reconciliation report — PDF points, not screen pixels",
+  },
   "components/member/WeekCalendar.tsx": {
     snippets: ["block text-[9.5px] font-bold rounded-[5px]"],
     reason: "event chips inside a 7-column week grid (~45px cells at 375px)",

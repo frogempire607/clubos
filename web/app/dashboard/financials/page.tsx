@@ -23,13 +23,14 @@ import ReceiptsTab from "@/components/financials/ReceiptsTab";
 import ImportTab from "@/components/financials/ImportTab";
 import ChartOfAccountsTab from "@/components/financials/ChartOfAccountsTab";
 import JournalTab from "@/components/financials/JournalTab";
+import ReconcileTab from "@/components/financials/ReconcileTab";
 import UpgradeNotice from "@/components/UpgradeNotice";
 import { canUseFeature } from "@/lib/tier";
 
 // Tabs included on Pro+ (pricing overhaul 2026-10-18). Starter keeps
 // Overview, Money In, Donations, Stripe and Cash & Offline. The routes behind
 // these tabs 403 on Starter; this only swaps the tab body for a notice.
-const PRO_TABS = new Set(["out", "tax", "bank", "receipts", "import", "accounts", "journal"]);
+const PRO_TABS = new Set(["out", "tax", "bank", "receipts", "import", "accounts", "journal", "reconcile"]);
 import { SkeletonList, SkeletonCard } from "@/components/LoadingSkeleton";
 
 type Entity = { id: string; name: string; entityType: string };
@@ -120,9 +121,11 @@ const TABS = [
   { key: "out", label: "Money Out" },
   { key: "donations", label: "Donations" },
   { key: "tax", label: "Tax Summary" },
-  // Accounting Phase 1 (2026-10-20). Both are Pro+ via PRO_TABS below.
+  // Accounting Phase 1 (2026-10-20).
   { key: "accounts", label: "Chart of Accounts" },
   { key: "journal", label: "Journal" },
+  // Accounting Phase 2 (2026-10-21).
+  { key: "reconcile", label: "Reconcile" },
   { key: "stripe", label: "Stripe" },
   { key: "offline", label: "Cash & Offline" },
   { key: "bank", label: "Bank" },
@@ -130,6 +133,30 @@ const TABS = [
   { key: "import", label: "Import" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
+
+// ── Tab groups (Phase 11 task 9) ─────────────────────────────────────────────
+// Twelve flat tabs had outgrown one row. They are now four groups: what the
+// money did, the books themselves, and where the money comes from.
+//
+// EVERY EXISTING `?tab=` KEY IS UNCHANGED. Grouping is presentation only — the
+// URL contract, `parseTab`, `PRO_TABS` and the four Action Item deep links all
+// keep working exactly as before, and arriving at `?tab=bank` simply opens the
+// Connections group with Bank selected. That mattered enough to keep: those
+// links were dead once before (fixed 2026-09-14) and regrouping would have
+// been an easy way to break them again.
+const TAB_GROUPS = [
+  { key: "overview", label: "Overview", tabs: ["overview"] },
+  { key: "activity", label: "Activity", tabs: ["in", "out", "donations"] },
+  { key: "books", label: "Books", tabs: ["journal", "accounts", "reconcile", "tax"] },
+  { key: "connections", label: "Connections", tabs: ["bank", "stripe", "offline", "receipts", "import"] },
+] as const satisfies readonly { key: string; label: string; tabs: readonly TabKey[] }[];
+type GroupKey = (typeof TAB_GROUPS)[number]["key"];
+
+/// Which group owns a tab. Drives the auto-selected group on a deep link, so a
+/// bookmarked `?tab=receipts` opens Connections rather than an empty shell.
+function groupForTab(t: TabKey): GroupKey {
+  return (TAB_GROUPS.find((g) => (g.tabs as readonly string[]).includes(t))?.key ?? "overview") as GroupKey;
+}
 
 // ── Deep links ───────────────────────────────────────────────────────────────
 // `?tab=<key>` selects a tab; `?show=<focus>` narrows that tab to the rows an
@@ -162,9 +189,12 @@ export default function FinancialsPage() {
   // Read once at mount. Each tab owns its own toggle after that, so clicking
   // "All" inside a tab is not fought by the URL.
   const [show] = useState<ShowFocus>(() => parseShow(search));
+  // The visible group follows the tab, including on a deep link.
+  const [group, setGroup] = useState<GroupKey>(() => groupForTab(parseTab(search.get("tab"))));
   const setTab = useCallback(
     (next: TabKey) => {
       setTabState(next);
+      setGroup(groupForTab(next));
       // Keep the address honest: the tab is in the URL, the one-shot focus is
       // dropped once the owner navigates away from the deep-linked view.
       router.replace(next === "overview" ? "/dashboard/financials" : `/dashboard/financials?tab=${next}`, { scroll: false });
@@ -253,22 +283,62 @@ export default function FinancialsPage() {
 
       <p className="text-[12px] text-text-muted mb-5">{FINANCIAL_DISCLAIMER}</p>
 
-      <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-6 w-fit flex-wrap">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`text-sm px-4 py-1.5 rounded-md transition ${
-              tab === t.key ? "bg-white shadow-sm text-text-primary font-medium" : "text-text-muted"
-            }`}
-          >
-            {t.label}
-            {fullFinancials === false && PRO_TABS.has(t.key) && (
-              <span className="ml-1.5 text-[12px] font-medium text-brand">Pro</span>
-            )}
-          </button>
-        ))}
+      {/* Two levels: the group, then the tab within it. Both scroll
+          horizontally on a phone rather than wrapping into a tall block. */}
+      <div className="mb-4 -mx-4 px-4 sm:mx-0 sm:px-0 overflow-x-auto">
+        <div className="flex gap-1 bg-app-bg rounded-lg p-1 w-max min-w-full sm:w-fit">
+          {TAB_GROUPS.map((g) => {
+            const active = group === g.key;
+            return (
+              <button
+                key={g.key}
+                onClick={() => {
+                  setGroup(g.key);
+                  // Selecting a group lands on its first tab, so the content
+                  // below always matches the group that looks selected.
+                  if (!(g.tabs as readonly string[]).includes(tab)) setTab(g.tabs[0] as TabKey);
+                }}
+                className={`text-sm px-4 py-1.5 rounded-md transition whitespace-nowrap ${
+                  active ? "bg-white shadow-sm text-text-primary font-medium" : "text-text-muted"
+                }`}
+              >
+                {g.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
+
+      {(() => {
+        const current = TAB_GROUPS.find((g) => g.key === group) ?? TAB_GROUPS[0];
+        if (current.tabs.length < 2) return null;
+        return (
+          <div className="mb-6 -mx-4 px-4 sm:mx-0 sm:px-0 overflow-x-auto">
+            <div className="flex gap-4 border-b border-app-border w-max min-w-full sm:w-auto">
+              {current.tabs.map((key) => {
+                const t = TABS.find((x) => x.key === key)!;
+                const active = tab === key;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setTab(key as TabKey)}
+                    className={`text-sm pb-2 -mb-px border-b-2 transition whitespace-nowrap ${
+                      active
+                        ? "border-charcoal text-text-primary font-medium"
+                        : "border-transparent text-text-muted hover:text-text-primary"
+                    }`}
+                  >
+                    {t.label}
+                    {fullFinancials === false && PRO_TABS.has(key) && (
+                      <span className="ml-1.5 text-[12px] font-medium text-brand">Pro</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {fullFinancials === false && PRO_TABS.has(tab) ? (
         <UpgradeNotice
@@ -288,6 +358,7 @@ export default function FinancialsPage() {
       {tab === "receipts" && <ReceiptsTab canEdit={canEditMoney} />}
       {tab === "import" && <ImportTab canEdit={canEditMoney} />}
       {tab === "accounts" && <ChartOfAccountsTab canEdit={canEditMoney} entityQuery={`entity=${entity}&from=${from}&to=${to}`} />}
+      {tab === "reconcile" && <ReconcileTab canEdit={canEditMoney} />}
       {tab === "journal" && (
         <JournalTab
           canEdit={canEditMoney}

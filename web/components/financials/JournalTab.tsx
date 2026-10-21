@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FileText, Loader2, Lock, Paperclip, Plus, Trash2, Undo2, X } from "lucide-react";
 import { SkeletonList } from "@/components/LoadingSkeleton";
+import BooksCard from "@/components/financials/BooksCard";
 import { entryTotals, formatCents, parseDollarsToCents } from "@/lib/ledger";
 
 type Entity = { id: string; name: string; entityType?: string };
@@ -274,6 +275,10 @@ export default function JournalTab({
           </ul>
         </div>
       )}
+
+      {/* Phase 2: the automatic-posting controls — books start date, post now,
+          record a deposit. */}
+      <BooksCard canEdit={canEdit} isOwner={isOwner} />
 
       <LockDateCard
         isOwner={isOwner}

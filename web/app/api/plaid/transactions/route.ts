@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { requireBankRead } from "@/lib/plaidGate";
 import { plaidClient } from "@/lib/plaid";
 import { prisma } from "@/lib/prisma";
-import { getTierFeatures } from "@/lib/tier";
 import { suggestExpenseCategory } from "@/lib/categoryMatcher";
 import type { Prisma } from "@prisma/client";
 import { bankEntityWhere, ensureBankAccounts } from "@/lib/bankAccounts";
@@ -28,18 +28,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const club = await prisma.club.findUnique({ where: { id: session.user.clubId } });
-  const features = getTierFeatures(club?.tier ?? "starter");
-  if (!features.plaid) {
-    return NextResponse.json(
-      {
-        error: "Bank integration requires a Pro plan or higher.",
-        code: "UPGRADE_REQUIRED",
-        upgradeRequired: "pro",
-      },
-      { status: 403 },
-    );
-  }
+  // Phase 11 task 8: a downgraded club keeps READING its own bank data —
+  // "keep existing bank data viewable". See lib/plaidGate.ts.
+  const tierGate = await requireBankRead(session.user.clubId);
+  if (tierGate) return tierGate;
 
   const url = new URL(req.url);
   const filterConnectionId = url.searchParams.get("connectionId");

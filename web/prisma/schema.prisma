@@ -200,6 +200,13 @@ model Club {
   donations                      Donation[]
   // Optional fallback entity stamped on money records when none is chosen.
   defaultLegalEntityId           String?
+  // ── Accounting Phase 11 ────────────────────────────────────────────────
+  // The date the club's books begin. NULL = automatic posting is NOT
+  // configured and does not run — never "post everything". Nothing dated
+  // before it ever posts automatically, which is what stops Phase 2 from
+  // double-counting history the club already imported elsewhere. Owner-only
+  // setting. Manual journal entries are unaffected by it.
+  booksStartDate                 DateTime?             @db.Date
   discounts                      Discount[]
   products                       Product[]
   productSales                   ProductSale[]
@@ -264,6 +271,8 @@ model Club {
   savedMemberViews               SavedMemberView[]
   memberSubscriptionEvents       MemberSubscriptionEvent[]
   glAccounts                     GlAccount[]
+  glReconciliations              GlReconciliation[]
+  glDeposits                     GlDeposit[]
   glJournalEntries               GlJournalEntry[]
   glJournalLines                 GlJournalLine[]
   glEntryAttachments             GlEntryAttachment[]
@@ -380,16 +389,23 @@ model BankAccount {
   type              String?
   subtype           String?
   legalEntityId     String?
+  /// The GL account this bank or card posts to — a sub-account of 1000
+  /// Operating Checking for a depository account, or of 2100 Credit Cards for
+  /// a card. Created additively by lib/glBankAccounts.ts and tied to the same
+  /// legal entity as the bank account. NULL until that runs.
+  glAccountId       String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
   club        Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
   connection  PlaidConnection @relation(fields: [plaidConnectionId], references: [id], onDelete: Cascade)
   legalEntity LegalEntity?    @relation(fields: [legalEntityId], references: [id], onDelete: SetNull)
+  glAccount   GlAccount?      @relation(fields: [glAccountId], references: [id], onDelete: SetNull)
 
   @@unique([plaidConnectionId, accountId])
   @@index([clubId])
   @@index([legalEntityId])
+  @@index([glAccountId], map: "bank_accounts_glAccountId_idx")
   @@map("bank_accounts")
 }
 
@@ -413,13 +429,20 @@ model Receipt {
   matchedAt          DateTime?
   matchedByUserId    String?
   uploadedByUserId   String?
+  /// The journal entry this receipt backs up (Phase 11). Set when an expense
+  /// posts with a matched receipt, or when staff attach one by hand. The bytes
+  /// stay where they are — this is a pointer, and a gl_entry_attachments row
+  /// is created alongside so the entry shows the document.
+  glEntryId          String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  club    Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  glEntry GlJournalEntry? @relation(fields: [glEntryId], references: [id], onDelete: SetNull)
 
   @@index([clubId, status])
   @@index([plaidTransactionId])
+  @@index([glEntryId], map: "receipts_glEntryId_idx")
   @@map("receipts")
 }
 
@@ -2447,6 +2470,10 @@ model Transaction {
   // sha256(clubId + date + amount + normalizedPayerEmail + itemLabel).
   // Unique per club.
   dedupeHash            String?
+  /// Which cash/cheque deposit batch this payment was banked in (Phase 11).
+  /// Set by the "Record deposit" action; its presence is what stops the same
+  /// cash being deposited twice.
+  glDepositId           String?
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
@@ -2470,6 +2497,7 @@ model Transaction {
   @@index([clubId, txDate], map: "transactions_clubId_txDate_idx")
   @@index([clubId, isHistorical], map: "transactions_clubId_isHistorical_idx")
   @@index([importBatchId], map: "transactions_importBatchId_idx")
+  @@index([clubId, glDepositId], map: "transactions_clubId_glDepositId_idx")
   @@map("transactions")
 }
 
@@ -2709,6 +2737,10 @@ model Expense {
   // deleting the bank row does NOT cascade to the expense.
   matchedPlaidTransactionId String?
   // ── Money-Out review + splits (Phase 1C) ──────────────────────────────
+  /// Program / fund / purpose tag, the same free-text dimension
+  /// gl_journal_lines.program carries (Phase 11 task 6). No Program model
+  /// exists in this schema — see the note on GlJournalLine.program.
+  program                   String?
   reviewedAt                DateTime?
   reviewedByUserId          String?
   excludedFromTax           Boolean   @default(false)
@@ -4382,8 +4414,11 @@ model GlAccount {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  club  Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  lines GlJournalLine[]
+  club            Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  lines           GlJournalLine[]
+  bankAccounts    BankAccount[]
+  reconciliations GlReconciliation[]
+  deposits        GlDeposit[]
 
   @@unique([clubId, number], map: "gl_accounts_clubId_number_key")
   @@unique([clubId, systemKey], map: "gl_accounts_clubId_systemKey_key")
@@ -4442,6 +4477,8 @@ model GlJournalEntry {
   legalEntity LegalEntity?        @relation(fields: [legalEntityId], references: [id], onDelete: Restrict)
   lines       GlJournalLine[]
   attachments GlEntryAttachment[]
+  receipts    Receipt[]
+  deposits    GlDeposit[]
 
   @@unique([clubId, sourceType, sourceId], map: "gl_journal_entries_clubId_sourceType_sourceId_key")
   @@index([clubId, entryDate], map: "gl_journal_entries_clubId_entryDate_idx")
@@ -4480,6 +4517,13 @@ model GlJournalLine {
   /// Transaction.memberId.
   memberId   String?
   lineNumber Int     @default(0)
+  /// Bank reconciliation (Phase 11). `clearedAt` = this line was ticked off
+  /// against a statement; `reconciliationId` points at the reconciliation it
+  /// was cleared in. A line cleared inside a FINISHED reconciliation is
+  /// frozen — lib/ledgerServer refuses to void its entry until that
+  /// reconciliation is undone, which is itself audited.
+  clearedAt        DateTime?
+  reconciliationId String?
   createdAt  DateTime @default(now())
 
   club        Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
@@ -4489,7 +4533,12 @@ model GlJournalLine {
   /// backstop if anything ever bypasses it.
   account     GlAccount      @relation(fields: [accountId], references: [id], onDelete: Restrict)
   legalEntity LegalEntity?   @relation(fields: [legalEntityId], references: [id], onDelete: Restrict)
+  /// SetNull, not Cascade: undoing or deleting a reconciliation must never
+  /// delete a posted line.
+  reconciliation GlReconciliation? @relation(fields: [reconciliationId], references: [id], onDelete: SetNull)
 
+  @@index([clubId, reconciliationId], map: "gl_journal_lines_clubId_reconciliationId_idx")
+  @@index([clubId, accountId, clearedAt], map: "gl_journal_lines_clubId_accountId_clearedAt_idx")
   @@index([clubId, accountId], map: "gl_journal_lines_clubId_accountId_idx")
   @@index([entryId, lineNumber], map: "gl_journal_lines_entryId_lineNumber_idx")
   @@index([accountId], map: "gl_journal_lines_accountId_idx")
@@ -4571,4 +4620,106 @@ model GlAuditLog {
   @@index([clubId, createdAt], map: "gl_audit_logs_clubId_createdAt_idx")
   @@index([clubId, objectType, objectId], map: "gl_audit_logs_clubId_objectType_objectId_idx")
   @@map("gl_audit_logs")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACCOUNTING PHASE 2 — automatic posting + reconciliation (Phase 11)
+// ═══════════════════════════════════════════════════════════════════════════
+// Plan: docs/accounting/plan.md. Phase 1 (Phase 10) built the ledger core;
+// this phase fills it from what AthletixOS already records and ties it to bank
+// statements.
+//
+// Everything still posts through lib/ledgerServer.createEntry — these tables
+// hold the reconciliation workpaper and the cash-deposit batch, not a second
+// posting path.
+
+/// One bank or card reconciliation: a statement period for one GL account.
+///
+/// The workflow is the familiar one: type the statement's ending balance, tick
+/// off the lines that cleared, and finish only when the difference is exactly
+/// $0.00. `statementEndingCents` is what the statement says; the cleared total
+/// is computed from the lines pointing here, so the difference is always
+/// derived and can never drift from the lines.
+///
+/// FINISHING FREEZES THE CLEARED LINES. lib/ledgerServer refuses to void an
+/// entry that has a line cleared inside a FINISHED reconciliation — otherwise
+/// a reconciled month could silently stop tying out. Undoing is allowed and
+/// audited, which is the escape hatch.
+model GlReconciliation {
+  id        String @id @default(cuid())
+  clubId    String
+  /// The bank or card GL account being reconciled.
+  accountId String
+  /// Statement period. Date-only, 00:00 UTC, inclusive both ends.
+  periodStart DateTime @db.Date
+  periodEnd   DateTime @db.Date
+  /// What the statement says the account held at periodEnd. Integer cents,
+  /// signed — a credit card's statement balance is what you owe.
+  statementEndingCents Int
+  /// The balance the ledger showed when the reconciliation was finished,
+  /// frozen for the report. Null while OPEN.
+  ledgerEndingCents Int?
+  /// OPEN | FINISHED
+  status String @default("OPEN")
+  notes  String?
+  finishedAt       DateTime?
+  finishedByUserId String?
+  /// Undo is deliberately recorded rather than erased — "who reopened a closed
+  /// reconciliation" is exactly what an auditor asks.
+  undoneAt       DateTime?
+  undoneByUserId String?
+  undoReason     String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  club    Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  account GlAccount       @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  lines   GlJournalLine[]
+
+  /// One reconciliation per account per statement period.
+  @@unique([clubId, accountId, periodEnd], map: "gl_reconciliations_clubId_accountId_periodEnd_key")
+  @@index([clubId, status], map: "gl_reconciliations_clubId_status_idx")
+  @@index([accountId], map: "gl_reconciliations_accountId_idx")
+  @@map("gl_reconciliations")
+}
+
+/// A batch of cash and cheques taken to the bank — the second half of the
+/// 1020 Undeposited Funds story from Phase 1.
+///
+/// Phase 1 posts cash and cheques INTO 1020 when they are recorded. This moves
+/// a batch of them OUT of 1020 and into a bank account's GL account, which is
+/// what actually happens when somebody walks the drawer to the bank. Until a
+/// deposit is recorded, 1020 carries a balance — the honest answer.
+///
+/// `Transaction.glDepositId` marks the payments included, and its presence is
+/// what stops the same cash being deposited twice.
+model GlDeposit {
+  id     String @id @default(cuid())
+  clubId String
+  /// The destination bank account's GL account (a sub-account of 1000).
+  accountId   String
+  depositDate DateTime @db.Date
+  /// Total deposited, integer cents. Always equals the sum of the included
+  /// payments — the service computes it rather than trusting the client.
+  amountCents Int
+  memo        String?
+  /// The journal entry this deposit posted (1020 → bank).
+  entryId String?
+  /// The matched bank row, once the deposit is seen on a statement. This is
+  /// half of the double-count guard: a bank row matched to a recorded deposit
+  /// must never post again as income.
+  bankTransactionId String?
+  createdByUserId   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  club    Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  account GlAccount       @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  entry   GlJournalEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+
+  @@index([clubId, depositDate], map: "gl_deposits_clubId_depositDate_idx")
+  @@index([bankTransactionId], map: "gl_deposits_bankTransactionId_idx")
+  @@index([accountId], map: "gl_deposits_accountId_idx")
+  @@map("gl_deposits")
 }

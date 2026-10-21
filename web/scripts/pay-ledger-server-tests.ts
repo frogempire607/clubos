@@ -10,7 +10,7 @@
  * The clock is pinned: Tuesday Oct 20 2026, noon in New York. The club's
  * coach assignments started Oct 7; its pay ledger starts Tue Oct 13.
  *
- * ── THE ZONE IS PINNED TOO, AND HAS TO BE (2026-10-20) ─────────────────────
+ * ── THE ZONE USED TO BE PINNED; THE UNDERLYING BUG IS NOW FIXED ────────────
  * The clock was already pinned, but the TIME ZONE was not, and four assertions
  * in §9 failed on any machine in the Americas while passing in UTC and in
  * Europe. That is not flakiness in this file — it is a real latent bug in
@@ -25,13 +25,11 @@
  * start and the FINAL DAY LOST, so Josh was paid for one Jr Frogs class
  * instead of two ($25, not $50).
  *
- * Netlify functions run in UTC, so production is correct today and this is
- * latent rather than live. Pinning TZ=UTC here makes the test deterministic
- * everywhere AND makes it test what production actually does. It deliberately
- * does NOT paper over the bug: see the write-up in docs/accounting/plan.md
- * ("payrollRange is timezone-dependent") and the BACKLOG item. Fixing
- * payrollRange to use UTC setters is a one-line change and a no-op in
- * production, but it is pay-ledger behaviour and so is its own task.
+ * FIXED 2026-10-21 (B37, Phase 11 task 10): payrollRange now composes the
+ * range in UTC explicitly, so there is no local-time step to disagree with the
+ * UTC parse. This suite therefore passes in every zone, and the build runs it
+ * twice — TZ=UTC and TZ=America/New_York — so a regression would fail the
+ * build rather than wait to be noticed on somebody's laptop.
  *
  * What it pins — the owner's rules:
  *   1. nothing before the ledger start date ever gets a pay line; a future
@@ -54,25 +52,18 @@
 import { makeFakeDb, installFakePrisma } from "./fake-prisma";
 import { buildSessions } from "../lib/classSessions";
 
-// ── A pinned zone ───────────────────────────────────────────────────────────
-// Must come before the first Date operation. Neither module imported above
-// constructs a Date at module scope (checked), so setting it here is in time.
-// The build runner also passes TZ=UTC (scripts/run-build-tests.mjs), which is
-// belt-and-braces for any platform where assigning process.env.TZ at runtime
-// does not call tzset. The assertion below is what makes either mechanism
-// provable rather than assumed.
-process.env.TZ = "UTC";
-if (Intl.DateTimeFormat().resolvedOptions().timeZone !== "UTC") {
-  console.error(
-    `✗ this suite needs TZ=UTC and the zone is ${Intl.DateTimeFormat().resolvedOptions().timeZone}.\n` +
-      "  Assigning process.env.TZ did not take effect on this platform. Re-run as:\n" +
-      "    TZ=UTC npx tsx scripts/pay-ledger-server-tests.ts\n" +
-      "  Why it matters: payrollRange() in lib/payrollCalc.ts mixes a UTC-parsed\n" +
-      "  date with local-time setters, so in a negative-offset zone the payroll\n" +
-      "  range loses its final day. See the header of this file.",
-  );
-  process.exit(1);
-}
+// ── The zone is deliberately NOT pinned any more (2026-10-21) ──────────────
+// It was, between 2026-10-20 and 2026-10-21, because four assertions in §9
+// failed on any machine in the Americas. That was never this file's bug: it
+// was `payrollRange` (lib/payrollCalc.ts) mixing a UTC-parsed date with
+// local-time setters, which shifted the payroll range by the machine's offset
+// and lost the final day.
+//
+// B37 fixed payrollRange to compose the range in UTC explicitly, so this suite
+// is timezone-independent again. The pin is REMOVED on purpose: leaving it in
+// would force TZ=UTC inside the process and make the TZ=America/New_York run
+// registered in scripts/run-build-tests.mjs prove nothing at all. The build
+// now runs this file twice — UTC and New York — and both must pass.
 
 // ── A pinned clock ──────────────────────────────────────────────────────────
 const RealDate = Date;

@@ -24,12 +24,32 @@ import { loadSessionStaffResolver } from "@/lib/classStaffServer";
  * The period bounds the Payroll page has always used: `from` at 00:00:00.000
  * and `to` at 23:59:59.999 (server clock) of the given YYYY-MM-DD days.
  */
+/// Turn two "YYYY-MM-DD" strings into the instants bounding those whole days.
+///
+/// COMPOSED IN UTC, EXPLICITLY (B37, fixed 2026-10-21). The previous version
+/// did:
+///
+///     const to = new Date(toStr);     // "2026-10-12" parses as UTC midnight
+///     to.setHours(23, 59, 59, 999);   // ...but setHours is LOCAL
+///
+/// Mixing a UTC-parsed date with local-time setters shifted the whole range by
+/// the machine's offset. In America/New_York `?from=2026-10-07&to=2026-10-12`
+/// produced `2026-10-06T04:00Z → 2026-10-12T03:59:59.999Z` — an extra day at
+/// the start and THE FINAL DAY LOST, so a coach with a class on the last day
+/// of the range was not paid for it. Netlify runs UTC so production was
+/// correct, but it fired on any non-UTC server and on every developer machine
+/// in the Americas.
+///
+/// Building the ISO strings directly is timezone-independent by construction:
+/// there is no local-time step to disagree with the UTC parse. Date-only
+/// payroll bounds are the same convention the rest of the app uses for
+/// date-only values (lib/datetime.ts).
 export function payrollRange(fromStr: string, toStr: string): { from: Date; to: Date } {
-  const from = new Date(fromStr);
-  from.setHours(0, 0, 0, 0);
-  const to = new Date(toStr);
-  to.setHours(23, 59, 59, 999);
-  return { from, to };
+  const day = (s: string) => s.slice(0, 10);
+  return {
+    from: new Date(`${day(fromStr)}T00:00:00.000Z`),
+    to: new Date(`${day(toStr)}T23:59:59.999Z`),
+  };
 }
 
 // ── The raw facts for a period ──────────────────────────────────────────────

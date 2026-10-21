@@ -822,7 +822,20 @@ ok(
 const migrationDirs = readdirSync(join(ROOT, "prisma/migrations")).filter((d) => /^\d{14}_/.test(d)).sort();
 const mine = "20261020000000_gl_ledger_core";
 ok(migrationDirs.includes(mine), "9.28 the migration folder is on disk");
-ok(migrationDirs[migrationDirs.length - 1] === mine, "9.29 and it sorts LAST of all migrations", `last is ${migrationDirs[migrationDirs.length - 1]}`);
+// This used to assert "sorts LAST", which was true only while Phase 1 was the
+// newest migration. Phase 2's folder is newer and more will follow, so the real
+// invariant is the one `migrate deploy` cares about: it must sort AFTER
+// everything that came before it, or deploy warns about out-of-order folders.
+{
+  const idx = migrationDirs.indexOf(mine);
+  const before = migrationDirs.slice(0, idx);
+  ok(
+    before.every((d) => d < mine),
+    "9.29 and it sorts after every migration that precedes it",
+    `preceded by ${before[before.length - 1]}`,
+  );
+  ok(before.includes("20261018000000_platform_fee_and_tiers"), "9.29b specifically after the pricing overhaul");
+}
 
 // 9.30 The seed script must refuse --apply without an allowlist. A script that
 // can rewrite every club by accident is the thing CLAUDE.md is most emphatic

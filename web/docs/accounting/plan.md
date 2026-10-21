@@ -641,7 +641,207 @@ rebuilt.
 
 ---
 
-## Phase 2 — Automatic posting + reconciliation (DO NOT BUILD YET)
+## Phase 2 — Automatic posting + reconciliation — **BUILT (Phase 11, 2026-10-21)**
+
+Branch `claude/athletixos-accounting-phase-2`. Migration
+`20261021000000_gl_auto_posting_reconcile` — additive only, **not applied**.
+
+### How posting works: a sweep, not webhook hooks
+
+The obvious design is to post from the ~20 places that create a `Transaction`
+(webhook branches, auto-charge, offline payment, at-the-door). That was
+rejected for three reasons:
+
+- those paths are the money-critical ones, and CLAUDE.md's double-charge rules
+  exist because that code is delicate. A posting bug inside the Stripe webhook
+  risks the payment record itself;
+- the backfill has to post historical rows anyway, so a sweep must exist
+  regardless — two posting paths would be two sets of rules;
+- a sweep is **idempotent by construction**: it asks the ledger which
+  `(sourceType, sourceId)` pairs are already posted and posts the rest. A missed
+  webhook self-heals on the next run instead of leaving a permanent hole.
+
+**So no payment path changed at all.** `lib/glPostingServer.postPendingForClub`
+runs on the Financials "Post anything waiting" button and is the same function
+the backfill script calls. It also catches Prisma's `P2002` as "already posted",
+because two staff opening Financials at once is a real race and the unique index
+is what should decide it.
+
+### What each kind of money posts
+
+| Source | Entry |
+|---|---|
+| Stripe charge | DEBIT 1050 net · DEBIT 6400 fees · CREDIT revenue sticker · CREDIT 4800 gross-up |
+| Cash / cheque | DEBIT **1020 Undeposited Funds** · CREDIT revenue |
+| Refund | DEBIT 4900 (contra, debit-normal) · CREDIT 1050 or 1020 |
+| Stripe payout | DEBIT the bank's GL account · CREDIT 1050 |
+| Cash deposit | DEBIT the bank's GL account · CREDIT 1020 |
+| Expense | DEBIT the expense account · CREDIT the bank/card account |
+| Bank row (out) | DEBIT the expense account · CREDIT the bank account |
+| Bank row (in) | DEBIT the bank account · CREDIT revenue |
+
+Three things in that table are worth stating plainly:
+
+**`6400` carries the TOTAL fee, including the AthletixOS platform fee.**
+`Transaction.stripeFeeAmount` comes from the balance transaction's `fee`, which
+on a connected account is Stripe's fee *plus* the application fee, and
+`net = amount − fee`. That identity is what makes the entry balance, and it is
+asserted (`planCharge` refuses when `net + fee ≠ amount`). Splitting the two
+would need a fee-detail breakdown we do not store. The club's books are correct
+either way — the money left the club — but do not read 6400 as Stripe-only.
+
+**The sticker/gross-up split is recovered by SEARCH, not by an inverse.**
+`quoteCharge` (lib/fees.ts) is the one place the gross-up math lives and it runs
+forwards: net → total. `splitChargedTotal` estimates the net, then asks
+`quoteCharge` which candidate actually produces the observed total — so the
+split can never disagree with what was charged. When no candidate reproduces it
+(the club changed its fee policy after the charge) the whole amount is treated
+as the sticker price and **nothing** is posted to 4800: we know what was
+charged, we no longer know how it was composed, and inventing a gross-up would
+misstate revenue.
+
+**Refunds post INCREMENTALLY.** `refundedAmount` accumulates as partial refunds
+and chargebacks land. The key is `<chargeId>:<cumulativeCents>` and each entry
+posts only the delta above the highest already-posted total. Keying on the
+transaction alone would post the first refund and silently ignore every later
+one; keying on the total without subtracting would double-count.
+
+### When the facts aren't there, it refuses
+
+A charge with no Stripe fee recorded yet **cannot** be split honestly, so it is
+skipped with `AWAITING_STRIPE_FEES` and posts on the next run once
+`fillChargeFees` has populated it. Every skip has a reason and an owner-readable
+label (`SKIP_LABELS`), surfaced in the UI and in the backfill output, because a
+silently skipped dollar is the failure this phase exists to end.
+
+### The double-count guard
+
+A bank deposit that mirrors a Stripe payout, or a recorded cash deposit, has
+**already** been posted — once as the original charge and once as the transfer
+into the bank. Posting it a third time as income would inflate revenue by the
+full amount **and the books would still balance**, which is what makes it
+dangerous. `planBankRow` refuses on `MATCHED_TO_PAYOUT`,
+`MATCHED_TO_DEPOSIT`, `MATCHED_TO_EXPENSE` and `TRANSFER`.
+
+`PayoutMatch.bankTransactionId` and `GlDeposit.bankTransactionId` both hold
+**Plaid's own `plaidTransactionId`**, not our row id. That is the contract
+`lib/reportsCashFlow.ts:156` already relies on; changing it would silently break
+cash-flow reporting.
+
+> **`PayoutMatch` had a consumer and no producer.** The table has existed since
+> 2026-07-31 and `lib/reportsCashFlow.ts` reads it, but nothing ever wrote a
+> row — so the payout half of the double-count guard has been **inert in
+> production**. `syncStripePayouts` is the producer. It reads
+> `stripe.payouts.list` on the connected account, skips payouts that never
+> reached the bank (`failed`/`canceled`), upserts on `(clubId, stripePayoutId)`,
+> and deliberately does **not** touch `bankTransactionId` on update — that match
+> is the owner's and resyncing must not discard it.
+
+### Books start date
+
+A nullable `Club.booksStartDate` (`DATE`, **no default** — a default would mean
+"post everything"). Owner-only, for the same reason the lock date is: it decides
+which periods the books may touch. A record dated earlier is **refused with a
+reason**, not silently skipped. NULL means automatic posting does not run at
+all. Manual journal entries are unaffected.
+
+### Bank and card GL accounts
+
+Each depository account gets a sub-account of **1000** and each card a
+sub-account of **2100**, tied to the same legal entity as the bank account, so
+each statement has its own ledger balance to tie out against. Created through
+**`lib/ledgerServer.createAccount`** — the Phase 1 write path — not a second
+one, so number collisions, parent validation and the audit row are all handled
+once. Additive and idempotent: a bank account that already has one is left
+alone, including if the club renamed it.
+
+### Reconciliation
+
+Pick an account and a statement month, type the ending balance, tick what
+cleared, finish only at exactly **$0.00** — no tolerance, because a "close
+enough" reconciliation is not one. The difference is always **derived** from the
+ticks (there is no stored cleared total to go stale) and `finish()` recomputes
+it server-side, so the client cannot talk its way past the gate.
+
+**Finishing freezes the cleared lines.** `lib/ledgerServer.voidEntry` refuses to
+void an entry with a line cleared in a FINISHED reconciliation — otherwise a
+reconciled month could silently stop tying out. Undo is the audited escape
+hatch, it keeps the ticks, and the note says in as many words that a closed
+reconciliation was reopened.
+
+The PDF is client-side jsPDF + autoTable (`doc.save()`), the same pattern as the
+migration roster export, dynamically imported so jspdf stays out of the initial
+bundle.
+
+### The Plaid gate: two gates, not one
+
+The brief asks for two things that pull in opposite directions — "Starter can
+never connect a bank" and "keep existing bank data viewable". A single gate
+cannot do both, because gating reads would hide the history the downgrade rule
+promises to keep. So `lib/plaidGate.ts` has:
+
+- **`requireBankConnect`** — a hard `plaid` check. Connecting and syncing
+  (link-token, both exchange paths, sync). A Starter club is refused always.
+- **`requireBankRead`** — `plaid` **OR** the club already has bank data. Reading
+  and tidying. A club that never had Plaid still gets the upgrade prompt, so
+  nothing leaks to Starter.
+- **Disconnecting is gated by neither.** A club must always be able to unplug
+  its own bank.
+
+That grandfathered read follows existing precedent rather than inventing a rule:
+`app/api/events/[id]/route.ts:190` ("a club that downgraded can still edit an
+event that has them") and the pricing page's promise that moving to Starter
+keeps your data.
+
+#### What the audit found, before the change
+
+Every Plaid route already checked `plaid` **except**
+`DELETE /api/plaid/transactions` — but through three different mechanisms
+(`requireTierFeature`, a hand-rolled `getTierFeatures(...).plaid`, and a
+200-empty-list soft gate), with inconsistent error bodies. Two real holes:
+
+1. **`POST /api/plaid/connections` had no `maxBankAccounts` check.** It is a
+   second `itemPublicTokenExchange` path, exactly like `/exchange`, so a club at
+   its plan's limit could exceed it there. `scripts/tier-gating-guard.ts` only
+   asserted the limit on `/exchange`, which is why it went unnoticed. Both paths
+   are now checked **and both are asserted**.
+2. **`DELETE /api/plaid/connections/[id]` was gated on `plaid`**, so a club that
+   dropped to Starter could not disconnect its own bank — its access token
+   stayed live on disk with no way to unplug it through the product. Now
+   ungated, and the guard asserts it stays that way.
+
+**There is no Plaid webhook in this codebase** (verified: no route file, and
+`linkTokenCreate` passes no `webhook` field). So gating the session-bearing
+routes covers every Plaid entry point today, and a test asserts no Plaid webhook
+exists — if one is ever added, that assertion fails and says it needs its own
+gate.
+
+### Tabs regrouped
+
+Twelve flat tabs became four groups — Overview · Activity · Books ·
+Connections. **Every existing `?tab=` key is unchanged**: grouping is
+presentation only, and arriving at `?tab=bank` opens Connections with Bank
+selected. Those Action Item links were dead once before (fixed 2026-09-14) and
+regrouping would have been an easy way to break them again.
+
+### Phase 2 tasks as specified
+
+1. ✅ `payout_matches` RLS — first task, done. It is no longer in the harness's
+   `T0.1` list (27 tables → 26).
+2. ✅ Books start date.
+3. ✅ Bank/card → GL accounts.
+4. ✅ Posting service.
+5. ✅ Backfill script (dry-run default, `--apply --clubs`, idempotent).
+6. ✅ Receipts attach to entries; `Expense.program`.
+7. ✅ Reconcile tab.
+8. ✅ Plaid tier gate.
+9. ✅ Tabs regrouped.
+10. ✅ B37 — `payrollRange` composes in UTC; the suite now runs under **both**
+    UTC and `America/New_York` in the build.
+
+---
+
+## Phase 2 — original specification (for reference)
 
 - Billing posts automatically: memberships, camps, events, privates, products,
   donations, refunds.

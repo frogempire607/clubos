@@ -76,7 +76,39 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## B — Claude Code sessions (priority order; start at the top unless blocked)
 
-- [ ] **B37 · `payrollRange()` is timezone-dependent — the payroll range loses its final day on any non-UTC server.** Found 2026-10-20 while making `npm run build` pass end to end.
+- [ ] **B38 · Accounting Phase 2 — automatic posting + reconciliation (Phase 11). Built 2026-10-21 on `claude/athletixos-accounting-phase-2`; MIGRATION NOT APPLIED, nothing shipped.**
+  Plan: **`docs/accounting/plan.md`** (the Phase 2 section is now the built state, not a spec). Phase 11 — Phase 10 was the ledger core.
+  Migration `20261021000000_gl_auto_posting_reconcile` — additive only: 2 new tables (`gl_reconciliations`, `gl_deposits`),
+  6 nullable columns (`clubs.booksStartDate`, `bank_accounts.glAccountId`, `expenses.program`, `receipts.glEntryId`,
+  `gl_journal_lines.clearedAt`/`reconciliationId`, `transactions.glDepositId`). **Apply BEFORE deploying the code.**
+  **The ledger now fills itself.** `lib/glPostingServer.postPendingForClub` is a SWEEP, not webhook hooks — so NO payment
+  path changed. It asks the ledger what is already posted and posts the rest, so it is idempotent, resumable, and a
+  missed webhook self-heals. Charges post net→1050, fees→6400, sticker→revenue, gross-up→4800; refunds→4900
+  incrementally (keyed on the cumulative total, posting only the delta); payouts 1050→bank; cash/cheque→1020 with a
+  "Record deposit" action moving batches 1020→bank; expenses and categorized bank rows post; uncategorized never does.
+  **A charge with no Stripe fee yet is REFUSED, not guessed** — it posts next run once `fillChargeFees` fills it.
+  **`PayoutMatch` had a consumer and no producer** since 2026-07-31, so the payout half of the double-count guard was
+  inert in production. `syncStripePayouts` is the producer. The guard now refuses a bank row matched to a payout, a
+  recorded deposit, an expense, or marked a transfer — posting one again would inflate revenue *and still balance*.
+  **Books start date** (`Club.booksStartDate`, owner-only, NO default): nothing before it posts automatically, and NULL
+  means automatic posting doesn't run — never "post everything".
+  **Reconcile tab**: statement balance, tick-off, finish only at exactly $0.00 (recomputed server-side), client-side PDF.
+  Finishing FREEZES the cleared lines — `voidEntry` refuses them until the reconciliation is undone, which is audited.
+  **Plaid gate — found two real holes.** (1) `POST /api/plaid/connections` is a second token-exchange path and had NO
+  `maxBankAccounts` check, so a club at its limit could exceed it there; the guard only asserted the limit on
+  `/exchange`. (2) `DELETE /api/plaid/connections/[id]` was `plaid`-gated, so a downgraded club could not disconnect its
+  own bank. Both fixed. Two gates now: `requireBankConnect` (hard) for connecting/syncing, `requireBankRead` (`plaid` OR
+  already has data) for reading/tidying per the downgrade rule; disconnect is gated by neither. **There is no Plaid
+  webhook** in this codebase — a test asserts that, so adding one fails the build until it gets its own gate.
+  **Tabs regrouped** into Overview · Activity · Books · Connections with EVERY existing `?tab=` key unchanged.
+  Verification: `npm run build` **99/99 checks + next build green**; `scripts/gl-posting-tests.ts` 217/217;
+  `scripts/ledger-tests.ts` 405/405; RLS harness 123 passed / 1 failed (the failure is the PRE-EXISTING `T0.1`, now 26
+  tables not 27 — `payout_matches` is covered). `tier-gating-guard` 2952/0.
+  **Julian runs**: `npx prisma migrate deploy`, then `npx tsx scripts/backfill-gl-postings.ts` (dry run) → `--apply --clubs <slug>`.
+  **FOR JULIAN**: set a books start date per club in Financials → Books → Journal before anything posts.
+  Not in Phase 2: reports/TB/GL export, month close, fixed assets, 1099, opening-balance import (all Phase 3).
+
+- [x] **B37 · DONE 2026-10-21 (Phase 11 task 10). `payrollRange()` was timezone-dependent — the payroll range loses its final day on any non-UTC server.** Found 2026-10-20 while making `npm run build` pass end to end.
   `lib/payrollCalc.ts` does `new Date("2026-10-12")` (parses as UTC midnight) then `.setHours(23,59,59,999)` (sets LOCAL time).
   Mixing the two shifts the whole range by the machine's offset. In `America/New_York` the payroll route returned
   `from 2026-10-06T04:00Z to 2026-10-12T03:59:59.999Z` for `?from=2026-10-07&to=2026-10-12` — an extra day at the start
@@ -87,10 +119,11 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   suite pinned its clock but not its zone. **That half is fixed** (the suite now pins `TZ=UTC`, self-pinning plus the
   build runner plus an assertion that fails loudly with the reason; verified green in UTC, New York, Chicago,
   Los Angeles, Berlin, Tokyo and Kiritimati). The underlying bug is deliberately NOT fixed — it is pay-ledger behaviour.
-  **The fix** is one line, a no-op in production and for the now-pinned test:
-  `const from = new Date(`${fromStr.slice(0,10)}T00:00:00.000Z`); const to = new Date(`${toStr.slice(0,10)}T23:59:59.999Z`);`
-  Worth doing because it makes the payroll route correct on any server, and because a future test that is NOT pinned to
-  UTC would hit it again. Write-up: `docs/accounting/plan.md` ("Found along the way").
+  **FIXED**: `payrollRange` now composes both bounds as explicit UTC ISO strings — there is no local-time step left to
+  disagree with the UTC parse. The suite's TZ self-pin was REMOVED (it would have made the new New-York run prove
+  nothing), and `scripts/run-build-tests.mjs` now runs `pay-ledger-server-tests.ts` TWICE — `TZ=UTC` and
+  `TZ=America/New_York` — so a regression fails the build instead of waiting to be noticed on a laptop. Verified green in
+  UTC, New York, Chicago, Los Angeles, Tokyo and Kiritimati. Asserted by `scripts/gl-posting-tests.ts` §11.37-11.38.
 
 - [ ] **B36 · Accounting Phase 1 — ledger core (double-entry GL). Built 2026-10-20 on `claude/athletixos-accounting-phase-1-94d11d`; MIGRATION NOT APPLIED, nothing shipped.**
   The first slice of replacing QuickBooks. Full three-phase plan: **`docs/accounting/plan.md`** — read it before touching this.
