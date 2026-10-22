@@ -802,6 +802,291 @@ async function main() {
     ok((await appBase.glDeposit.findMany()).length === 0, "T10.26 …and 0 deposits");
     ok((await appBase.payoutMatch.findMany()).length === 0, "T10.27 …and 0 payout matches");
 
+    // ── 16. Phase 3's tables (2026-10-22) ───────────────────────────────────
+    // Five new tables, plus RLS newly added to six finance/reports tables that
+    // had none. The fixed-asset register and the month close both carry FKs
+    // into gl_accounts and legal_entities, and Postgres FK checks deliberately
+    // bypass RLS — so a clubId-only policy would let club A point its asset at
+    // club B's account. That is what T11.8 onwards proves it cannot.
+    console.log("\n[Phase 3 tables — cross-club isolation]");
+
+    for (const [c, p] of [["club_a", "a"], ["club_b", "b"]] as const) {
+      await sys.glAccount.create({
+        data: {
+          id: `gla_${p}_accum`, clubId: c, number: "1590", name: "Accumulated Depreciation",
+          type: "ASSET", normalBalance: "CREDIT", isContra: true, sortOrder: 0,
+        },
+      });
+      await sys.glAccount.create({
+        data: {
+          id: `gla_${p}_dep`, clubId: c, number: "6800", name: "Depreciation Expense",
+          type: "EXPENSE", normalBalance: "DEBIT", sortOrder: 0,
+        },
+      });
+      await sys.glFixedAsset.create({
+        data: {
+          id: `asset_${p}1`, clubId: c, name: `${p} mats`, costCents: 1_200_000,
+          inServiceDate: new Date("2027-01-15T00:00:00Z"), usefulLifeMonths: 60,
+          legalEntityId: `ent_${p}1`, assetAccountId: `gla_${p}_cash`,
+          accumDepAccountId: `gla_${p}_accum`, depExpenseAccountId: `gla_${p}_dep`,
+        },
+      });
+      await sys.glMonthClose.create({
+        data: {
+          id: `close_${p}1`, clubId: c, legalEntityId: `ent_${p}1`,
+          periodMonth: new Date("2027-01-01T00:00:00Z"), status: "CLOSED",
+        },
+      });
+      await sys.glOpeningImport.create({
+        data: { id: `open_${p}1`, clubId: c, fileName: `${p}-tb.csv`, rows: {}, mapping: {} },
+      });
+      await sys.qboHistoryFile.create({
+        data: { id: `qbf_${p}1`, clubId: c, fileName: `${p}-gl.csv`, kind: "GENERAL_LEDGER", rowCount: 1 },
+      });
+      await sys.qboHistoryRow.create({
+        data: {
+          id: `qbr_${p}1`, clubId: c, fileId: `qbf_${p}1`, txDate: new Date("2026-05-01T00:00:00Z"),
+          name: `${p} vendor`, account: "Rent", amountCents: 250_000, rowIndex: 0,
+        },
+      });
+      await sys.plaidTransaction.create({
+        data: {
+          id: `pt_${p}1`, clubId: c, plaidConnectionId: `pc_${p}1`, plaidTransactionId: `ptx_${p}1`,
+          accountId: `acct_${p}1`, amount: 100, date: new Date("2027-02-01T00:00:00Z"), name: `${p} row`,
+        },
+      });
+      await sys.stripeReconciliation.create({
+        data: { id: `sr_${p}1`, clubId: c, stripeSubscriptionId: `sub_${p}1`, stripeCustomerId: `cus_${p}1` },
+      });
+    }
+
+    // Positive controls first, so a later "0 rows" means isolation and not an
+    // empty table.
+    ok((await A.glFixedAsset.count()) === 1, "T11.0 A sees its own fixed asset");
+    ok((await A.glMonthClose.count()) === 1, "T11.1 A sees its own month close");
+    ok((await A.glOpeningImport.count()) === 1, "T11.2 A sees its own opening import");
+    ok((await A.qboHistoryFile.count()) === 1, "T11.3 A sees its own archived file");
+    ok((await A.qboHistoryRow.count()) === 1, "T11.4 A sees its own archived row");
+    ok((await A.plaidTransaction.count()) === 1, "T11.5 A sees its own bank row");
+    ok((await A.stripeReconciliation.count()) === 1, "T11.6 A sees its own Stripe reconciliation");
+
+    // Reads across the tenant.
+    ok((await A.glFixedAsset.findUnique({ where: { id: "asset_b1" } })) === null, "T11.7 A cannot read B's asset");
+    ok((await A.glMonthClose.findUnique({ where: { id: "close_b1" } })) === null, "T11.8 A cannot read B's month close");
+    ok((await A.glOpeningImport.findUnique({ where: { id: "open_b1" } })) === null, "T11.9 A cannot read B's opening import");
+    ok((await A.qboHistoryFile.findUnique({ where: { id: "qbf_b1" } })) === null, "T11.10 A cannot read B's archived file");
+    ok((await A.qboHistoryRow.findUnique({ where: { id: "qbr_b1" } })) === null, "T11.11 A cannot read B's archived row");
+    ok((await A.plaidTransaction.findUnique({ where: { id: "pt_b1" } })) === null, "T11.12 A cannot read B's bank row");
+    ok(
+      (await A.stripeReconciliation.findUnique({ where: { id: "sr_b1" } })) === null,
+      "T11.13 A cannot read B's Stripe reconciliation",
+    );
+    ok((await A.qboHistoryRow.count({ where: { clubId: "club_b" } })) === 0, "T11.14 A counting B's archive gets 0");
+
+    // Writes into the other club.
+    await throws(
+      "T11.15 A cannot INSERT an asset into club B",
+      () =>
+        A.glFixedAsset.create({
+          data: {
+            id: "evil_asset", clubId: "club_b", name: "evil", costCents: 1,
+            inServiceDate: new Date("2027-01-01T00:00:00Z"), usefulLifeMonths: 1,
+            assetAccountId: "gla_b_cash", accumDepAccountId: "gla_b_accum", depExpenseAccountId: "gla_b_dep",
+          },
+        }),
+      /row-level security|42501/i,
+    );
+    await throws(
+      "T11.16 A cannot close a month in club B",
+      () =>
+        A.glMonthClose.create({
+          data: {
+            id: "evil_close", clubId: "club_b", legalEntityId: "ent_b1",
+            periodMonth: new Date("2027-02-01T00:00:00Z"), status: "CLOSED",
+          },
+        }),
+      /row-level security|42501/i,
+    );
+    await throws(
+      "T11.17 A cannot INSERT an opening import into club B",
+      () => A.glOpeningImport.create({ data: { id: "evil_open", clubId: "club_b", fileName: "x", rows: {}, mapping: {} } }),
+      /row-level security|42501/i,
+    );
+    await throws(
+      "T11.18 A cannot INSERT an archived file into club B",
+      () => A.qboHistoryFile.create({ data: { id: "evil_qbf", clubId: "club_b", fileName: "x", kind: "OTHER", rowCount: 0 } }),
+      /row-level security|42501/i,
+    );
+    await throws(
+      "T11.19 A cannot INSERT an archived row into club B",
+      () => A.qboHistoryRow.create({ data: { id: "evil_qbr", clubId: "club_b", fileId: "qbf_b1", rowIndex: 0 } }),
+      /row-level security|42501/i,
+    );
+    await throws(
+      "T11.20 A cannot INSERT a bank row into club B",
+      () =>
+        A.plaidTransaction.create({
+          data: {
+            id: "evil_pt", clubId: "club_b", plaidConnectionId: "pc_b1", plaidTransactionId: "ptx_evil",
+            accountId: "acct_b1", amount: 1, date: new Date("2027-02-01T00:00:00Z"), name: "evil",
+          },
+        }),
+      /row-level security|42501/i,
+    );
+    await throws(
+      "T11.21 A cannot INSERT a Stripe reconciliation into club B",
+      () =>
+        A.stripeReconciliation.create({
+          data: { id: "evil_sr", clubId: "club_b", stripeSubscriptionId: "sub_evil", stripeCustomerId: "cus_evil" },
+        }),
+      /row-level security|42501/i,
+    );
+
+    // ── THE FK-CROSSING FAMILY ──────────────────────────────────────────────
+    // Each of these claims club A — so a clubId-only policy would let it
+    // through — while pointing a foreign key at club B. Postgres FK checks
+    // bypass RLS, which is exactly why the policies carry FK-aware WITH CHECK
+    // conditions, and exactly what these assertions prove.
+    await throws(
+      "T11.22 A cannot point its asset at B's ASSET ACCOUNT",
+      () =>
+        A.glFixedAsset.create({
+          data: {
+            id: "evil_asset2", clubId: "club_a", name: "x", costCents: 1,
+            inServiceDate: new Date("2027-01-01T00:00:00Z"), usefulLifeMonths: 1,
+            assetAccountId: "gla_b_cash", accumDepAccountId: "gla_a_accum", depExpenseAccountId: "gla_a_dep",
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T11.23 …nor at B's ACCUMULATED DEPRECIATION account",
+      () =>
+        A.glFixedAsset.create({
+          data: {
+            id: "evil_asset3", clubId: "club_a", name: "x", costCents: 1,
+            inServiceDate: new Date("2027-01-01T00:00:00Z"), usefulLifeMonths: 1,
+            assetAccountId: "gla_a_cash", accumDepAccountId: "gla_b_accum", depExpenseAccountId: "gla_a_dep",
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T11.24 …nor at B's DEPRECIATION EXPENSE account",
+      () =>
+        A.glFixedAsset.create({
+          data: {
+            id: "evil_asset4", clubId: "club_a", name: "x", costCents: 1,
+            inServiceDate: new Date("2027-01-01T00:00:00Z"), usefulLifeMonths: 1,
+            assetAccountId: "gla_a_cash", accumDepAccountId: "gla_a_accum", depExpenseAccountId: "gla_b_dep",
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T11.25 …nor at B's LEGAL ENTITY",
+      () =>
+        A.glFixedAsset.create({
+          data: {
+            id: "evil_asset5", clubId: "club_a", name: "x", costCents: 1,
+            inServiceDate: new Date("2027-01-01T00:00:00Z"), usefulLifeMonths: 1,
+            legalEntityId: "ent_b1", assetAccountId: "gla_a_cash",
+            accumDepAccountId: "gla_a_accum", depExpenseAccountId: "gla_a_dep",
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T11.26 A cannot close its OWN month against B's LEGAL ENTITY",
+      () =>
+        A.glMonthClose.create({
+          data: {
+            id: "evil_close2", clubId: "club_a", legalEntityId: "ent_b1",
+            periodMonth: new Date("2027-03-01T00:00:00Z"), status: "CLOSED",
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T11.27 A cannot file an archived row under B's FILE",
+      () => A.qboHistoryRow.create({ data: { id: "evil_qbr2", clubId: "club_a", fileId: "qbf_b1", rowIndex: 0 } }),
+      /row-level security|foreign key|23503|42501/i,
+    );
+    await throws(
+      "T11.28 A cannot attach a bank row to B's PLAID CONNECTION",
+      () =>
+        A.plaidTransaction.create({
+          data: {
+            id: "evil_pt2", clubId: "club_a", plaidConnectionId: "pc_b1", plaidTransactionId: "ptx_evil2",
+            accountId: "acct_evil", amount: 1, date: new Date("2027-02-01T00:00:00Z"), name: "evil",
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+
+    // Positive controls: the same shapes must still work inside one club, or
+    // the policies are too tight and the feature is broken rather than safe.
+    const okAsset = await A.glFixedAsset.create({
+      data: {
+        id: "good_asset", clubId: "club_a", name: "A scoreboard", costCents: 50_000,
+        inServiceDate: new Date("2027-01-01T00:00:00Z"), usefulLifeMonths: 36,
+        legalEntityId: "ent_a1", assetAccountId: "gla_a_cash",
+        accumDepAccountId: "gla_a_accum", depExpenseAccountId: "gla_a_dep",
+      },
+    });
+    ok(okAsset.id === "good_asset", "T11.29 …but A CAN register an asset against its own accounts");
+    await A.glFixedAsset.delete({ where: { id: "good_asset" } });
+
+    const okRow = await A.qboHistoryRow.create({
+      data: { id: "good_qbr", clubId: "club_a", fileId: "qbf_a1", name: "A vendor", amountCents: 100, rowIndex: 1 },
+    });
+    ok(okRow.id === "good_qbr", "T11.30 …and CAN file an archived row under its own file");
+    await A.qboHistoryRow.delete({ where: { id: "good_qbr" } });
+
+    // Update / delete isolation.
+    ok(
+      (await A.glFixedAsset.updateMany({ where: { clubId: "club_b" }, data: { costCents: 1 } })).count === 0,
+      "T11.31 A cannot rewrite B's asset cost",
+    );
+    ok(
+      (await A.glMonthClose.updateMany({ where: { clubId: "club_b" }, data: { status: "OPEN" } })).count === 0,
+      "T11.32 A cannot reopen B's closed month",
+    );
+    ok(
+      (await A.qboHistoryRow.deleteMany({ where: { clubId: "club_b" } })).count === 0,
+      "T11.33 A cannot delete B's archive",
+    );
+    ok(
+      (await A.plaidTransaction.updateMany({ where: { clubId: "club_b" }, data: { suspectedDuplicateOf: "x" } })).count === 0,
+      "T11.34 A cannot flag B's bank rows as duplicates",
+    );
+    await throws(
+      "T11.35 A cannot re-home its asset into club B",
+      () => A.glFixedAsset.update({ where: { id: "asset_a1" }, data: { clubId: "club_b" } }),
+      /row-level security|42501/i,
+    );
+
+    // System check: B is untouched by all of the above.
+    ok((await sys.glFixedAsset.count({ where: { clubId: "club_b" } })) === 1, "T11.36 system check: B still has its asset");
+    ok(
+      (await sys.glMonthClose.findUnique({ where: { id: "close_b1" } }))?.status === "CLOSED",
+      "T11.37 system check: B's month is still closed",
+    );
+    ok((await sys.qboHistoryRow.count({ where: { clubId: "club_b" } })) === 1, "T11.38 system check: B still has its archive");
+    ok(
+      (await sys.plaidTransaction.findUnique({ where: { id: "pt_b1" } }))?.suspectedDuplicateOf === null,
+      "T11.39 system check: B's bank row is still unflagged",
+    );
+
+    // Fail closed with no tenant set.
+    ok((await appBase.glFixedAsset.findMany()).length === 0, "T11.40 no tenant → 0 assets (fail closed)");
+    ok((await appBase.glMonthClose.findMany()).length === 0, "T11.41 …and 0 month closes");
+    ok((await appBase.glOpeningImport.findMany()).length === 0, "T11.42 …and 0 opening imports");
+    ok((await appBase.qboHistoryFile.findMany()).length === 0, "T11.43 …and 0 archived files");
+    ok((await appBase.qboHistoryRow.findMany()).length === 0, "T11.44 …and 0 archived rows");
+    ok((await appBase.plaidTransaction.findMany()).length === 0, "T11.45 …and 0 bank rows");
+    ok((await appBase.stripeReconciliation.findMany()).length === 0, "T11.46 …and 0 Stripe reconciliations");
+
     await sys.$disconnect().catch(() => {});
     await appBase.$disconnect().catch(() => {});
     await sysPool.end().catch(() => {});

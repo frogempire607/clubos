@@ -44,7 +44,7 @@ CREATE POLICY tenant_isolation ON "plaid_transactions" FOR ALL
     "clubId" = app.current_club_id()
     AND EXISTS (
       SELECT 1 FROM "plaid_connections" pc
-      WHERE pc."id" = "plaidConnectionId" AND pc."clubId" = app.current_club_id()
+      WHERE pc."id" = "plaid_transactions"."plaidConnectionId" AND pc."clubId" = app.current_club_id()
     )
   );
 
@@ -57,7 +57,7 @@ CREATE POLICY tenant_isolation ON "plaid_sync_cursors" FOR ALL
     "clubId" = app.current_club_id()
     AND EXISTS (
       SELECT 1 FROM "plaid_connections" pc
-      WHERE pc."id" = "plaidConnectionId" AND pc."clubId" = app.current_club_id()
+      WHERE pc."id" = "plaid_sync_cursors"."plaidConnectionId" AND pc."clubId" = app.current_club_id()
     )
   );
 
@@ -334,12 +334,12 @@ CREATE POLICY tenant_isolation ON "gl_fixed_assets" FOR ALL
   USING ("clubId" = app.current_club_id())
   WITH CHECK (
     "clubId" = app.current_club_id()
-    AND EXISTS (SELECT 1 FROM "gl_accounts" a WHERE a."id" = "assetAccountId" AND a."clubId" = app.current_club_id())
-    AND EXISTS (SELECT 1 FROM "gl_accounts" a WHERE a."id" = "accumDepAccountId" AND a."clubId" = app.current_club_id())
-    AND EXISTS (SELECT 1 FROM "gl_accounts" a WHERE a."id" = "depExpenseAccountId" AND a."clubId" = app.current_club_id())
+    AND EXISTS (SELECT 1 FROM "gl_accounts" a WHERE a."id" = "gl_fixed_assets"."assetAccountId" AND a."clubId" = app.current_club_id())
+    AND EXISTS (SELECT 1 FROM "gl_accounts" a WHERE a."id" = "gl_fixed_assets"."accumDepAccountId" AND a."clubId" = app.current_club_id())
+    AND EXISTS (SELECT 1 FROM "gl_accounts" a WHERE a."id" = "gl_fixed_assets"."depExpenseAccountId" AND a."clubId" = app.current_club_id())
     AND (
-      "legalEntityId" IS NULL
-      OR EXISTS (SELECT 1 FROM "legal_entities" e WHERE e."id" = "legalEntityId" AND e."clubId" = app.current_club_id())
+      "gl_fixed_assets"."legalEntityId" IS NULL
+      OR EXISTS (SELECT 1 FROM "legal_entities" e WHERE e."id" = "gl_fixed_assets"."legalEntityId" AND e."clubId" = app.current_club_id())
     )
   );
 
@@ -349,7 +349,7 @@ CREATE POLICY tenant_isolation ON "gl_month_closes" FOR ALL
   USING ("clubId" = app.current_club_id())
   WITH CHECK (
     "clubId" = app.current_club_id()
-    AND EXISTS (SELECT 1 FROM "legal_entities" e WHERE e."id" = "legalEntityId" AND e."clubId" = app.current_club_id())
+    AND EXISTS (SELECT 1 FROM "legal_entities" e WHERE e."id" = "gl_month_closes"."legalEntityId" AND e."clubId" = app.current_club_id())
   );
 
 -- gl_opening_imports has no FK beyond clubId (entryIds is a JSON list, not a
@@ -367,13 +367,26 @@ CREATE POLICY tenant_isolation ON "qbo_history_files" FOR ALL
   WITH CHECK ("clubId" = app.current_club_id());
 
 -- qbo_history_rows → its file must be in the same club.
+--
+-- NOTE THE QUALIFIED OUTER REFERENCE below, and in every policy in this file.
+-- It is not cosmetic. `qbo_history_files` has its OWN column called "fileId"
+-- (the UploadedFile id), so an unqualified `"fileId"` inside the subquery binds
+-- to the INNER table — Postgres resolves names innermost-first — making the
+-- condition `f."id" = f."fileId"`, false for every row. The policy then refused
+-- EVERY insert, including a club's own.
+--
+-- The RLS harness caught exactly that, on its positive control (T11.30), while
+-- all 30 cross-tenant assertions passed vacuously. That is how an over-tight
+-- policy hides: it looks like excellent isolation. Every outer reference here
+-- is qualified whether or not a collision exists today, because a column later
+-- named after a foreign key would reintroduce it silently.
 ALTER TABLE "qbo_history_rows" ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON "qbo_history_rows";
 CREATE POLICY tenant_isolation ON "qbo_history_rows" FOR ALL
   USING ("clubId" = app.current_club_id())
   WITH CHECK (
     "clubId" = app.current_club_id()
-    AND EXISTS (SELECT 1 FROM "qbo_history_files" f WHERE f."id" = "fileId" AND f."clubId" = app.current_club_id())
+    AND EXISTS (SELECT 1 FROM "qbo_history_files" f WHERE f."id" = "qbo_history_rows"."fileId" AND f."clubId" = app.current_club_id())
   );
 
 DO $$

@@ -930,6 +930,36 @@ these, so none was in scope, and each needs its own think about FK shape:
 `member_subscription_events`, `membership_reactivations`,
 `membership_transfers`, `parental_consents`, `saved_member_views`.
 
+#### The harness found a real bug in one of these policies
+
+`qbo_history_rows`' policy refused **every** insert, including a club's own.
+
+`qbo_history_files` has its own column called `fileId` (the UploadedFile id),
+so the unqualified `"fileId"` inside
+
+```sql
+EXISTS (SELECT 1 FROM "qbo_history_files" f WHERE f."id" = "fileId" …)
+```
+
+bound to the **inner** table — Postgres resolves names innermost-first — making
+the condition `f."id" = f."fileId"`, false for every row.
+
+What makes this worth writing down is how it presented: **all 30 cross-tenant
+assertions passed**, and only the positive control (T11.30, "A *can* file a row
+under its own file") failed. An over-tight policy looks exactly like excellent
+isolation. Without a positive control for every shape, this would have shipped
+as "RLS working perfectly" and the History tab would simply never have accepted
+a row.
+
+Fixed by qualifying the outer reference (`"qbo_history_rows"."fileId"`), and
+every outer reference in the migration is now qualified whether or not a
+collision exists today — a column later named after a foreign key would
+reintroduce it silently.
+
+**Harness result: 170 passed, 1 failed.** The one failure is the standing T0.1
+completeness check, which now lists **20** tables without RLS instead of the 26
+before this phase.
+
 ### Task 2 — The statements
 
 `lib/glReports.ts` (pure) + `lib/glReportsServer.ts` (reads) + one route,
