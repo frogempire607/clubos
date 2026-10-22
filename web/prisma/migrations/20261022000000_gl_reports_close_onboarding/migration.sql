@@ -112,6 +112,13 @@ END $$;
 -- $2,000 for 2026, indexed from 2027).
 ALTER TABLE "clubs" ADD COLUMN IF NOT EXISTS "form1099Thresholds" JSONB;
 
+-- How a contractor was paid. Phase 3's 1099 report must EXCLUDE card and
+-- payment-processor payments (the processor reports those on a 1099-K), and
+-- without this column that rule cannot be applied at all: `payouts` has
+-- `method`, `contractor_payments` had nothing. NULL on every existing row, and
+-- a NULL is deliberately NOT treated as excluded — see the schema comment.
+ALTER TABLE "contractor_payments" ADD COLUMN IF NOT EXISTS "paymentMethod" TEXT;
+
 -- Task 9's duplicate guard.
 ALTER TABLE "plaid_transactions" ADD COLUMN IF NOT EXISTS "suspectedDuplicateOf" TEXT;
 ALTER TABLE "plaid_transactions" ADD COLUMN IF NOT EXISTS "duplicateDismissedAt" TIMESTAMP(3);

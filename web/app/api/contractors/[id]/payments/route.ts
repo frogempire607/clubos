@@ -11,6 +11,11 @@ const schema = z.object({
   date: z.string().optional(),
   service: z.string().optional().or(z.literal("")),
   notes: z.string().optional().or(z.literal("")),
+  // How it was paid. Optional, so every existing caller keeps working — but
+  // recording it is what lets the 1099 report exclude card and
+  // payment-processor payments, which the processor reports on a 1099-K.
+  // Without it those payments would be reported twice.
+  paymentMethod: z.enum(["CASH", "CARD", "BANK", "CHECK", "OTHER"]).optional(),
 });
 
 // POST /api/contractors/[id]/payments — log a payment / service rendered.
@@ -42,6 +47,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       date: data.date ? new Date(data.date) : new Date(),
       service: data.service || null,
       notes: data.notes || null,
+      paymentMethod: data.paymentMethod ?? null,
     },
   });
 

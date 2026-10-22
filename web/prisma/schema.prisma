@@ -3694,6 +3694,20 @@ model ContractorPayment {
   date         DateTime @default(now())
   service      String? // what the payment was for
   notes        String?
+  /// CASH | CARD | BANK | CHECK | OTHER — the same vocabulary as
+  /// Expense.paymentMethod.
+  ///
+  /// Added for Phase 12's 1099 report, which has to EXCLUDE card and
+  /// payment-processor payments because the processor reports those on a
+  /// 1099-K. Without this column that rule cannot be applied at all: Payout
+  /// has `method`, this table had nothing.
+  ///
+  /// NULL on every row recorded before 2026-10-22, and on any row saved
+  /// without one. A null is NOT treated as excluded — excluding on a guess
+  /// under-reports, which is the direction that gets a club penalised — so the
+  /// 1099 report counts it and says how much of a payee's total rests on an
+  /// unrecorded method.
+  paymentMethod String?
   createdAt    DateTime @default(now())
 
   club       Club       @relation(fields: [clubId], references: [id], onDelete: Cascade)

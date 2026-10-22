@@ -92,6 +92,12 @@ export const GATED = [
   // and a reopen that restores the PREVIOUS lock date rather than unlocking
   // the year.
   ["scripts/gl-close-tests.ts"],
+  // accounting Phase 3 (2026-10-22): the 1099 threshold report. §1 is a
+  // STANDING GUARD that no tax-identification field exists anywhere in the
+  // schema without field-level encryption to protect it — the repo has no
+  // encryption, so no TIN was stored, and this fails the build if one
+  // appears without it.
+  ["scripts/form1099-tests.ts"],
   // attendance, classes, front desk
   ["scripts/attendance-billing-tests.ts", RENDER],
   ["scripts/class-session-reconcile-tests.ts"],

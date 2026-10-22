@@ -882,7 +882,7 @@ regrouping would have been an easy way to break them again.
   between siblings puts the money and the subscription on different members, and
   reconciling through `memberId` reported a $545.37 hole that did not exist.
 
-## Phase 3 — Reports, close, onboarding (DO NOT BUILD YET)
+## Phase 3 — Reports, close, onboarding — original specification (for reference)
 
 - Reports: trial balance, GL, balance sheet, P&L, cash flow — by month, entity
   and program, with a **cash/accrual toggle**.
@@ -896,6 +896,312 @@ regrouping would have been an easy way to break them again.
   live reports**.
 
 ---
+
+## Phase 3 — Reports, close, onboarding — **BUILT (Phase 12, 2026-10-22)**
+
+Branch `claude/athletixos-accounting-phase-3`, cut from `origin/main` at
+`88a4944`. Migration `20261022000000_gl_reports_close_onboarding` — **written,
+additive, NOT applied.**
+
+### Task 1 — RLS first
+
+FK-aware policies for six finance/reports tables that had none.
+
+| Table | Policy | Why that shape |
+|---|---|---|
+| `plaid_transactions` | clubId **+ FK-aware on `plaidConnectionId`** | It has a real FK to `plaid_connections`, and Postgres FK checks deliberately bypass RLS — the hole Phase 1's harness proved on `gl_journal_lines`. `legalEntityId` and `categorizedExpenseId` are loose references with no FK, so there is no FK target to verify for those. |
+| `plaid_sync_cursors` | clubId **+ FK-aware** | Same FK, same treatment. |
+| `stripe_reconciliations` | clubId only | Correct rather than lazy: no FK to another tenant table. `suggestedMemberId`/`resolvedMemberId` are deliberately loose — the row exists precisely *because* the member is not yet confirmed. |
+| `transaction_category_rules` | clubId only | No FK to another tenant table. |
+| `expense_classification_overrides` | clubId only | Same. |
+| `report_alert_settings` | clubId only | Same. |
+
+Conditions go in `WITH CHECK`, never `USING`, so a bad row stays visible to the
+club that has to fix it.
+
+**The rest of T0.1 — tables that still have no RLS.** Phase 3 reads none of
+these, so none was in scope, and each needs its own think about FK shape:
+
+`action_item_snoozes`, `billing_audit_logs`, `email_opt_out_audits`,
+`email_sends`, `email_templates`, `event_bundle_purchases`,
+`event_comp_assignments`, `event_document_links`, `guardian_consent_requests`,
+`import_batches`, `import_rows`, `invoice_splits`, `marketing_audiences`,
+`member_historical_records`, `member_invitation_deliveries`,
+`member_subscription_events`, `membership_reactivations`,
+`membership_transfers`, `parental_consents`, `saved_member_views`.
+
+### Task 2 — The statements
+
+`lib/glReports.ts` (pure) + `lib/glReportsServer.ts` (reads) + one route,
+`/api/financials/ledger/reports?statement=…`. One route rather than six: the
+permission check and the tier gate are the parts that must never be missing.
+
+Trial balance, general ledger, balance sheet, P&L (optionally a column per
+month) and an indirect cash flow statement. Filters: date range, entity,
+program, cash/accrual. Every figure drills down to its journal lines, and from
+there into the Journal tab — which gained *visible* account and date filters,
+because the route already accepted them but an arriving reader could not see
+what was narrowing their view.
+
+**Each statement reports whether it ties.** A balance sheet that silently
+doesn't balance is worse than one that refuses, because the first gets filed.
+`differenceCents` is exact — integer cents make that possible, and a tolerance
+check would hide the drift the checks exist to catch.
+
+#### The cash/accrual toggle, and its one real limitation
+
+Nothing in AthletixOS posts into Accounts Receivable, Accounts Payable,
+Deferred Revenue or Prepaid Expenses automatically. Phase 2's engine posts when
+money MOVES. So for a club that has written no accruals by hand, **cash and
+accrual are the same numbers**, and the report says so rather than implying a
+difference that isn't there.
+
+Cash basis therefore means: leave out every entry that touches an accrual-only
+account (1100, 1300, 2000, 2200).
+
+**Stated plainly, because it matters:** that drops *both* halves of a
+hand-written accrual — the invoice (A/R ↔ revenue) and the entry that settles
+it (bank ↔ A/R). A manually invoiced sale appears in neither period on a cash
+basis. Tracing a settlement back to the invoice it pays needs a link this ledger
+does not store, and guessing the link is how a report starts quietly
+double-counting. So every cash-basis payload carries the excluded entry ids,
+the UI shows the count, and the note names the limitation — visibly incomplete
+rather than invisibly wrong.
+
+#### The fiscal year is the calendar year
+
+There is no fiscal-year field on `Club`, and inventing one here would be a
+setting nobody can see or change. A club on a non-calendar year gets the wrong
+retained-earnings split, which is why the balance sheet payload states the
+fiscal-year start it used and the UI prints it. **Follow-up:** a
+`Club.fiscalYearStartMonth` column.
+
+#### The depreciation add-back was counted twice, briefly
+
+Showing the depreciation *expense* as an operating add-back AND the
+accumulated-depreciation movement in investing breaks the tie by exactly the
+period's depreciation. The contra-asset movement **is** the add-back, so it goes
+to operating and nowhere else. `gl-reports` 10.23 is the regression test.
+
+#### Tax Summary stays
+
+Nothing deep-links to `?tab=tax` (checked across `app lib components`), but it
+estimates taxable profit from *bank rows*, which is a different job from the
+ledger statements beside it. Absorbing it would have removed a capability
+rather than tidied one up.
+
+### Task 3 — CPA export
+
+`/api/financials/ledger/reports/export`. Per statement as CSV or xlsx, plus
+`?package=cpa&year=YYYY` — trial balance, general ledger, balance sheet and P&L
+as **one workbook, one sheet each**, with a cover sheet stating the basis, the
+filters, and whether the statements inside balance.
+
+`lib/exporters.ts` gained `buildWorkbook`, the multi-sheet sibling of
+`buildXlsx` (which calls `addWorksheet` exactly once). It de-dupes sheet names
+after Excel's 31-character truncation — two long account names would collide,
+and a collision throws, losing the whole download.
+
+**exceljs, never xlsx (SheetJS).** Already a written-down decision; still true.
+
+Money leaves the ledger as a **number**, never `"$1,234.56"` and never
+`"(1,234.56)"`: the CPA's first action is to sum the column, and a formatted
+string sums to zero. `csvSafe()` neutralises a leading `=`, `+`, `-` or `@`,
+which is a real injection route when the text is a club's own account names.
+
+### Task 4 — Month close
+
+`lib/glClose.ts` (pure) + `lib/glCloseServer.ts` + `/api/financials/ledger/close`.
+
+Five checks, **all blocking** — a close is a statement that the month is
+finished, and "finished except for the bank reconciliation" is not something a
+CPA can use:
+
+1. every bank and card account reconciled for the month;
+2. nothing waiting to post;
+3. no uncategorised bank rows;
+4. undeposited funds reviewed;
+5. depreciation posted.
+
+Closing sets the lock date through `setLockDate` — the same function the
+lock-date setting uses, so one mechanism and one audit trail. **There is
+deliberately no separate "closed" flag for the ledger to consult:** two answers
+to "can I post to January?" would eventually disagree, and the one that lost
+would be the one stopping the entry.
+
+Three details that took care:
+
+- **Closing an earlier month never moves the lock backwards.** That would
+  silently reopen everything in between. It raises the lock only forwards, and
+  warns when it leaves it alone.
+- **Reopening restores the lock the entity had *before* the close**, recorded on
+  the close row at close time because afterwards it is unknowable. A club that
+  closed December then January gets December's lock back when it reopens
+  January — not an unlocked year.
+- **The checklist is re-evaluated server-side at close time.** The button on
+  screen can be stale, and "ready" is a claim about the books, not the page.
+
+Check 4 needs a human: a non-zero 1020 balance is not itself wrong — cash
+really can be in the drawer over a month end — so it is satisfied either by a
+zero balance or by an explicit tick, never by a rule.
+
+Check 2 needed a dry run, so `postPendingForClub` gained `dryRun`. It reuses the
+real sweep rather than reimplementing "what posts", so the two cannot disagree,
+and a checklist that changed the books by being looked at would not be a
+checklist. `PostingReport` also gained `postedByMonth`, because a bare total
+would let one permanently-stuck record dated in March block January's close
+forever.
+
+Reopening is **owner-only**, needs a reason of at least a sentence, and is
+audited on both the close row and the ledger's audit trail.
+
+### Task 5 — Fixed assets
+
+`lib/glAssets.ts` (pure) + `lib/glAssetsServer.ts` + two routes.
+
+**Idempotency is structural.** Depreciation posts with `sourceType
+"DEPRECIATION"` and `sourceId "<assetId>:<YYYY-MM>"`, and
+`gl_journal_entries` is unique on `(clubId, sourceType, sourceId)` — so
+"once per asset per month" is enforced by Postgres. A re-run, a double click and
+two racing sessions all land on the same unique violation, counted as success.
+**That is why there is no depreciation-schedule table:** a table would be a
+second place for the truth to live, and it would drift.
+
+**Rounding.** The monthly charge is `floor((cost − salvage) / life)` and the
+FINAL month absorbs the remainder, so a schedule totals exactly cost less
+salvage. A cent over would depreciate past salvage value; a cent under would
+leave a stub balance on the books forever. Proven across 793 parameter
+combinations.
+
+**Convention:** a full month in the month the asset was placed in service.
+Mid-month and half-year are tax conventions that belong on the return, where the
+CPA adjusts them. Stated on screen so nobody has to guess which one this is.
+
+**Editing is refused** once any month has posted, for the four fields that
+define the schedule, with a reason and a way forward. Re-cutting a schedule
+under already-posted months is how a register starts disagreeing with the
+ledger.
+
+**Disposal** takes the asset off at cost, removes its accumulated depreciation
+with it, brings in whatever was received, and puts the difference to a gain or
+a loss. It balances by construction — the gain/loss *is* the plug. A gain goes
+to **4950 Other Income**, a loss to **6900 Miscellaneous**: the chart has no
+dedicated gain/loss account, and adding one to `CHART_TEMPLATE` would not reach
+an already-seeded club (`ensureSystemAccounts` only tops up *system* accounts).
+Both are shown on screen before the entry posts, and a CPA can reclassify.
+
+### Task 6 — 1099: STOPPED on the tax ID, built everything else
+
+**The brief said: "Contractor tax ID: SECURITY. It must be encrypted at rest,
+shown masked (last 4), owner-only, and never logged. If no field-level
+encryption exists in the repo, STOP and propose one before storing any TIN."**
+
+**There is none.** Verified before writing any code:
+
+- `grep -rE "createCipheriv|createDecipheriv|createCipher|createDecipher|aes-256"`
+  over the repo → **zero matches**.
+- Every `crypto` import under `lib/` is hashing, HMAC, or random-token
+  generation — `sha256` for the payment-method `pmRef`, HMAC for calendar-feed
+  and signed-image tokens, `randomBytes` for activation tokens. None is
+  reversible encryption.
+- No encryption-key variable in `.env.example`.
+- `grep -niE "taxId|ein\b|ssn|tin\b"` over `prisma/schema.prisma` → only
+  `LegalEntity.ein` (the **club's own** EIN, not a payee's),
+  `Contractor.w9Url` (a link to an uploaded PDF), and a `StaffDocument.kind`
+  comment.
+
+**So no TIN field was added and none is stored.** `scripts/form1099-tests.ts` §1
+is a **standing guard**: if a field named `taxId`/`tin`/`ssn`/… ever appears in
+the schema without `createCipheriv`/`aes-256-gcm` somewhere in `lib/`, the build
+fails. The CSV has no tax-identification column and no address column either.
+
+#### 1099 — the TIN question
+
+**What is needed, and the proposed design — for Julian's approval before
+anything stores a TIN.**
+
+A TIN is an SSN or an EIN. An SSN in a breached database is identity theft for a
+real person, so this is the most sensitive field AthletixOS would hold, and it
+should not be added casually.
+
+**Proposal.**
+
+1. **Envelope encryption with AES-256-GCM**, in a new `lib/fieldCrypto.ts`:
+   - a 32-byte master key from a new env var `FIELD_ENCRYPTION_KEY`
+     (base64), present in Netlify only, never committed, never logged;
+   - per-value random 12-byte IV; the stored value is
+     `v1:<base64 iv>:<base64 ciphertext>:<base64 auth tag>` in a single
+     `Contractor.taxIdEncrypted String?` column;
+   - the version prefix is what makes a key rotation possible later without
+     guessing how an old value was written.
+2. **A separate plaintext `taxIdLast4 String?`**, so every screen, list and
+   export can show `•••• 1234` without a decryption call. Masked display must
+   never be a decrypt — that is how a decrypt ends up in a log line.
+3. **Decryption happens in exactly one function**, called from exactly one
+   route, which is **owner-only** (`requireOwnerLive`) and returns the value for
+   a single contractor. There is no list endpoint that decrypts, and no report
+   that includes it.
+4. **Never logged, never in an error message.** `fieldCrypto` throws a bare
+   `FieldCryptoError` with no value attached, and the decrypt route catches it.
+5. **Writes are owner-only too**, and audited — `BillingAuditLog` already exists
+   and is the right home: who set or changed a TIN, when, from what IP. The
+   value itself is never in the audit row.
+6. **A W-9 PDF is still the system of record.** `Contractor.w9Url` already
+   stores one behind the club-scoped `/api/files/[id]` gate. The encrypted TIN
+   is a convenience for filling forms, not a replacement — which also means
+   *not* adding it is a survivable state, as it is today.
+7. **`Contractor.address` is also missing** and a 1099-NEC needs it. It is not
+   sensitive in the same way, so it can be added plainly whenever the 1099 work
+   resumes.
+
+Until that is approved and built, a club uses this report to see exactly who
+needs a form and for how much, and fills the TIN and address in from the W-9.
+
+#### The threshold
+
+Verified against IRS guidance 2026-10-21:
+
+| Payments made | Threshold | Source |
+|---|---|---|
+| before 2026-01-01 | **$600** | long-standing statutory figure |
+| on/after 2026-01-01 | **$2,000** | OBBBA §70433, for 1099-NEC and 1099-MISC |
+| 2027 onwards | **indexed for inflation** | figure not yet published |
+
+Not hardcoded: `Club.form1099Thresholds` is a per-year override in cents, which
+is how a club records the indexed figure for 2027 and how it corrects anything
+this code has not caught up with. For a year past the last settled one the
+report shows the last statutory amount and **says, on the face of it, that the
+figure must be confirmed** before anyone relies on it. A number quietly guessed
+there would be a wrong 1099.
+
+1099-K is a different form with a different threshold ($20,000 and 200
+transactions), filed by the *processor*. That is why card and processor payments
+are excluded here rather than counted.
+
+#### Card and processor payments are excluded — which needed one new column
+
+`Payout.method` exists; `ContractorPayment` had **nothing**, so the exclusion
+could not be applied to it at all. The migration adds
+`contractor_payments.paymentMethod` (nullable, same vocabulary as
+`Expense.paymentMethod`), and `POST /api/contractors/[id]/payments` now accepts
+it, optionally, so every existing caller keeps working.
+
+**A null is NOT treated as excluded.** Excluding on a guess under-reports, which
+is the direction that gets a club penalised. Instead the report counts it and
+says how much of each payee's total rests on an unrecorded method.
+
+#### Contractor money lives in two unreconciled places
+
+`ContractorPayment` and `Payout` (payeeType `CONTRACTOR`/`GUEST`), with no link
+between them — so the same payment can be recorded twice. The report sums both
+and **flags the likely pairs** (same contractor, same amount, within ±3 days,
+from *different* tables) rather than merging them. Merging on a guess would
+under-report a referee who genuinely worked two weekends at the same rate.
+
+Only **PAID** payouts count, dated by `paidAt` — a 1099 is on the cash basis, so
+a payout created in December and paid in January belongs to January.
+
+**Nothing files anything.** It is a report and a CSV.
 
 ## Sports-club chart of accounts template
 
