@@ -79,6 +79,13 @@ export const GATED = [
   // double-count guard, reconciliation arithmetic, and the source guarantees
   // (one write path, immutable keys, FK-aware RLS, every route gated).
   ["scripts/gl-posting-tests.ts"],
+  // accounting Phase 3 (2026-10-22): the statements. A trial balance whose
+  // debits equal its credits, a balance sheet that balances as of EVERY date
+  // in the fixture, and a cash flow statement that ties to the actual movement
+  // in the cash accounts for every month — all to the cent, because integer
+  // cents make an exact check possible and a tolerance check would hide the
+  // drift these tests exist to catch.
+  ["scripts/gl-reports-tests.ts"],
   // attendance, classes, front desk
   ["scripts/attendance-billing-tests.ts", RENDER],
   ["scripts/class-session-reconcile-tests.ts"],

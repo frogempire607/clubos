@@ -207,6 +207,13 @@ model Club {
   // double-counting history the club already imported elsewhere. Owner-only
   // setting. Manual journal entries are unaffected by it.
   booksStartDate                 DateTime?             @db.Date
+  /// Per-year 1099-NEC/MISC reporting thresholds in CENTS, as
+  /// { "2026": 200000 }. NULL = use the statutory defaults in lib/form1099.ts.
+  /// Stored per club because a club may have its own policy (e.g. issuing at a
+  /// lower figure than the law requires), and per YEAR because the statutory
+  /// number changes: OBBBA raised it from $600 to $2,000 for payments made on
+  /// or after 2026-01-01, indexed for inflation from 2027.
+  form1099Thresholds             Json?
   discounts                      Discount[]
   products                       Product[]
   productSales                   ProductSale[]
@@ -273,6 +280,11 @@ model Club {
   glAccounts                     GlAccount[]
   glReconciliations              GlReconciliation[]
   glDeposits                     GlDeposit[]
+  glFixedAssets                  GlFixedAsset[]
+  glMonthCloses                  GlMonthClose[]
+  glOpeningImports               GlOpeningImport[]
+  qboHistoryFiles                QboHistoryFile[]
+  qboHistoryRows                 QboHistoryRow[]
   glJournalEntries               GlJournalEntry[]
   glJournalLines                 GlJournalLine[]
   glEntryAttachments             GlEntryAttachment[]
@@ -357,6 +369,17 @@ model PlaidTransaction {
   // (plaidTransactionId is then "qb:<import>:<row>"); importId says which.
   source                          String    @default("PLAID")
   importId                        String?
+  /// Task 9 duplicate guard (Phase 12). When a QuickBooks-imported row and a
+  /// live Plaid row look like the same transaction — same bank account, same
+  /// amount, dates within ±3 days — this points the IMPORTED row at the Plaid
+  /// one and the imported row is HELD: it never posts until somebody decides.
+  /// Loose reference (holds the other row's `plaidTransactionId`), because the
+  /// pair may be deleted independently.
+  suspectedDuplicateOf            String?
+  /// Set when a human says "these are genuinely two different transactions",
+  /// which releases the held row to post.
+  duplicateDismissedAt            DateTime?
+  duplicateDismissedByUserId      String?
   syncedAt                        DateTime  @default(now())
   createdAt                       DateTime  @default(now())
   updatedAt                       DateTime  @updatedAt
@@ -370,6 +393,7 @@ model PlaidTransaction {
   @@index([categorizedExpenseId], map: "plaid_transactions_categorizedExpenseId_idx")
   @@index([clubId, legalEntityId, date], map: "plaid_transactions_entity_idx")
   @@index([importId])
+  @@index([clubId, suspectedDuplicateOf], map: "plaid_transactions_clubId_suspectedDuplicateOf_idx")
   @@map("plaid_transactions")
 }
 
@@ -3118,6 +3142,8 @@ model LegalEntity {
   glJournalEntries GlJournalEntry[]
   glJournalLines   GlJournalLine[]
   glLockDates      GlLockDate[]
+  glFixedAssets    GlFixedAsset[]
+  glMonthCloses    GlMonthClose[]
 
   @@index([clubId])
   @@map("legal_entities")
@@ -4419,6 +4445,9 @@ model GlAccount {
   bankAccounts    BankAccount[]
   reconciliations GlReconciliation[]
   deposits        GlDeposit[]
+  assetsAsAsset       GlFixedAsset[] @relation("GlAssetAccount")
+  assetsAsAccumDep    GlFixedAsset[] @relation("GlAccumDepAccount")
+  assetsAsDepExpense  GlFixedAsset[] @relation("GlDepExpenseAccount")
 
   @@unique([clubId, number], map: "gl_accounts_clubId_number_key")
   @@unique([clubId, systemKey], map: "gl_accounts_clubId_systemKey_key")
@@ -4722,4 +4751,214 @@ model GlDeposit {
   @@index([bankTransactionId], map: "gl_deposits_bankTransactionId_idx")
   @@index([accountId], map: "gl_deposits_accountId_idx")
   @@map("gl_deposits")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACCOUNTING PHASE 3 — reports, close, onboarding (Phase 12, 2026-10-21)
+// ═══════════════════════════════════════════════════════════════════════════
+// Plan: docs/accounting/plan.md. Phase 10 built the ledger, Phase 11 made it
+// fill itself; this phase is what a club hands its accountant.
+//
+// The reports themselves need NO tables — they read gl_journal_lines. What
+// needs storing is the workpaper state: which months are closed, what the club
+// owns, and the two QuickBooks imports.
+
+/// A depreciable asset. Straight-line only, which is what a sports club needs
+/// and all the brief asks for.
+///
+/// Depreciation posts through the Phase 1 ledger with
+/// `sourceType: "DEPRECIATION"` and `sourceId: "<assetId>:<YYYY-MM>"`, so the
+/// (clubId, sourceType, sourceId) unique index makes "once per asset per month"
+/// STRUCTURAL — a re-run posts nothing, with no bookkeeping table to keep in
+/// step. That is why there is no depreciation-schedule table here.
+model GlFixedAsset {
+  id     String @id @default(cuid())
+  clubId String
+  name   String
+  description String?
+  /// What it cost, integer cents.
+  costCents Int
+  /// The month depreciation starts. Date-only, 00:00 UTC.
+  inServiceDate DateTime @db.Date
+  /// Straight-line life. Months rather than years because a club buys mats in
+  /// March, not on 1 January.
+  usefulLifeMonths Int
+  /// What it is expected to be worth at the end; never depreciated below this.
+  salvageValueCents Int @default(0)
+  legalEntityId String?
+  /// 1500 Training Equipment, or whichever asset account holds it.
+  assetAccountId String
+  /// 1590 Accumulated Depreciation (contra-asset).
+  accumDepAccountId String
+  /// 6800 Depreciation Expense.
+  depExpenseAccountId String
+  /// ACTIVE | DISPOSED
+  status String @default("ACTIVE")
+  disposedDate         DateTime? @db.Date
+  /// What it sold for, if anything. Gain/loss is proceeds − book value.
+  disposalProceedsCents Int?
+  disposalEntryId       String?
+  disposalNote          String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  club        Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  legalEntity LegalEntity? @relation(fields: [legalEntityId], references: [id], onDelete: Restrict)
+  /// Restrict on all three: an account carrying an asset's depreciation must
+  /// not vanish from under it.
+  assetAccount     GlAccount @relation("GlAssetAccount", fields: [assetAccountId], references: [id], onDelete: Restrict)
+  accumDepAccount  GlAccount @relation("GlAccumDepAccount", fields: [accumDepAccountId], references: [id], onDelete: Restrict)
+  depExpenseAccount GlAccount @relation("GlDepExpenseAccount", fields: [depExpenseAccountId], references: [id], onDelete: Restrict)
+
+  @@index([clubId, status], map: "gl_fixed_assets_clubId_status_idx")
+  @@index([clubId, inServiceDate], map: "gl_fixed_assets_clubId_inServiceDate_idx")
+  @@index([legalEntityId], map: "gl_fixed_assets_legalEntityId_idx")
+  @@index([assetAccountId], map: "gl_fixed_assets_assetAccountId_idx")
+  @@index([accumDepAccountId], map: "gl_fixed_assets_accumDepAccountId_idx")
+  @@index([depExpenseAccountId], map: "gl_fixed_assets_depExpenseAccountId_idx")
+  @@map("gl_fixed_assets")
+}
+
+/// One month's close for one legal entity.
+///
+/// Closing sets the entity's lock date to the last day of the month, which is
+/// the Phase 1 mechanism that refuses edits to a closed period. `lockDateBefore`
+/// records what the lock date was, so reopening restores it exactly instead of
+/// guessing.
+///
+/// `checklist` is a SNAPSHOT of what passed at the moment of closing, not a
+/// live view — "everything was reconciled when we closed" is the fact worth
+/// keeping, and recomputing it later would quietly rewrite history.
+model GlMonthClose {
+  id     String @id @default(cuid())
+  clubId String
+  legalEntityId String
+  /// The first day of the month being closed. Date-only, 00:00 UTC.
+  periodMonth DateTime @db.Date
+  /// OPEN | CLOSED
+  status String @default("OPEN")
+  /// What the checklist looked like when it was closed. See lib/glClose.ts.
+  checklist Json?
+  /// The entity's lock date immediately BEFORE this close, so reopening puts
+  /// it back rather than clearing it.
+  lockDateBefore DateTime? @db.Date
+  closedAt       DateTime?
+  closedByUserId String?
+  /// Reopening is owner-only and REQUIRES a reason — it unlocks a period the
+  /// club has already reported on.
+  reopenedAt       DateTime?
+  reopenedByUserId String?
+  reopenReason     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  club        Club        @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  legalEntity LegalEntity @relation(fields: [legalEntityId], references: [id], onDelete: Restrict)
+
+  @@unique([clubId, legalEntityId, periodMonth], map: "gl_month_closes_clubId_entity_month_key")
+  @@index([clubId, status], map: "gl_month_closes_clubId_status_idx")
+  @@index([legalEntityId], map: "gl_month_closes_legalEntityId_idx")
+  @@map("gl_month_closes")
+}
+
+/// A QuickBooks trial balance brought in as the club's opening balances.
+///
+/// One entry per legal entity, dated the day BEFORE the books start date — so
+/// the opening balances sit in the period the ledger does not otherwise cover,
+/// and the first real month starts from them.
+///
+/// Voidable and re-importable until the first month close, because getting the
+/// mapping right usually takes two or three goes and the alternative is a
+/// club stuck with a wrong opening balance forever.
+model GlOpeningImport {
+  id       String @id @default(cuid())
+  clubId   String
+  fileName String
+  /// DRAFT | POSTED | VOIDED
+  status String @default("DRAFT")
+  /// The parsed rows, as read from the file: [{ account, debit, credit }, …].
+  rows Json
+  /// QuickBooks account name → AthletixOS account id, plus per-row overrides.
+  mapping Json @default("{}")
+  /// The day before the club's books start date. Stored so a later change to
+  /// booksStartDate cannot silently re-date an already-posted import.
+  asOfDate DateTime? @db.Date
+  /// The journal entries this import posted — one per entity.
+  entryIds Json?
+  /// What the parse/mapping produced: totals, unmapped accounts, the retained
+  /// earnings roll-up. Shown as the preview and kept for the record.
+  summary Json?
+  postedAt       DateTime?
+  postedByUserId String?
+  voidedAt       DateTime?
+  voidedByUserId String?
+  voidReason     String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, status], map: "gl_opening_imports_clubId_status_idx")
+  @@map("gl_opening_imports")
+}
+
+/// An uploaded QuickBooks General Ledger / Transaction Detail export.
+///
+/// READ-ONLY ARCHIVE. These rows are searchable history and NOTHING ELSE:
+/// they never post, never appear in a report, and no balance is derived from
+/// them. That separation is the whole point — a club switching from QuickBooks
+/// wants to look things up without its old data contaminating the new books.
+model QboHistoryFile {
+  id       String @id @default(cuid())
+  clubId   String
+  fileName String
+  /// GENERAL_LEDGER | TRANSACTION_DETAIL | OTHER — what the club said it is.
+  kind     String @default("GENERAL_LEDGER")
+  rowCount Int    @default(0)
+  /// The stored original, via lib/storage.ts (an UploadedFile id). Keeping the
+  /// source file means a disputed row can always be checked against what
+  /// QuickBooks actually produced.
+  fileId           String?
+  notes            String?
+  uploadedByUserId String?
+  createdAt        DateTime @default(now())
+
+  club Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  rows QboHistoryRow[]
+
+  @@index([clubId, createdAt], map: "qbo_history_files_clubId_createdAt_idx")
+  @@map("qbo_history_files")
+}
+
+/// One row of archived QuickBooks history. Deliberately shaped like the export
+/// rather than like our ledger — it is a record of what the old system said.
+model QboHistoryRow {
+  id     String @id @default(cuid())
+  clubId String
+  fileId String
+  /// Date-only; null when the export row had no parseable date (a subtotal).
+  txDate   DateTime? @db.Date
+  txType   String?
+  num      String?
+  name     String?
+  memo     String?
+  account  String?
+  split    String?
+  /// Integer cents, signed as the export had it. Null on a row with no amount.
+  amountCents Int?
+  /// The raw parsed row, so nothing in the original is lost to our column
+  /// choices.
+  raw      Json?
+  rowIndex Int @default(0)
+
+  club Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  file QboHistoryFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, txDate], map: "qbo_history_rows_clubId_txDate_idx")
+  @@index([fileId, rowIndex], map: "qbo_history_rows_fileId_rowIndex_idx")
+  @@index([clubId, account], map: "qbo_history_rows_clubId_account_idx")
+  @@index([clubId, name], map: "qbo_history_rows_clubId_name_idx")
+  @@map("qbo_history_rows")
 }

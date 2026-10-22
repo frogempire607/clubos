@@ -608,7 +608,22 @@ ok(/GRANT SELECT, INSERT, UPDATE, DELETE ON "gl_reconciliations", "gl_deposits" 
 ok(/"booksStartDate" DATE;/.test(migration), "11.24 booksStartDate is added with NO default");
 
 const migrationDirs = readdirSync(join(ROOT, "prisma/migrations")).filter((d) => /^\d{14}_/.test(d)).sort();
-eq(migrationDirs[migrationDirs.length - 1], "20261021000000_gl_auto_posting_reconcile", "11.25 the migration sorts LAST");
+// This asserted "sorts LAST", which was only true while Phase 2 was the newest
+// migration — Phase 3's folder broke it the moment it was created, exactly as
+// Phase 1's equivalent assertion broke here (see ledger-tests 9.29). The real
+// invariant, and the only one `migrate deploy` cares about, is that it sorts
+// AFTER everything that precedes it; anything else and deploy warns about
+// out-of-order folders.
+{
+  const mine = "20261021000000_gl_auto_posting_reconcile";
+  ok(migrationDirs.includes(mine), "11.25 the migration folder is on disk");
+  const before = migrationDirs.slice(0, migrationDirs.indexOf(mine));
+  ok(
+    before.every((d) => d < mine),
+    "11.25b and it sorts after every migration that precedes it",
+    before.filter((d) => d >= mine).join(", "),
+  );
+}
 
 // 11.26 Every new route is gated, with a visible permission check.
 function walk(dir: string): string[] {
