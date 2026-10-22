@@ -46,6 +46,11 @@ export type ReportLine = {
   entryDate: string;
   legalEntityId: string | null;
   program: string | null;
+  /// The LINE's memo, distinct from the entry's. Carried on the line rather
+  /// than looked up by (entryId, accountId), because that key collides the
+  /// moment one entry has two lines on the same account — which a split
+  /// deposit does routinely.
+  lineMemo?: string | null;
 };
 
 /// Entry-level fields the general ledger prints beside each line.
@@ -291,7 +296,6 @@ export function generalLedger(
   lines: ReportLine[],
   entries: Map<string, ReportEntry>,
   priorLines: ReportLine[] = [],
-  opts?: { lineMemos?: Map<string, string | null> },
 ): GeneralLedgerAccount[] {
   const priorTotals = totalsByAccount(priorLines);
   const byAccount = new Map<string, ReportLine[]>();
@@ -331,7 +335,7 @@ export function generalLedger(
         reference: e?.reference ?? null,
         memo: e?.memo ?? null,
         sourceType: e?.sourceType ?? "MANUAL",
-        lineMemo: opts?.lineMemos?.get(`${l.entryId}:${l.accountId}`) ?? null,
+        lineMemo: l.lineMemo ?? null,
         program: l.program,
         debitCents: l.debitCents,
         creditCents: l.creditCents,

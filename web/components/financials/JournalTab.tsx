@@ -89,16 +89,24 @@ export default function JournalTab({
   isOwner,
   entities,
   entity,
+  focus,
 }: {
   canEdit: boolean;
   isOwner: boolean;
   entities: Entity[];
   entity: string;
+  /// Where a Reports drill-down sent the reader: the account and dates behind
+  /// the figure they clicked. Read ONCE, into the filter state, so the reader
+  /// can then change the filters without this fighting them.
+  focus?: { account: string; from: string; to: string } | null;
 }) {
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [accounts, setAccounts] = useState<AccountOpt[]>([]);
   const [lockDates, setLockDates] = useState<LockDate[]>([]);
   const [status, setStatus] = useState("POSTED");
+  const [account, setAccount] = useState(() => focus?.account ?? "all");
+  const [from, setFrom] = useState(() => focus?.from ?? "");
+  const [to, setTo] = useState(() => focus?.to ?? "");
   const [q, setQ] = useState("");
   const [err, setErr] = useState("");
   const [creating, setCreating] = useState(false);
@@ -108,6 +116,9 @@ export default function JournalTab({
     setErr("");
     const p = new URLSearchParams({ status, take: "100" });
     if (entity && entity !== "all") p.set("entity", entity);
+    if (account && account !== "all") p.set("account", account);
+    if (from) p.set("from", from);
+    if (to) p.set("to", to);
     if (q.trim()) p.set("q", q.trim());
     try {
       const [er, ar, lr] = await Promise.all([
@@ -139,7 +150,7 @@ export default function JournalTab({
       setErr("Couldn't load the journal.");
       setEntries([]);
     }
-  }, [status, entity, q]);
+  }, [status, entity, account, from, to, q]);
 
   useEffect(() => {
     void load();
@@ -182,6 +193,50 @@ export default function JournalTab({
           <option value="VOID">Voided</option>
           <option value="ALL">All</option>
         </select>
+        {/* Account and dates were already accepted by the route; they only
+            became visible here when Reports gained a drill-down that lands on
+            this tab. An arriving reader has to be able to SEE the filter that
+            is narrowing what they're looking at, and clear it. */}
+        <select
+          value={account}
+          onChange={(e) => setAccount(e.target.value)}
+          className="text-sm px-3 py-2 border border-app-border rounded-lg bg-white max-w-[16rem]"
+          aria-label="Filter by account"
+        >
+          <option value="all">All accounts</option>
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.number} {a.name}
+            </option>
+          ))}
+        </select>
+        <input
+          type="date"
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+          className="text-sm px-3 py-2 border border-app-border rounded-lg bg-white"
+          aria-label="From date"
+        />
+        <input
+          type="date"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          className="text-sm px-3 py-2 border border-app-border rounded-lg bg-white"
+          aria-label="To date"
+        />
+        {(account !== "all" || from || to) && (
+          <button
+            type="button"
+            onClick={() => {
+              setAccount("all");
+              setFrom("");
+              setTo("");
+            }}
+            className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-muted hover:bg-app-bg"
+          >
+            Clear
+          </button>
+        )}
       </div>
 
       {err && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{err}</div>}

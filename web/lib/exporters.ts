@@ -52,6 +52,65 @@ export async function buildXlsx(
   return Buffer.from(out as ArrayBuffer);
 }
 
+/// A sheet for buildWorkbook. `headers` may be empty for a sheet that is only
+/// labelled rows (a balance sheet has no column headings worth printing).
+export type WorkbookSheet = {
+  name: string;
+  headers: string[];
+  rows: (string | number | null | undefined)[][];
+};
+
+/// MULTI-SHEET sibling of buildXlsx. A CPA package is a trial balance AND a
+/// general ledger AND a balance sheet AND a P&L — one workbook, one sheet
+/// each — and buildXlsx calls addWorksheet exactly once, so it cannot express
+/// that. Same name sanitiser and same column-width heuristic, so a one-sheet
+/// workbook built here is identical to one built there.
+export async function buildWorkbook(sheets: WorkbookSheet[]): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const used = new Set<string>();
+
+  for (const sheet of sheets) {
+    // Excel sheet names: max 31 chars, no : \ / ? * [ ] — and they must be
+    // UNIQUE, or exceljs throws and the whole download fails. A package built
+    // from account names can collide once truncated to 31, so a numeric suffix
+    // is appended rather than letting the export die.
+    const base = sheet.name.replace(/[:\\/?*\[\]]/g, "").slice(0, 31) || "Sheet1";
+    let name = base;
+    for (let i = 2; used.has(name); i += 1) {
+      const suffix = ` (${i})`;
+      name = base.slice(0, 31 - suffix.length) + suffix;
+    }
+    used.add(name);
+
+    const ws = wb.addWorksheet(name);
+    if (sheet.headers.length) ws.addRow(sheet.headers);
+    for (const r of sheet.rows) {
+      ws.addRow(r.map((c) => (c === null || c === undefined ? "" : c)));
+    }
+
+    const widthOf = (i: number) => {
+      let max = sheet.headers[i] ? String(sheet.headers[i]).length : 0;
+      for (const row of sheet.rows) {
+        const cell = row[i];
+        const len = cell === null || cell === undefined ? 0 : String(cell).length;
+        if (len > max) max = len;
+      }
+      return Math.min(max + 2, 60);
+    };
+    const columnCount = Math.max(
+      sheet.headers.length,
+      ...sheet.rows.map((r) => r.length),
+      1,
+    );
+    for (let i = 0; i < columnCount; i += 1) ws.getColumn(i + 1).width = widthOf(i);
+    if (sheet.headers.length) ws.getRow(1).font = { bold: true };
+  }
+
+  if (sheets.length === 0) wb.addWorksheet("Empty");
+  const out = await wb.xlsx.writeBuffer();
+  return Buffer.from(out as ArrayBuffer);
+}
+
 export function buildPdf(opts: {
   title: string;
   headers: string[];

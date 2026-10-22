@@ -64,6 +64,11 @@ const GATES: [string, string][] = [
   ["app/api/financials/imports/route.ts", "fullFinancials"],
   ["app/api/financials/bank-accounts/route.ts", "fullFinancials"],
   ["app/api/financials/category-rules/route.ts", "fullFinancials"],
+  // accounting Phase 3: the statements and the CPA download. Both are ONE
+  // route each on purpose — one permission check and one tier gate to get
+  // right rather than six of each to forget.
+  ["app/api/financials/ledger/reports/route.ts", "fullFinancials"],
+  ["app/api/financials/ledger/reports/export/route.ts", "fullFinancials"],
   ["app/api/reports/snapshot/route.ts", "fullReports"],
   ["app/api/reports/revenue/route.ts", "fullReports"],
   ["app/api/reports/pnl/route.ts", "fullReports"],

@@ -24,13 +24,14 @@ import ImportTab from "@/components/financials/ImportTab";
 import ChartOfAccountsTab from "@/components/financials/ChartOfAccountsTab";
 import JournalTab from "@/components/financials/JournalTab";
 import ReconcileTab from "@/components/financials/ReconcileTab";
+import ReportsTab from "@/components/financials/ReportsTab";
 import UpgradeNotice from "@/components/UpgradeNotice";
 import { canUseFeature } from "@/lib/tier";
 
 // Tabs included on Pro+ (pricing overhaul 2026-10-18). Starter keeps
 // Overview, Money In, Donations, Stripe and Cash & Offline. The routes behind
 // these tabs 403 on Starter; this only swaps the tab body for a notice.
-const PRO_TABS = new Set(["out", "tax", "bank", "receipts", "import", "accounts", "journal", "reconcile"]);
+const PRO_TABS = new Set(["out", "tax", "bank", "receipts", "import", "accounts", "journal", "reconcile", "reports"]);
 import { SkeletonList, SkeletonCard } from "@/components/LoadingSkeleton";
 
 type Entity = { id: string; name: string; entityType: string };
@@ -126,6 +127,8 @@ const TABS = [
   { key: "journal", label: "Journal" },
   // Accounting Phase 2 (2026-10-21).
   { key: "reconcile", label: "Reconcile" },
+  // Accounting Phase 3 (2026-10-22).
+  { key: "reports", label: "Reports" },
   { key: "stripe", label: "Stripe" },
   { key: "offline", label: "Cash & Offline" },
   { key: "bank", label: "Bank" },
@@ -147,7 +150,11 @@ type TabKey = (typeof TABS)[number]["key"];
 const TAB_GROUPS = [
   { key: "overview", label: "Overview", tabs: ["overview"] },
   { key: "activity", label: "Activity", tabs: ["in", "out", "donations"] },
-  { key: "books", label: "Books", tabs: ["journal", "accounts", "reconcile", "tax"] },
+  // Tax Summary STAYS. It reads bank rows to estimate taxable profit, which is
+  // a different job from the ledger statements beside it, so absorbing it into
+  // Reports would have removed a capability rather than tidied one up. Its
+  // `?tab=tax` key is untouched either way.
+  { key: "books", label: "Books", tabs: ["reports", "journal", "accounts", "reconcile", "tax"] },
   { key: "connections", label: "Connections", tabs: ["bank", "stripe", "offline", "receipts", "import"] },
 ] as const satisfies readonly { key: string; label: string; tabs: readonly TabKey[] }[];
 type GroupKey = (typeof TAB_GROUPS)[number]["key"];
@@ -189,6 +196,10 @@ export default function FinancialsPage() {
   // Read once at mount. Each tab owns its own toggle after that, so clicking
   // "All" inside a tab is not fought by the URL.
   const [show] = useState<ShowFocus>(() => parseShow(search));
+  // Where a Reports drill-down sent the reader. Deliberately NOT in the URL:
+  // it is a one-shot hand-off between two tabs, not an address worth sharing,
+  // and every existing `?tab=` link must keep meaning exactly what it did.
+  const [journalFocus, setJournalFocus] = useState<{ account: string; from: string; to: string } | null>(null);
   // The visible group follows the tab, including on a deep link.
   const [group, setGroup] = useState<GroupKey>(() => groupForTab(parseTab(search.get("tab"))));
   const setTab = useCallback(
@@ -359,12 +370,28 @@ export default function FinancialsPage() {
       {tab === "import" && <ImportTab canEdit={canEditMoney} />}
       {tab === "accounts" && <ChartOfAccountsTab canEdit={canEditMoney} entityQuery={`entity=${entity}&from=${from}&to=${to}`} />}
       {tab === "reconcile" && <ReconcileTab canEdit={canEditMoney} />}
+      {tab === "reports" && (
+        <ReportsTab
+          entity={entity}
+          from={from}
+          to={to}
+          onOpenJournal={(f) => {
+            setJournalFocus(f);
+            setTab("journal");
+          }}
+        />
+      )}
       {tab === "journal" && (
         <JournalTab
           canEdit={canEditMoney}
           isOwner={session?.user?.role === "OWNER"}
           entities={entities}
           entity={entity}
+          focus={journalFocus}
+          // Remounts when a drill-down arrives, so the focus lands in the
+          // filter state. Without this a reader already on the Journal tab
+          // would click through from Reports and see nothing change.
+          key={journalFocus ? `${journalFocus.account}:${journalFocus.from}:${journalFocus.to}` : "journal"}
         />
       )}
       </>
