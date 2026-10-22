@@ -28,6 +28,9 @@ import {
   type AccountMap,
   type ChargeFacts,
   type PostingOutcome,
+  DUPLICATE_WINDOW_DAYS,
+  detectBankDuplicates,
+  type DuplicateRow,
 } from "../lib/glPosting";
 import {
   canFinish,
@@ -699,6 +702,268 @@ const payrollCalc = readFileSync(join(ROOT, "lib/payrollCalc.ts"), "utf8");
 const rangeFn = payrollCalc.slice(payrollCalc.indexOf("export function payrollRange"), payrollCalc.indexOf("export function payrollRange") + 700);
 ok(/T00:00:00\.000Z/.test(rangeFn) && /T23:59:59\.999Z/.test(rangeFn), "11.37 payrollRange composes the range in UTC explicitly");
 ok(!/setHours|setMinutes|setDate\(/.test(rangeFn), "11.38 and uses NO local-time setter (that was the B37 bug)");
+
+// ── 12. Phase 3 additions to Phase 2's rules ───────────────────────────────
+// Three changes that belong to this suite because they change what POSTS:
+// task 9's duplicate guard, task 10's refund fee, and Julian's fix to the rule
+// that let 1020 Undeposited Funds go negative.
+console.log("\n[12] Phase 3 changes to posting");
+{
+  const refundBase: ChargeFacts = {
+    id: "tx1",
+    stripeChargeId: null,
+    stripePaymentIntentId: null,
+    stripeInvoiceId: null,
+    date: "2027-02-10",
+    amountCents: 50_000,
+    feeCents: null,
+    netCents: null,
+    category: "classes",
+    type: "CLASS",
+    legalEntityId: "frog",
+    memberName: "Dana Ruiz",
+    description: null,
+    reconciliationStatus: "OFFLINE",
+    paymentSource: "CASH",
+    paymentMethod: "CASH",
+    status: "SUCCEEDED",
+  };
+
+  // 12a. THE 1020 FIX. Cash refunded BEFORE the deposit comes out of the
+  // drawer; cash refunded AFTER it comes out of the bank it was deposited to.
+  {
+    const beforeDeposit = planRefund(refundBase, 0, 10_000, ACCOUNTS);
+    ok(beforeDeposit.posted, "12.1 an undeposited cash refund posts");
+    if (beforeDeposit.posted) {
+      const credit = beforeDeposit.plan.lines.find((l) => l.creditCents > 0);
+      eq(credit?.accountId, ACCOUNTS.byNumber["1020"], "12.2 and comes out of 1020 Undeposited Funds");
+      ok(entryTotals(beforeDeposit.plan.lines).balanced, "12.3 and balances");
+    }
+
+    const afterDeposit = planRefund(
+      { ...refundBase, depositedToAccountId: ACCOUNTS.byNumber["1000"] },
+      0,
+      10_000,
+      ACCOUNTS,
+    );
+    ok(afterDeposit.posted, "12.4 a refund of DEPOSITED cash posts");
+    if (afterDeposit.posted) {
+      const credit = afterDeposit.plan.lines.find((l) => l.creditCents > 0);
+      eq(
+        credit?.accountId,
+        ACCOUNTS.byNumber["1000"],
+        "12.5 and comes out of the BANK it was deposited to — this is what stops 1020 going negative",
+      );
+      ok(
+        !afterDeposit.plan.lines.some((l) => l.accountId === ACCOUNTS.byNumber["1020"]),
+        "12.6 with 1020 untouched, because the money is no longer in the drawer",
+      );
+      ok(entryTotals(afterDeposit.plan.lines).balanced, "12.7 and it balances");
+    }
+
+    // A Stripe refund is unaffected: it still comes out of clearing even if
+    // the transaction somehow carries a deposit.
+    const stripeRefund = planRefund(
+      {
+        ...refundBase,
+        paymentSource: "STRIPE",
+        reconciliationStatus: "VERIFIED",
+        depositedToAccountId: ACCOUNTS.byNumber["1000"],
+      },
+      0,
+      10_000,
+      ACCOUNTS,
+    );
+    ok(stripeRefund.posted, "12.8 a Stripe refund posts");
+    if (stripeRefund.posted) {
+      const credit = stripeRefund.plan.lines.find((l) => l.creditCents > 0);
+      eq(credit?.accountId, ACCOUNTS.byNumber["1050"], "12.9 out of Stripe Clearing, as before — unchanged by the fix");
+    }
+  }
+
+  // 12b. TASK 10: the refund fee, when Stripe reports one.
+  {
+    const noFee = planRefund(refundBase, 0, 10_000, ACCOUNTS);
+    if (noFee.posted) {
+      eq(noFee.plan.lines.length, 2, "12.10 with no fee figure a refund is two lines, exactly as in Phase 2");
+      ok(
+        !noFee.plan.lines.some((l) => l.accountId === ACCOUNTS.byNumber["6400"]),
+        "12.11 and never touches 6400 — the documented limitation, not a guess",
+      );
+    }
+
+    // Stripe gave the fee back: the expense goes down.
+    const feeBack = planRefund({ ...refundBase, refundFeeDeltaCents: 300 }, 0, 10_000, ACCOUNTS);
+    ok(feeBack.posted, "12.12 a refund with a fee credit posts");
+    if (feeBack.posted) {
+      ok(entryTotals(feeBack.plan.lines).balanced, "12.13 and balances");
+      const fee = feeBack.plan.lines.find((l) => l.accountId === ACCOUNTS.byNumber["6400"]);
+      eq(fee?.creditCents, 300, "12.14 with the fee CREDITED to 6400 — the expense is reduced");
+      const cash = feeBack.plan.lines.find((l) => l.accountId === ACCOUNTS.byNumber["1020"]);
+      eq(cash?.creditCents, 9_700, "12.15 and only the net leaving the money account");
+      const contra = feeBack.plan.lines.find((l) => l.accountId === ACCOUNTS.byNumber["4900"]);
+      eq(contra?.debitCents, 10_000, "12.16 while the full refund still debits contra-revenue");
+    }
+
+    // Stripe charged a fee ON the refund: the expense goes up.
+    const feeCharged = planRefund({ ...refundBase, refundFeeDeltaCents: -250 }, 0, 10_000, ACCOUNTS);
+    ok(feeCharged.posted, "12.17 a refund with a fee charge posts");
+    if (feeCharged.posted) {
+      ok(entryTotals(feeCharged.plan.lines).balanced, "12.18 and balances");
+      const fee = feeCharged.plan.lines.find((l) => l.accountId === ACCOUNTS.byNumber["6400"]);
+      eq(fee?.debitCents, 250, "12.19 with the fee DEBITED to 6400");
+      const cash = feeCharged.plan.lines.find((l) => l.accountId === ACCOUNTS.byNumber["1020"]);
+      eq(cash?.creditCents, 10_250, "12.20 and the refund plus the fee leaving the money account");
+    }
+
+    // Zero is not a fee movement, and must not write a zero line.
+    const zeroFee = planRefund({ ...refundBase, refundFeeDeltaCents: 0 }, 0, 10_000, ACCOUNTS);
+    if (zeroFee.posted) {
+      eq(zeroFee.plan.lines.length, 2, "12.21 a zero fee writes no fee line");
+    }
+
+    // Incremental refunds keep working with a fee: the key is the cumulative
+    // total, and only the delta posts.
+    const incremental = planRefund({ ...refundBase, refundFeeDeltaCents: 100 }, 10_000, 15_000, ACCOUNTS);
+    ok(incremental.posted, "12.22 a second partial refund still posts");
+    if (incremental.posted) {
+      const contra = incremental.plan.lines.find((l) => l.accountId === ACCOUNTS.byNumber["4900"]);
+      eq(contra?.debitCents, 5_000, "12.23 for the DELTA only, not the cumulative total");
+      ok(entryTotals(incremental.plan.lines).balanced, "12.24 and balances");
+    }
+  }
+
+  // 12c. TASK 9: the QuickBooks ↔ bank-feed duplicate guard.
+  {
+    const row = (
+      id: string,
+      source: string,
+      date: string,
+      amountCents: number,
+      accountKey = "conn1|acct1",
+    ): DuplicateRow => ({ plaidTransactionId: id, accountKey, date, amountCents, source });
+
+    // Same account, same amount, one day apart.
+    const pairs = detectBankDuplicates([
+      row("qb:1:0", "QUICKBOOKS", "2027-03-10", 25_000),
+      row("plaid-a", "PLAID", "2027-03-11", 25_000),
+    ]);
+    eq(pairs.length, 1, "12.25 same account, same amount, a day apart is a suspected duplicate");
+    eq(pairs[0].importedId, "qb:1:0", "12.26 and it is the IMPORTED row that gets held");
+    eq(pairs[0].feedId, "plaid-a", "12.27 paired with the feed row");
+    eq(pairs[0].daysApart, 1, "12.28 with the gap reported");
+
+    eq(detectBankDuplicates([row("qb:1:0", "QUICKBOOKS", "2027-03-10", 25_000), row("p", "PLAID", "2027-03-14", 25_000)]).length, 0, "12.29 four days apart is not");
+    eq(detectBankDuplicates([row("qb:1:0", "QUICKBOOKS", "2027-03-10", 25_000), row("p", "PLAID", "2027-03-13", 25_000)]).length, 1, "12.30 exactly three days is, the window being inclusive");
+    eq(detectBankDuplicates([row("qb:1:0", "QUICKBOOKS", "2027-03-10", 25_000), row("p", "PLAID", "2027-03-10", 25_001)]).length, 0, "12.31 a cent apart is not");
+    eq(
+      detectBankDuplicates([row("qb:1:0", "QUICKBOOKS", "2027-03-10", 25_000), row("p", "PLAID", "2027-03-10", 25_000, "conn2|acct9")]).length,
+      0,
+      "12.32 nor a different bank account",
+    );
+    eq(
+      detectBankDuplicates([row("qb:1:0", "QUICKBOOKS", "2027-03-10", 25_000), row("qb:1:1", "QUICKBOOKS", "2027-03-10", 25_000)]).length,
+      0,
+      "12.33 two IMPORTED rows are not a pair — nothing to compare against",
+    );
+    eq(
+      detectBankDuplicates([row("p1", "PLAID", "2027-03-10", 25_000), row("p2", "PLAID", "2027-03-10", 25_000)]).length,
+      0,
+      "12.34 and two FEED rows are never flagged — the feed is the bank's own record",
+    );
+
+    // Each feed row is claimed once, so a genuine second payment still posts.
+    const twoImported = detectBankDuplicates([
+      row("qb:1:0", "QUICKBOOKS", "2027-03-10", 25_000),
+      row("qb:1:1", "QUICKBOOKS", "2027-03-10", 25_000),
+      row("plaid-a", "PLAID", "2027-03-10", 25_000),
+    ]);
+    eq(twoImported.length, 1, "12.35 one feed row holds only ONE imported row");
+    eq(twoImported[0].importedId, "qb:1:0", "12.36 the first one");
+
+    // Nearest date wins, so the pairing is the most plausible one.
+    const nearest = detectBankDuplicates([
+      row("qb:1:0", "QUICKBOOKS", "2027-03-10", 25_000),
+      row("plaid-far", "PLAID", "2027-03-13", 25_000),
+      row("plaid-near", "PLAID", "2027-03-10", 25_000),
+    ]);
+    eq(nearest[0].feedId, "plaid-near", "12.37 the nearest feed row is the one paired");
+
+    eq(DUPLICATE_WINDOW_DAYS, 3, "12.38 the window is the specified three days");
+
+    // And the guard actually stops it posting.
+    const bank = {
+      plaidTransactionId: "qb:1:0",
+      date: "2027-03-10",
+      amountCents: -25_000,
+      name: "Deposit",
+      categoryOverride: "classes",
+      legalEntityId: "frog",
+      markedAsTransfer: false,
+      excludedFromTax: false,
+      reviewedAt: true,
+      matchedExpenseId: null,
+      matchedPayout: false,
+      matchedDeposit: false,
+      bankAccountId: ACCOUNTS.byNumber["1000"],
+    };
+    const held = planBankRow({ ...bank, suspectedDuplicateOf: "plaid-a" }, ACCOUNTS);
+    ok(!held.posted, "12.39 a held row does NOT post");
+    if (!held.posted) eq(held.reason, "SUSPECTED_DUPLICATE", "12.40 with the duplicate reason");
+    ok(/count the money twice/.test(SKIP_LABELS.SUSPECTED_DUPLICATE), "12.41 whose label says what posting both would do");
+
+    const dismissed = planBankRow(
+      { ...bank, suspectedDuplicateOf: "plaid-a", duplicateDismissed: true },
+      ACCOUNTS,
+    );
+    ok(dismissed.posted, "12.42 dismissing the hold lets it post");
+
+    const notHeld = planBankRow(bank, ACCOUNTS);
+    ok(notHeld.posted, "12.43 and an unflagged row is unaffected");
+
+    // The hold must outlast categorisation: an uncategorised held row reports
+    // the HOLD, not "not categorised", or categorising it would be the action
+    // that double-counts the money.
+    const heldUncategorised = planBankRow(
+      { ...bank, categoryOverride: null, suspectedDuplicateOf: "plaid-a" },
+      ACCOUNTS,
+    );
+    ok(!heldUncategorised.posted, "12.44 a held row that is also uncategorised still does not post");
+    if (!heldUncategorised.posted) {
+      eq(
+        heldUncategorised.reason,
+        "SUSPECTED_DUPLICATE",
+        "12.45 and reports the HOLD, so categorising it is not what releases the money",
+      );
+    }
+  }
+
+  // 12d. Source guarantees for the three changes.
+  {
+    const posting = readFileSync(join(ROOT, "lib/glPosting.ts"), "utf8");
+    const server = readFileSync(join(ROOT, "lib/glPostingServer.ts"), "utf8");
+    ok(
+      /depositedToAccountId/.test(posting) && /let 1020 go negative/.test(posting),
+      "12.46 the 1020 fix is in the code with the reason it exists",
+    );
+    ok(
+      /glDeposit\.findMany/.test(server),
+      "12.47 and the server resolves the deposit's bank account in ONE batched lookup",
+    );
+    ok(
+      /DOCUMENTED LIMITATION/.test(posting),
+      "12.48 the refund-fee limitation is stated in the source, not just the commit",
+    );
+    ok(
+      /if \(!dryRun\) await flagBankDuplicates/.test(server),
+      "12.49 the duplicate flagging runs in the sweep and NOT on a dry run",
+    );
+    ok(
+      /duplicateDismissedAt\) continue/.test(server),
+      "12.50 a dismissed row is never re-flagged, or dismissing it would achieve nothing",
+    );
+  }
+}
 
 // ── Done ───────────────────────────────────────────────────────────────────
 console.log(`\n${fails.length ? "✗" : "✓"} gl-posting: ${pass} passed, ${fails.length} failed`);

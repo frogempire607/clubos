@@ -49,6 +49,8 @@ import {
   type PostingPlan,
   type PostingSourceType,
   type SkipReason,
+  detectBankDuplicates,
+  type DuplicateRow,
 } from "@/lib/glPosting";
 
 const toDateStr = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null);
@@ -186,12 +188,21 @@ const TX_SELECT = {
   paymentSource: true,
   paymentMethod: true,
   status: true,
+  // Where cash or a cheque was DEPOSITED, if it was. A refund made after the
+  // deposit comes out of that bank account rather than out of Undeposited
+  // Funds — which is what stops 1020 going negative (Phase 3 decision).
+  glDepositId: true,
   member: { select: { firstName: true, lastName: true } },
 } as const;
 
 type TxRow = Prisma.TransactionGetPayload<{ select: typeof TX_SELECT }>;
 
-function chargeFacts(t: TxRow) {
+/// `depositAccounts` maps a GlDeposit id to the bank GL account it went into.
+/// Passed in rather than looked up here because `Transaction.glDepositId` is a
+/// loose column with no relation — the house style for money that outlives the
+/// record it was attached to — so it cannot be `include`d, and one batched
+/// lookup per sweep beats one query per refund.
+function chargeFacts(t: TxRow, depositAccounts?: Map<string, string>) {
   const date = toDateStr(t.txDate ?? t.createdAt)!;
   const name = t.member ? `${t.member.firstName} ${t.member.lastName}`.trim() : null;
   return {
@@ -212,6 +223,10 @@ function chargeFacts(t: TxRow) {
     paymentSource: t.paymentSource,
     paymentMethod: t.paymentMethod,
     status: t.status as string,
+    depositedToAccountId: t.glDepositId ? (depositAccounts?.get(t.glDepositId) ?? null) : null,
+    // Not available: see the note on planRefund. Passed explicitly rather
+    // than left undefined so the one place it would be filled is obvious.
+    refundFeeDeltaCents: null,
   };
 }
 
@@ -234,6 +249,152 @@ export type SweepOptions = {
   /// writes PayoutMatch rows, which is not a dry run.
   dryRun?: boolean;
 };
+
+/// Task 9: flag imported rows that look like the same transaction as a
+/// bank-feed row, so neither posts until somebody decides.
+///
+/// Only rows dated ON OR AFTER the books start date are considered: anything
+/// earlier never posts anyway (`booksGate`), so holding it would be noise.
+/// Only the IMPORTED row is flagged — the feed row is the bank's own record
+/// and the one a reconciliation has to tie to.
+///
+/// Idempotent: a row already flagged against the same feed row is left alone,
+/// and a row somebody has dismissed is never re-flagged, or dismissing it
+/// would achieve nothing.
+export async function flagBankDuplicates(
+  clubId: string,
+  booksStartDate: string | null,
+): Promise<{ flagged: number; cleared: number; held: number }> {
+  if (!booksStartDate) return { flagged: 0, cleared: 0, held: 0 };
+  const from = dateOnly(booksStartDate);
+
+  const rows = await prisma.plaidTransaction.findMany({
+    where: { clubId, date: { gte: from }, pending: false },
+    select: {
+      plaidTransactionId: true,
+      plaidConnectionId: true,
+      accountId: true,
+      date: true,
+      amount: true,
+      source: true,
+      suspectedDuplicateOf: true,
+      duplicateDismissedAt: true,
+    },
+    orderBy: { date: "asc" },
+    take: 5000,
+  });
+
+  const candidates = detectBankDuplicates(
+    rows.map(
+      (r): DuplicateRow => ({
+        plaidTransactionId: r.plaidTransactionId,
+        accountKey: `${r.plaidConnectionId}|${r.accountId}`,
+        date: toDateStr(r.date)!,
+        amountCents: cents(r.amount),
+        source: r.source,
+      }),
+    ),
+  );
+  const wanted = new Map(candidates.map((c) => [c.importedId, c.feedId]));
+
+  let flagged = 0;
+  let cleared = 0;
+  let held = 0;
+
+  for (const r of rows) {
+    if (r.source !== "QUICKBOOKS") continue;
+    const want = wanted.get(r.plaidTransactionId) ?? null;
+
+    if (want && r.suspectedDuplicateOf === want) {
+      if (!r.duplicateDismissedAt) held += 1;
+      continue;
+    }
+    // Dismissed rows are left exactly as they are: re-flagging one would undo
+    // the decision somebody already made.
+    if (r.duplicateDismissedAt) continue;
+
+    if (want) {
+      await prisma.plaidTransaction.updateMany({
+        where: { clubId, plaidTransactionId: r.plaidTransactionId },
+        data: { suspectedDuplicateOf: want },
+      });
+      flagged += 1;
+      held += 1;
+    } else if (r.suspectedDuplicateOf) {
+      // The feed row it was paired with has gone (an import was undone, a
+      // connection removed), so the hold no longer has a reason.
+      await prisma.plaidTransaction.updateMany({
+        where: { clubId, plaidTransactionId: r.plaidTransactionId },
+        data: { suspectedDuplicateOf: null },
+      });
+      cleared += 1;
+    }
+  }
+
+  return { flagged, cleared, held };
+}
+
+/// Somebody looked at a held pair and said they are different transactions.
+/// Releases the hold so the row can post.
+export async function dismissBankDuplicate(
+  clubId: string,
+  plaidTransactionId: string,
+  userId: string | null,
+): Promise<void> {
+  const row = await prisma.plaidTransaction.findFirst({
+    where: { clubId, plaidTransactionId },
+    select: { id: true, suspectedDuplicateOf: true },
+  });
+  if (!row) throw new LedgerError("That bank row doesn't exist.", 404);
+  if (!row.suspectedDuplicateOf) throw new LedgerError("That row isn't being held as a duplicate.", 409);
+  // updateMany with the clubId, not update by id: the row was already found
+  // club-scoped above, but every query in this module carries the scope and
+  // scripts/gl-posting-tests.ts §11 enforces that — a plain `where: { id }`
+  // is one refactor away from being the query that crosses a tenant.
+  await prisma.plaidTransaction.updateMany({
+    where: { id: row.id, clubId },
+    data: { duplicateDismissedAt: new Date(), duplicateDismissedByUserId: userId },
+  });
+}
+
+/// The held pairs, for the review screen.
+export async function heldBankDuplicates(clubId: string) {
+  const held = await prisma.plaidTransaction.findMany({
+    where: { clubId, suspectedDuplicateOf: { not: null }, duplicateDismissedAt: null },
+    select: {
+      plaidTransactionId: true,
+      date: true,
+      amount: true,
+      name: true,
+      accountId: true,
+      suspectedDuplicateOf: true,
+      importId: true,
+    },
+    orderBy: { date: "desc" },
+    take: 200,
+  });
+  if (held.length === 0) return [];
+
+  const feed = await prisma.plaidTransaction.findMany({
+    where: { clubId, plaidTransactionId: { in: held.map((h) => h.suspectedDuplicateOf!) } },
+    select: { plaidTransactionId: true, date: true, amount: true, name: true },
+  });
+  const byId = new Map(feed.map((f) => [f.plaidTransactionId, f]));
+
+  return held.map((h) => {
+    const f = byId.get(h.suspectedDuplicateOf!);
+    return {
+      importedId: h.plaidTransactionId,
+      importedDate: toDateStr(h.date),
+      importedName: h.name,
+      amountCents: cents(h.amount),
+      importId: h.importId,
+      feedId: h.suspectedDuplicateOf,
+      feedDate: f ? toDateStr(f.date) : null,
+      feedName: f?.name ?? null,
+    };
+  });
+}
 
 /// Post everything postable for one club. Idempotent, resumable, and a no-op
 /// for a club with no books start date.
@@ -295,7 +456,7 @@ export async function postPendingForClub(clubId: string, actor: Actor, opts: Swe
       orderBy: { createdAt: "asc" },
       take: limit,
     });
-    const facts = rows.map(chargeFacts);
+    const facts = rows.map((t) => chargeFacts(t));
     const keys = facts.map((f) => chargeSourceId(f) ?? `tx:${f.id}`);
     const done = await alreadyPosted(clubId, "STRIPE_CHARGE", keys);
 
@@ -333,8 +494,21 @@ export async function postPendingForClub(clubId: string, actor: Actor, opts: Swe
       take: limit,
     });
 
+    // One lookup for every deposit these refunds touch, so a cash refund can
+    // come out of the bank the cash was deposited into instead of driving
+    // Undeposited Funds negative.
+    const depositIdsForRefunds = [...new Set(rows.map((r) => r.glDepositId).filter((v): v is string => !!v))];
+    const depositAccounts = new Map<string, string>();
+    if (depositIdsForRefunds.length) {
+      const deposits = await prisma.glDeposit.findMany({
+        where: { clubId, id: { in: depositIdsForRefunds } },
+        select: { id: true, accountId: true },
+      });
+      for (const d of deposits) depositAccounts.set(d.id, d.accountId);
+    }
+
     for (const t of rows) {
-      const f = chargeFacts(t);
+      const f = chargeFacts(t, depositAccounts);
       const base = chargeSourceId(f) ?? `tx:${f.id}`;
       const refundedTotal = cents(t.refundedAmount);
 
@@ -456,6 +630,10 @@ export async function postPendingForClub(clubId: string, actor: Actor, opts: Swe
     }
   }
 
+  // Task 9 runs FIRST, so a held duplicate is already held by the time the
+  // rows below are considered. A dry run must not write the flags.
+  if (!dryRun) await flagBankDuplicates(clubId, booksStartDate);
+
   // ── 5. Categorized bank rows ────────────────────────────────────────────
   {
     // The double-count guard's inputs. PayoutMatch.bankTransactionId and
@@ -484,6 +662,8 @@ export async function postPendingForClub(clubId: string, actor: Actor, opts: Swe
         excludedFromTax: true,
         reviewedAt: true,
         categorizedExpenseId: true,
+        suspectedDuplicateOf: true,
+        duplicateDismissedAt: true,
       },
       orderBy: { date: "asc" },
       take: limit,
@@ -516,6 +696,8 @@ export async function postPendingForClub(clubId: string, actor: Actor, opts: Swe
           matchedPayout: payoutIds.has(r.plaidTransactionId),
           matchedDeposit: depositIds.has(r.plaidTransactionId),
           bankAccountId: banks.byPlaidAccountId[r.accountId] ?? null,
+          suspectedDuplicateOf: r.suspectedDuplicateOf,
+          duplicateDismissed: !!r.duplicateDismissedAt,
         },
         accounts,
       );

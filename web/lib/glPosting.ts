@@ -70,7 +70,8 @@ export type SkipReason =
   | "MATCHED_TO_EXPENSE"
   | "TRANSFER"
   | "MISSING_ACCOUNT"
-  | "NO_BANK_ACCOUNT";
+  | "NO_BANK_ACCOUNT"
+  | "SUSPECTED_DUPLICATE";
 
 export const SKIP_LABELS: Record<SkipReason, string> = {
   BEFORE_BOOKS_START: "Dated before the club's books start date",
@@ -89,6 +90,8 @@ export const SKIP_LABELS: Record<SkipReason, string> = {
   TRANSFER: "Marked as a transfer between your own accounts",
   MISSING_ACCOUNT: "The chart of accounts is missing an account this needs",
   NO_BANK_ACCOUNT: "That bank or card has no GL account yet",
+  SUSPECTED_DUPLICATE:
+    "Held for review: this looks like the same transaction as a bank-feed row (same account, same amount, within three days), and posting both would count the money twice",
 };
 
 /// A draft the server hands to lib/ledgerServer.createEntry, plus the
@@ -215,6 +218,22 @@ export type ChargeFacts = {
   paymentSource: string | null;
   paymentMethod: string | null;
   status: string;
+  /// The GL account of the bank this payment was DEPOSITED to, when it has
+  /// been (from `Transaction.glDepositId` → `GlDeposit.accountId`). Null while
+  /// the cash or cheque is still in the drawer.
+  ///
+  /// This is what fixes the Phase 2 rule that let 1020 go negative: a cash
+  /// refund made AFTER the deposit comes out of the bank it went into, because
+  /// the money is no longer in the drawer to refund from (Julian, Phase 3
+  /// decision).
+  depositedToAccountId?: string | null;
+  /// The fee Stripe gave back (or charged) on the refund, from the refund's
+  /// own balance transaction — positive when the club got fee money back.
+  ///
+  /// NOTHING POPULATES THIS TODAY; see the note on planRefund. The posting
+  /// path is here and tested so wiring it up is a one-line change rather than
+  /// a re-think.
+  refundFeeDeltaCents?: number | null;
 };
 
 /// The immutable key a charge posts under. Charge id first because it is the
@@ -348,11 +367,71 @@ export function planRefund(
   if (!contraId) return skip("MISSING_ACCOUNT", "4900 Refunds & Discounts");
 
   const isStripe = t.paymentSource === "STRIPE" || t.reconciliationStatus === "VERIFIED";
-  const fromNumber = isStripe ? STRIPE_CLEARING : UNDEPOSITED;
-  const fromId = resolveAccount(accounts, fromNumber.number, fromNumber.key);
-  if (!fromId) return skip("MISSING_ACCOUNT", `${fromNumber.number}`);
+
+  // WHERE THE MONEY COMES OUT OF (Julian, Phase 3 decision).
+  //
+  // Stripe refunds come out of Stripe Clearing, as before. An OFFLINE refund —
+  // cash or a cheque — came out of the drawer only while the money was still
+  // in the drawer. Once it has been deposited, the drawer is empty and the
+  // money leaves the BANK it was deposited into.
+  //
+  // Phase 2 always used 1020, which let Undeposited Funds go NEGATIVE after a
+  // deposit: the ledger then claimed the club was holding minus two hundred
+  // dollars of cash, and no bank reconciliation could ever tie out. This is
+  // that fix.
+  let fromId: string | null;
+  let fromLabel: string;
+  if (isStripe) {
+    fromId = resolveAccount(accounts, STRIPE_CLEARING.number, STRIPE_CLEARING.key);
+    fromLabel = STRIPE_CLEARING.number;
+  } else if (t.depositedToAccountId) {
+    fromId = t.depositedToAccountId;
+    fromLabel = "the bank it was deposited to";
+  } else {
+    fromId = resolveAccount(accounts, UNDEPOSITED.number, UNDEPOSITED.key);
+    fromLabel = UNDEPOSITED.number;
+  }
+  if (!fromId) return skip("MISSING_ACCOUNT", fromLabel);
 
   const who = t.memberName ?? t.description ?? "payment";
+
+  // THE REFUND FEE (task 10).
+  //
+  // When Stripe refunds a charge it may also give back part of its fee, and
+  // the refund's own balance transaction is what reports it. When that figure
+  // is present, the fee movement posts against 6400 Payment Processing Fees:
+  // a fee REFUNDED is a credit (the expense is reduced), a fee CHARGED on the
+  // refund is a debit.
+  //
+  // DOCUMENTED LIMITATION: nothing populates `refundFeeDeltaCents` today. The
+  // sweep makes no per-refund Stripe call by design — Phase 2 chose a sweep
+  // precisely so no money-critical payment path changed — and the figure is
+  // not stored anywhere. Filling it needs an additive `Transaction`
+  // column written by the `charge.refunded` webhook from
+  // `refund.balance_transaction`, which is the follow-up recorded in
+  // docs/accounting/plan.md. Until then a refund posts without a fee effect,
+  // which is exactly what Phase 2 did, and this path is here and tested so
+  // turning it on is one line.
+  const feeDelta = t.refundFeeDeltaCents ?? 0;
+  const feeId = feeDelta !== 0 ? resolveAccount(accounts, PROCESSING_FEES.number) : null;
+  if (feeDelta !== 0 && !feeId) return skip("MISSING_ACCOUNT", PROCESSING_FEES.number);
+
+  const lines: DraftLine[] = [
+    { accountId: contraId, debitCents: delta, creditCents: 0, legalEntityId: t.legalEntityId, memo: `Refund — ${who}` },
+  ];
+  if (feeId && feeDelta > 0) {
+    // Stripe gave the fee back: the expense goes down, and the club gets more
+    // than the sticker amount back into clearing.
+    lines.push({ accountId: feeId, debitCents: 0, creditCents: feeDelta, legalEntityId: t.legalEntityId, memo: "Processing fee refunded" });
+    lines.push({ accountId: fromId, debitCents: 0, creditCents: delta - feeDelta, legalEntityId: t.legalEntityId, memo: "Refunded to the payer" });
+  } else if (feeId && feeDelta < 0) {
+    // Stripe charged a fee ON the refund: the expense goes up.
+    lines.push({ accountId: feeId, debitCents: -feeDelta, creditCents: 0, legalEntityId: t.legalEntityId, memo: "Fee charged on the refund" });
+    lines.push({ accountId: fromId, debitCents: 0, creditCents: delta - feeDelta, legalEntityId: t.legalEntityId, memo: "Refunded to the payer" });
+  } else {
+    lines.push({ accountId: fromId, debitCents: 0, creditCents: delta, legalEntityId: t.legalEntityId, memo: "Refunded to the payer" });
+  }
+
   return {
     posted: true,
     plan: {
@@ -363,10 +442,7 @@ export function planRefund(
       memo: `Refund — ${who}`,
       legalEntityId: t.legalEntityId,
       reference: base,
-      lines: [
-        { accountId: contraId, debitCents: delta, creditCents: 0, legalEntityId: t.legalEntityId, memo: `Refund — ${who}` },
-        { accountId: fromId, debitCents: 0, creditCents: delta, legalEntityId: t.legalEntityId, memo: "Refunded to the payer" },
-      ],
+      lines,
     },
   };
 }
@@ -523,6 +599,14 @@ export type BankRowFacts = {
   matchedDeposit: boolean;
   /// The GL account for the bank or card this row belongs to.
   bankAccountId: string | null;
+  /// Task 9. Set on the QUICKBOOKS-imported row when it looks like the same
+  /// transaction as a live Plaid row: same bank account, same amount, dates
+  /// within three days. The imported row is then HELD — it never posts until
+  /// somebody decides, because posting both counts the money twice.
+  suspectedDuplicateOf?: string | null;
+  /// Set when somebody has looked at the pair and said they are different
+  /// transactions after all, which releases the hold.
+  duplicateDismissed?: boolean;
 };
 
 /// A categorized bank row that nothing else already accounts for.
@@ -538,6 +622,10 @@ export function planBankRow(r: BankRowFacts, accounts: AccountMap): PostingOutco
   if (r.matchedPayout) return skip("MATCHED_TO_PAYOUT");
   if (r.matchedDeposit) return skip("MATCHED_TO_DEPOSIT");
   if (r.matchedExpenseId) return skip("MATCHED_TO_EXPENSE");
+  // Task 9's guard, BEFORE the categorisation check: a held duplicate must
+  // stay held even once somebody categorises it, or categorising would be the
+  // thing that double-counts the money.
+  if (r.suspectedDuplicateOf && !r.duplicateDismissed) return skip("SUSPECTED_DUPLICATE");
   if (!r.categoryOverride) return skip("NOT_CATEGORIZED");
   if (r.amountCents === 0) return skip("ZERO_AMOUNT");
   if (!r.bankAccountId) return skip("NO_BANK_ACCOUNT");
@@ -587,6 +675,84 @@ export function planBankRow(r: BankRowFacts, accounts: AccountMap): PostingOutco
       ],
     },
   };
+}
+
+// ── Task 9: the QuickBooks ↔ bank-feed duplicate guard ─────────────────────
+//
+// A club that imported QuickBooks history AND has a live bank feed can hold
+// two rows for the same transaction: one the importer created
+// (`source: "QUICKBOOKS"`) and one the feed delivered (`source: "PLAID"`).
+//
+// The existing importer already guards the common case — it only CREATES rows
+// dated before the feed's coverage begins, and deliberately SKIPS an unmatched
+// row inside coverage. But coverage is derived from the earliest Plaid row per
+// account, so a feed that back-fills, an account reconnected later, or a
+// manual connection with no `feedStarts` all leave room for an overlap. Once
+// both rows exist, the Phase 2 sweep would post both and the month would be
+// out by the amount.
+//
+// So: same bank account, same amount, dates within three days ⇒ the IMPORTED
+// row is held. Never the feed row — the feed is the bank's own record and the
+// one a reconciliation has to tie to.
+
+export const DUPLICATE_WINDOW_DAYS = 3;
+
+export type DuplicateCandidate = {
+  /// The imported row, which is the one that gets held.
+  importedId: string;
+  /// The bank-feed row it looks like.
+  feedId: string;
+  daysApart: number;
+};
+
+export type DuplicateRow = {
+  plaidTransactionId: string;
+  /// `${plaidConnectionId}|${accountId}` — the composite that identifies a
+  /// bank account, because PlaidTransaction has no BankAccount relation.
+  accountKey: string;
+  date: string;
+  amountCents: number;
+  source: string;
+};
+
+function dayGap(a: string, b: string): number {
+  const ms = Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`));
+  return Math.round(ms / 86_400_000);
+}
+
+/// Pair imported rows with feed rows that look like the same transaction.
+///
+/// Each feed row is claimed at most once, nearest date first. Without that, two
+/// imported rows of the same amount would both be held against one feed row and
+/// a genuine second payment would never post.
+export function detectBankDuplicates(rows: DuplicateRow[]): DuplicateCandidate[] {
+  const imported = rows.filter((r) => r.source === "QUICKBOOKS");
+  const feed = rows.filter((r) => r.source === "PLAID");
+  if (imported.length === 0 || feed.length === 0) return [];
+
+  const claimed = new Set<string>();
+  const out: DuplicateCandidate[] = [];
+
+  for (const imp of imported) {
+    const matches = feed
+      .filter(
+        (f) =>
+          !claimed.has(f.plaidTransactionId) &&
+          f.accountKey === imp.accountKey &&
+          f.amountCents === imp.amountCents &&
+          dayGap(f.date, imp.date) <= DUPLICATE_WINDOW_DAYS,
+      )
+      .sort((a, b) => dayGap(a.date, imp.date) - dayGap(b.date, imp.date));
+    const hit = matches[0];
+    if (!hit) continue;
+    claimed.add(hit.plaidTransactionId);
+    out.push({
+      importedId: imp.plaidTransactionId,
+      feedId: hit.plaidTransactionId,
+      daysApart: dayGap(hit.date, imp.date),
+    });
+  }
+  return out;
 }
 
 // ── Books start date ───────────────────────────────────────────────────────
