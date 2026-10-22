@@ -28,13 +28,15 @@ import ReportsTab from "@/components/financials/ReportsTab";
 import CloseTab from "@/components/financials/CloseTab";
 import AssetsTab from "@/components/financials/AssetsTab";
 import Form1099Tab from "@/components/financials/Form1099Tab";
+import OnboardingTab from "@/components/financials/OnboardingTab";
+import HistoryTab from "@/components/financials/HistoryTab";
 import UpgradeNotice from "@/components/UpgradeNotice";
 import { canUseFeature } from "@/lib/tier";
 
 // Tabs included on Pro+ (pricing overhaul 2026-10-18). Starter keeps
 // Overview, Money In, Donations, Stripe and Cash & Offline. The routes behind
 // these tabs 403 on Starter; this only swaps the tab body for a notice.
-const PRO_TABS = new Set(["out", "tax", "bank", "receipts", "import", "accounts", "journal", "reconcile", "reports", "close", "assets", "form1099"]);
+const PRO_TABS = new Set(["out", "tax", "bank", "receipts", "import", "accounts", "journal", "reconcile", "reports", "close", "assets", "form1099", "onboarding", "qbhistory"]);
 import { SkeletonList, SkeletonCard } from "@/components/LoadingSkeleton";
 
 type Entity = { id: string; name: string; entityType: string };
@@ -135,6 +137,8 @@ const TABS = [
   { key: "close", label: "Close" },
   { key: "assets", label: "Assets" },
   { key: "form1099", label: "1099" },
+  { key: "onboarding", label: "Moving in" },
+  { key: "qbhistory", label: "History" },
   { key: "stripe", label: "Stripe" },
   { key: "offline", label: "Cash & Offline" },
   { key: "bank", label: "Bank" },
@@ -160,7 +164,7 @@ const TAB_GROUPS = [
   // a different job from the ledger statements beside it, so absorbing it into
   // Reports would have removed a capability rather than tidied one up. Its
   // `?tab=tax` key is untouched either way.
-  { key: "books", label: "Books", tabs: ["reports", "journal", "accounts", "reconcile", "close", "assets", "form1099", "tax"] },
+  { key: "books", label: "Books", tabs: ["reports", "journal", "accounts", "reconcile", "close", "assets", "form1099", "onboarding", "qbhistory", "tax"] },
   { key: "connections", label: "Connections", tabs: ["bank", "stripe", "offline", "receipts", "import"] },
 ] as const satisfies readonly { key: string; label: string; tabs: readonly TabKey[] }[];
 type GroupKey = (typeof TAB_GROUPS)[number]["key"];
@@ -386,6 +390,10 @@ export default function FinancialsPage() {
       )}
       {tab === "assets" && <AssetsTab canEdit={canEditMoney} entities={entities} entity={entity} />}
       {tab === "form1099" && <Form1099Tab canEdit={canEditMoney} />}
+      {tab === "onboarding" && (
+        <OnboardingTab canEdit={canEditMoney} entities={entities} entity={entity} />
+      )}
+      {tab === "qbhistory" && <HistoryTab canEdit={canEditMoney} />}
       {tab === "reports" && (
         <ReportsTab
           entity={entity}

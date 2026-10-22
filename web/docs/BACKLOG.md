@@ -76,6 +76,50 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## B — Claude Code sessions (priority order; start at the top unless blocked)
 
+- [ ] **B39 · Accounting Phase 3 — reports, close, onboarding (Phase 12). Built 2026-10-22 on `claude/athletixos-accounting-phase-3`; MIGRATION NOT APPLIED, nothing shipped.**
+  Plan: **`docs/accounting/plan.md`** (the Phase 3 section is now the built state, not a spec). The last of the three.
+  Migration `20261022000000_gl_reports_close_onboarding` — additive only: RLS for 6 finance/reports tables that had
+  none, 5 new tables (`gl_fixed_assets`, `gl_month_closes`, `gl_opening_imports`, `qbo_history_files`,
+  `qbo_history_rows`), 5 nullable columns (`clubs.form1099Thresholds`, `contractor_payments.paymentMethod`,
+  `plaid_transactions.suspectedDuplicateOf`/`duplicateDismissedAt`/`duplicateDismissedByUserId`).
+  **Apply BEFORE deploying the code.**
+  **Statements off the ledger**: trial balance, general ledger, balance sheet, P&L (a column per month), indirect cash
+  flow — by date range, entity, program and cash/accrual, every figure drilling down to its journal lines. Each one
+  says whether it ties, in red when it doesn't: a balance sheet that silently doesn't balance is worse than one that
+  refuses, because the first gets filed. The tests check those invariants exhaustively, not at dates a test picked —
+  the balance sheet balances as of every date in the fixture, and the cash flow ties for every month.
+  **CPA package**: trial balance + GL + balance sheet + P&L as ONE workbook, one sheet each, with a cover sheet
+  stating the basis and whether the statements inside balance. exceljs, never xlsx. Money exports as a NUMBER, because
+  the CPA's first action is to sum the column and a formatted string sums to zero.
+  **Month close**: five blocking checks, then the lock date moves. No separate "closed" flag — two answers to "can I
+  post to January?" would eventually disagree. Closing an earlier month never moves the lock backwards; reopening
+  restores the lock the entity had BEFORE the close, not an unlocked year.
+  **Fixed assets**: straight-line, idempotent by construction (`sourceId` is `<assetId>:<YYYY-MM>` under the Phase 1
+  unique index, so Postgres enforces once-per-month and there is no schedule table to drift). The final month absorbs
+  the rounding, so a schedule totals exactly cost less salvage — proven over 793 parameter combinations.
+  **1099 — STOPPED on the tax ID, as the brief required.** No field-level encryption exists in this repo (verified:
+  no `createCipheriv`/`aes-256` anywhere, no key in `.env.example`), so **no TIN field was added and none is stored**.
+  The design is proposed in plan.md under "1099 — the TIN question" and needs Julian's approval before anything stores
+  one. `scripts/form1099-tests.ts` §1 is a STANDING GUARD: a TIN-shaped field appearing without the encryption fails
+  the build. Everything else works — threshold ($600 pre-2026, $2,000 from 2026 per OBBBA, indexed from 2027 and the
+  report SAYS when the figure must be confirmed), card/processor payments excluded, report plus CSV. Nothing is filed.
+  **Opening balances**: upload a QuickBooks trial balance, map the accounts, post one entry per entity dated the day
+  before the books start. Income and expense balances roll into retained earnings. It REFUSES rather than plugging a
+  difference to Opening Balance Equity, and lists every blocker at once.
+  **QuickBooks history**: a read-only archive that never posts and never appears in a report. Enforced by a build-time
+  grep over every reports and posting module, because that is the whole promise it makes.
+  **Duplicate guard**: a QuickBooks-imported bank row and a live Plaid row with the same account, same amount and
+  dates within ±3 days ⇒ the IMPORTED one is held, never the feed row. The guard sits before the categorisation check,
+  so categorising a held row is not what releases the money.
+  **Julian's 1020 fix**: an offline refund now comes out of the bank the cash was deposited to when there is one, and
+  out of 1020 only while it is still in the drawer. Phase 2 always used 1020, which let Undeposited Funds go negative
+  after a deposit — a position no bank reconciliation could ever tie out.
+  Tests: `npm run test:gl-reports` (126), `test:gl-close` (149), `test:form1099` (97), `test:gl-opening` (98), and 50
+  added to `test:gl-posting` (268). All four new suites gate the build; 103/103 checks pass.
+  **Follow-ups filed in plan.md**: a `Club.fiscalYearStartMonth` (the fiscal year is assumed to be the calendar year);
+  a `Transaction.refundFeeAmount` filled by the `charge.refunded` webhook so the refund-fee path can be switched on;
+  `Contractor.address` for the 1099; and the 20 remaining tables with no RLS.
+
 - [ ] **B38 · Accounting Phase 2 — automatic posting + reconciliation (Phase 11). Built 2026-10-21 on `claude/athletixos-accounting-phase-2`; MIGRATION NOT APPLIED, nothing shipped.**
   Plan: **`docs/accounting/plan.md`** (the Phase 2 section is now the built state, not a spec). Phase 11 — Phase 10 was the ledger core.
   Migration `20261021000000_gl_auto_posting_reconcile` — additive only: 2 new tables (`gl_reconciliations`, `gl_deposits`),

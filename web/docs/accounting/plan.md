@@ -1203,6 +1203,131 @@ a payout created in December and paid in January belongs to January.
 
 **Nothing files anything.** It is a report and a CSV.
 
+### Task 7 — Opening-balance import
+
+`lib/glOpening.ts` (pure) + `lib/glOpeningServer.ts` + two routes + Books →
+Moving in.
+
+Upload the QuickBooks **Trial Balance** from the day before the books start,
+map each account, check the preview, post. **Frog Empire's books start
+2027-01-01, so its opening entry is dated 2026-12-31** (Julian's decision).
+One entry per legal entity, keyed `<importId>:<legalEntityId>` so posting the
+same import twice for the same entity hits the Phase 1 unique index instead of
+doubling the club's opening position.
+
+A club with two entities imports a trial balance **per entity**, because
+QuickBooks exports one company file at a time and a single file mixing two
+entities could not be split without a per-row entity column QuickBooks does not
+print.
+
+**Income and expense balances collapse into one retained-earnings figure.** A
+trial balance taken mid-life carries year-to-date trading; opening a revenue
+account with a balance would put last year's trading into the new books' first
+P&L.
+
+**It refuses rather than plugging.** A trial balance that does not balance is a
+broken export or a mis-mapping, and writing the difference to Opening Balance
+Equity would hide the problem inside the one number nobody audits. Every
+blocker comes back at once — no books start date, a locked period, a closed
+month, unmapped accounts, an unbalanced file, an unbalanced plan — so the owner
+fixes everything in one pass. The messages distinguish an unbalanced *file*
+("a broken export, not a mapping problem") from an unbalanced *plan*, so nobody
+hunts the mapping for a problem that is upstream.
+
+**Mapping suggestions** go exact normalised name → leading account number
+("1000 · Checking" is how QuickBooks prints a numbered chart) → sub-account
+leaf → token overlap, and return **nothing** below half the tokens shared.
+Mapping twelve accounts by hand beats one silently wrong mapping inside a
+balanced-looking import.
+
+**Voiding reverses, never deletes** — through `voidEntry`, so both entries stay
+on the ledger. Refused once a month has been closed: changing the opening
+position then would change statements already signed off.
+
+### Task 8 — The QuickBooks history archive
+
+Books → History. Upload a General Ledger or Transaction Detail by Account
+export; rows are stored read-only and searchable by name, memo, number,
+account, date and file.
+
+**These rows never reach the books.** They do not post, do not appear in any
+statement, and no balance is derived from them. The guarantee is structural —
+`qbo_history_rows` has no relation to any `gl_*` table — and
+`scripts/gl-opening-tests.ts` §6 greps **every** reports and posting module on
+each build to prove none of them reads it. That is the whole promise the
+archive makes, and it is a property of the source tree rather than of any one
+function, so a test is the only place it can be enforced.
+
+Parsing reuses **`parseQbTable`**, the existing importer's parser, whose output
+shape (date, type, num, name, memo, account, split, amount) is exactly what the
+archive stores. There are already two hand-rolled CSV parsers in this repo with
+different behaviour; a third would have been a mistake.
+
+### Task 9 — The duplicate guard
+
+Same bank account, same amount, dates within **±3 days**, one row
+`source: "QUICKBOOKS"` and one `source: "PLAID"` ⇒ the **imported** row is
+held. Never the feed row: the feed is the bank's own record and the one a
+reconciliation has to tie to.
+
+The existing importer already guards the common case — it only *creates* rows
+dated before the feed's coverage begins, and deliberately skips an unmatched row
+inside coverage. But coverage is derived from the earliest Plaid row per
+account, so a back-filling feed, an account reconnected later, or a manual
+connection with no `feedStarts` all leave room for an overlap. Once both rows
+exist the Phase 2 sweep would post both, and the month would be out by the
+amount **while still balancing** — which is the kind of error nobody finds.
+
+Two details that matter:
+
+- **The guard sits before the categorisation check** in `planBankRow`. A held
+  row reports the hold, not "not categorised" — otherwise categorising it would
+  be the action that double-counts the money.
+- **Each feed row holds at most one imported row**, nearest date first, so a
+  genuine second payment of the same amount still posts. A dismissed hold is
+  never re-flagged, or dismissing it would achieve nothing.
+
+Held pairs are reviewed under Books → Moving in; "they're different" releases
+the hold. There is deliberately no "confirm it IS a duplicate" action: the held
+row simply never posts, which is the safe resting state, and deleting it belongs
+to undoing the import that created it.
+
+### Task 10 — Refund fees, and the 1020 fix
+
+**Julian's 1020 decision, implemented.** Phase 2 always credited 1020
+Undeposited Funds on an offline refund, which let it go **negative** after a
+deposit: the ledger then claimed the club was holding minus two hundred dollars
+of cash, and no bank reconciliation could ever tie out. A refund now comes out
+of the GL account of the bank the money was deposited to when there is one
+(`Transaction.glDepositId` → `GlDeposit.accountId`, resolved in one batched
+lookup because `glDepositId` is a deliberately loose column with no relation),
+and out of 1020 only while the cash is still in the drawer. Stripe refunds are
+unchanged — they still come out of 1050.
+
+**Refund fees.** When Stripe's refund balance transaction reports a fee change
+it posts against **6400**: credited when the fee comes back (the expense is
+reduced), debited when a fee is charged on the refund.
+
+**The documented limitation, as the brief allowed.** Nothing populates that
+figure today. The Phase 2 sweep makes no per-refund Stripe call — by design,
+precisely so no money-critical payment path changed — and the amount is not
+stored anywhere. Filling it needs an additive `Transaction.refundFeeAmount`
+written by the `charge.refunded` webhook from `refund.balance_transaction`.
+Until then a refund posts with no fee effect, exactly as in Phase 2. The
+posting path is built and tested, so switching it on is one line rather than a
+re-think.
+
+### Follow-ups this phase filed
+
+| What | Why it is not done here |
+|---|---|
+| `Club.fiscalYearStartMonth` | The fiscal year is assumed to be the calendar year. A club on a non-calendar year gets the wrong retained-earnings split; the balance sheet states the start it used, so the assumption is visible rather than silent. |
+| `Transaction.refundFeeAmount` | Task 10's posting path has nothing to read. Needs an additive column written by the `charge.refunded` webhook. |
+| `Contractor.address` | A 1099-NEC needs the payee's address and AthletixOS stores none. Not sensitive in the way a TIN is, so it can be added plainly. |
+| `Contractor.taxIdEncrypted` + `lib/fieldCrypto.ts` | The STOP. Needs Julian's approval of the design above before any TIN is stored. |
+| RLS on the remaining 20 tables | Phase 3 reads none of them, and each needs its own think about FK shape. Listed under Task 1. |
+| A gain/loss-on-disposal account in the chart | Adding one to `CHART_TEMPLATE` would not reach an already-seeded club, so disposals use 4950 and 6900 and say so on screen. |
+
 ## Sports-club chart of accounts template
 
 `[system]` = `isSystem: true` — renameable, never deactivatable.

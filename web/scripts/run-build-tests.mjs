@@ -98,6 +98,12 @@ export const GATED = [
   // encryption, so no TIN was stored, and this fails the build if one
   // appears without it.
   ["scripts/form1099-tests.ts"],
+  // accounting Phase 3 (2026-10-22): the QuickBooks opening balance and the
+  // read-only history archive. §6 greps the reports and posting modules to
+  // prove the archive never feeds a report, a balance or a posting — the
+  // whole promise it makes, and a property of the source tree rather than
+  // of any one function.
+  ["scripts/gl-opening-tests.ts"],
   // attendance, classes, front desk
   ["scripts/attendance-billing-tests.ts", RENDER],
   ["scripts/class-session-reconcile-tests.ts"],
