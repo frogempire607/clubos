@@ -25,13 +25,15 @@ import ChartOfAccountsTab from "@/components/financials/ChartOfAccountsTab";
 import JournalTab from "@/components/financials/JournalTab";
 import ReconcileTab from "@/components/financials/ReconcileTab";
 import ReportsTab from "@/components/financials/ReportsTab";
+import CloseTab from "@/components/financials/CloseTab";
+import AssetsTab from "@/components/financials/AssetsTab";
 import UpgradeNotice from "@/components/UpgradeNotice";
 import { canUseFeature } from "@/lib/tier";
 
 // Tabs included on Pro+ (pricing overhaul 2026-10-18). Starter keeps
 // Overview, Money In, Donations, Stripe and Cash & Offline. The routes behind
 // these tabs 403 on Starter; this only swaps the tab body for a notice.
-const PRO_TABS = new Set(["out", "tax", "bank", "receipts", "import", "accounts", "journal", "reconcile", "reports"]);
+const PRO_TABS = new Set(["out", "tax", "bank", "receipts", "import", "accounts", "journal", "reconcile", "reports", "close", "assets"]);
 import { SkeletonList, SkeletonCard } from "@/components/LoadingSkeleton";
 
 type Entity = { id: string; name: string; entityType: string };
@@ -129,6 +131,8 @@ const TABS = [
   { key: "reconcile", label: "Reconcile" },
   // Accounting Phase 3 (2026-10-22).
   { key: "reports", label: "Reports" },
+  { key: "close", label: "Close" },
+  { key: "assets", label: "Assets" },
   { key: "stripe", label: "Stripe" },
   { key: "offline", label: "Cash & Offline" },
   { key: "bank", label: "Bank" },
@@ -154,7 +158,7 @@ const TAB_GROUPS = [
   // a different job from the ledger statements beside it, so absorbing it into
   // Reports would have removed a capability rather than tidied one up. Its
   // `?tab=tax` key is untouched either way.
-  { key: "books", label: "Books", tabs: ["reports", "journal", "accounts", "reconcile", "tax"] },
+  { key: "books", label: "Books", tabs: ["reports", "journal", "accounts", "reconcile", "close", "assets", "tax"] },
   { key: "connections", label: "Connections", tabs: ["bank", "stripe", "offline", "receipts", "import"] },
 ] as const satisfies readonly { key: string; label: string; tabs: readonly TabKey[] }[];
 type GroupKey = (typeof TAB_GROUPS)[number]["key"];
@@ -370,6 +374,15 @@ export default function FinancialsPage() {
       {tab === "import" && <ImportTab canEdit={canEditMoney} />}
       {tab === "accounts" && <ChartOfAccountsTab canEdit={canEditMoney} entityQuery={`entity=${entity}&from=${from}&to=${to}`} />}
       {tab === "reconcile" && <ReconcileTab canEdit={canEditMoney} />}
+      {tab === "close" && (
+        <CloseTab
+          canEdit={canEditMoney}
+          isOwner={session?.user?.role === "OWNER"}
+          entities={entities}
+          entity={entity}
+        />
+      )}
+      {tab === "assets" && <AssetsTab canEdit={canEditMoney} entities={entities} entity={entity} />}
       {tab === "reports" && (
         <ReportsTab
           entity={entity}

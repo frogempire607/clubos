@@ -64,10 +64,15 @@ export type PostingReport = {
   examples: { sourceType: string; sourceId: string; reason: SkipReason; detail?: string }[];
   errors: { sourceType: string; sourceId: string; error: string }[];
   booksStartDate: string | null;
+  /// `YYYY-MM` → how many records posted (or, on a dry run, WOULD post) with
+  /// an entry date in that month. The month-close checklist needs "is anything
+  /// dated in or before January still waiting?", and a bare total would let a
+  /// permanently-stuck record dated in March block January's close forever.
+  postedByMonth: Record<string, number>;
 };
 
 function emptyReport(booksStartDate: string | null): PostingReport {
-  return { posted: 0, skipped: {}, examples: [], errors: [], booksStartDate };
+  return { posted: 0, skipped: {}, examples: [], errors: [], booksStartDate, postedByMonth: {} };
 }
 function note(r: PostingReport, sourceType: string, sourceId: string, o: Extract<PostingOutcome, { posted: false }>) {
   r.skipped[o.reason] = (r.skipped[o.reason] ?? 0) + 1;
@@ -108,13 +113,27 @@ async function alreadyPosted(clubId: string, sourceType: PostingSourceType, ids:
 /// The P2002 catch is the concurrency guard: two sweeps running at once both
 /// pass the `alreadyPosted` filter, and the unique index is what actually
 /// decides. Losing that race is a success, not an error.
-async function post(clubId: string, plan: PostingPlan, actor: Actor, report: PostingReport): Promise<void> {
+async function post(
+  clubId: string,
+  plan: PostingPlan,
+  actor: Actor,
+  report: PostingReport,
+  dryRun = false,
+): Promise<void> {
   if (!planBalances(plan)) {
     report.errors.push({
       sourceType: plan.sourceType,
       sourceId: plan.sourceId,
       error: "the planned entry did not balance — nothing was posted",
     });
+    return;
+  }
+  const month = plan.entryDate.slice(0, 7);
+  // A dry run still validates the plan above, so "nothing waiting to post"
+  // and "something waiting that would fail" stay distinguishable.
+  if (dryRun) {
+    report.posted++;
+    report.postedByMonth[month] = (report.postedByMonth[month] ?? 0) + 1;
     return;
   }
   try {
@@ -132,6 +151,7 @@ async function post(clubId: string, plan: PostingPlan, actor: Actor, report: Pos
       actor,
     );
     report.posted++;
+    report.postedByMonth[month] = (report.postedByMonth[month] ?? 0) + 1;
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       report.skipped.ALREADY_POSTED = (report.skipped.ALREADY_POSTED ?? 0) + 1;
@@ -204,12 +224,24 @@ export type SweepOptions = {
   /// Skip the Stripe payout sync (a network round-trip). The lazy on-load
   /// sweep passes true; the backfill script does not.
   skipPayoutSync?: boolean;
+  /// Count what WOULD post and write nothing. Phase 3's month-close checklist
+  /// asks "is anything still waiting to post?", and it must be able to ask
+  /// without posting — a checklist that changes the books by being looked at
+  /// is not a checklist.
+  ///
+  /// This reuses the real sweep rather than reimplementing "what posts", so
+  /// the two can never disagree. It implies skipPayoutSync: syncing payouts
+  /// writes PayoutMatch rows, which is not a dry run.
+  dryRun?: boolean;
 };
 
 /// Post everything postable for one club. Idempotent, resumable, and a no-op
 /// for a club with no books start date.
 export async function postPendingForClub(clubId: string, actor: Actor, opts: SweepOptions = {}): Promise<PostingReport> {
   const limit = Math.min(Math.max(opts.limit ?? 300, 1), 2000);
+  // A dry run writes nothing, so it must not sync payouts either — that
+  // creates PayoutMatch rows.
+  const dryRun = opts.dryRun === true;
 
   const club = await prisma.club.findUnique({
     where: { id: clubId },
@@ -283,7 +315,7 @@ export async function postPendingForClub(clubId: string, actor: Actor, opts: Swe
         note(report, "STRIPE_CHARGE", key, outcome);
         continue;
       }
-      await post(clubId, outcome.plan, actor, report);
+      await post(clubId, outcome.plan, actor, report, dryRun);
     }
   }
 
@@ -328,12 +360,12 @@ export async function postPendingForClub(clubId: string, actor: Actor, opts: Swe
         note(report, "REFUND", base, outcome);
         continue;
       }
-      await post(clubId, outcome.plan, actor, report);
+      await post(clubId, outcome.plan, actor, report, dryRun);
     }
   }
 
   // ── 3. Stripe payouts ───────────────────────────────────────────────────
-  if (!opts.skipPayoutSync && club.stripeAccountId) {
+  if (!opts.skipPayoutSync && !dryRun && club.stripeAccountId) {
     await syncStripePayouts(clubId, club.stripeAccountId, booksStartDate).catch(() => {});
   }
   {
@@ -365,7 +397,7 @@ export async function postPendingForClub(clubId: string, actor: Actor, opts: Swe
         note(report, "PAYOUT", p.stripePayoutId, outcome);
         continue;
       }
-      await post(clubId, outcome.plan, actor, report);
+      await post(clubId, outcome.plan, actor, report, dryRun);
     }
   }
 
@@ -420,7 +452,7 @@ export async function postPendingForClub(clubId: string, actor: Actor, opts: Swe
         note(report, "EXPENSE", e.id, outcome);
         continue;
       }
-      await post(clubId, outcome.plan, actor, report);
+      await post(clubId, outcome.plan, actor, report, dryRun);
     }
   }
 
@@ -491,7 +523,7 @@ export async function postPendingForClub(clubId: string, actor: Actor, opts: Swe
         note(report, "BANK_ROW", r.plaidTransactionId, outcome);
         continue;
       }
-      await post(clubId, outcome.plan, actor, report);
+      await post(clubId, outcome.plan, actor, report, dryRun);
     }
   }
 

@@ -86,6 +86,12 @@ export const GATED = [
   // cents make an exact check possible and a tolerance check would hide the
   // drift these tests exist to catch.
   ["scripts/gl-reports-tests.ts"],
+  // accounting Phase 3 (2026-10-22): depreciation schedules that total exactly
+  // cost less salvage over 600+ parameter combinations, a disposal that
+  // balances at every combination of proceeds and accumulated depreciation,
+  // and a reopen that restores the PREVIOUS lock date rather than unlocking
+  // the year.
+  ["scripts/gl-close-tests.ts"],
   // attendance, classes, front desk
   ["scripts/attendance-billing-tests.ts", RENDER],
   ["scripts/class-session-reconcile-tests.ts"],

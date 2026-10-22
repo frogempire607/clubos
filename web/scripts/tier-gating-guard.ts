@@ -69,6 +69,10 @@ const GATES: [string, string][] = [
   // right rather than six of each to forget.
   ["app/api/financials/ledger/reports/route.ts", "fullFinancials"],
   ["app/api/financials/ledger/reports/export/route.ts", "fullFinancials"],
+  ["app/api/financials/ledger/close/route.ts", "fullFinancials"],
+  ["app/api/financials/ledger/assets/route.ts", "fullFinancials"],
+  ["app/api/financials/ledger/assets/[id]/route.ts", "fullFinancials"],
+  ["app/api/financials/ledger/assets/depreciation/route.ts", "fullFinancials"],
   ["app/api/reports/snapshot/route.ts", "fullReports"],
   ["app/api/reports/revenue/route.ts", "fullReports"],
   ["app/api/reports/pnl/route.ts", "fullReports"],
