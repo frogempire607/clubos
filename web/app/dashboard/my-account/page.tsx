@@ -11,6 +11,7 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import ImageUpload from "@/components/ImageUpload";
 import PageHeader from "@/components/PageHeader";
+import W9Card from "@/components/staff/W9Card";
 
 type Me = {
   role: string;
@@ -331,6 +332,10 @@ export default function MyAccountPage() {
             </button>
           </div>
         </form>
+
+        {/* Phase 12.1: a contractor fills in and signs their own W-9 here.
+            Renders nothing for anybody who isn't set up as a contractor. */}
+        <W9Card mode="self" />
 
         {me?.role === "STAFF" && (
           <div className="bg-app-bg border border-app-border rounded-xl p-4 text-xs text-text-muted">

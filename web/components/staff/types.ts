@@ -22,6 +22,13 @@ export type StaffProfileData = {
     permissions: Record<PermissionKey, PermissionLevel>;
     messagesSubScopes: Record<string, boolean> | null;
     billingSubScopes: Record<string, boolean> | null;
+    /// Phase 12.1 — EMPLOYEE | CONTRACTOR | null ("not classified yet").
+    /// Null also when the viewer cannot see pay.
+    workerType?: string | null;
+    /// The linked Contractor record, when this person is one. Never carries a
+    /// tax id.
+    contractorId?: string | null;
+    w9Status?: string | null;
   };
   viewer: {
     isSelf: boolean;

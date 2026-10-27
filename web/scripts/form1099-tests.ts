@@ -113,14 +113,53 @@ function walk(dir: string): string[] {
     );
   }
 
-  // The CSV must not grow a TIN column by accident.
+  // The CSV must never carry a FULL tax id. Phase 12.1 added a masked last-four
+  // column, which is the point of storing the last four in plaintext at all —
+  // so the guard is restated precisely rather than dropped: a column may show
+  // four digits, never nine.
   ok(
-    !FORM_1099_CSV_HEADERS.some((h) => /tax|tin|ssn|ein/i.test(h)),
-    "1.4 the CSV has no tax-identification column",
+    FORM_1099_CSV_HEADERS.includes("Tax ID (last 4)"),
+    "1.4 the CSV's only tax-id column is explicitly the last four",
   );
   ok(
-    !FORM_1099_CSV_HEADERS.some((h) => /address/i.test(h)),
-    "1.5 nor an address column — AthletixOS stores no payee address either, so it comes off the W-9",
+    !FORM_1099_CSV_HEADERS.some((h) => /^(tax id|tin|ssn|ein)$/i.test(h.trim())),
+    "1.4b and there is no column that would hold a whole one",
+  );
+  {
+    // The VALUES, not just the heading: a four-digit mask, never nine digits.
+    const row = form1099CsvRows(
+      buildForm1099Report(
+        2026,
+        [
+          {
+            id: "p1",
+            source: "CONTRACTOR_PAYMENT" as const,
+            contractorId: "c1",
+            contractorName: "Dana Ruiz",
+            date: "2026-06-01",
+            amountCents: 250_000,
+            method: "CHECK",
+            description: null,
+          },
+        ],
+        [{ id: "c1", name: "Dana Ruiz", email: null, hasW9: true, taxIdLast4: "6789" }],
+        null,
+      ),
+    )[0];
+    const cells = row.map(String);
+    ok(
+      cells.some((c) => /^xxx-xx-6789$/.test(c)),
+      "1.4c and the value is masked",
+      JSON.stringify(cells),
+    );
+    ok(!cells.some((c) => /\d{9}/.test(c)), "1.4d with no nine-digit run anywhere in the row");
+  }
+  // Phase 12.1 ADDED Contractor.address, because a 1099-NEC needs the payee's
+  // address and Phase 12 filed its absence as a blocker. So the CSV carries
+  // one now, and the report counts the payees still missing it.
+  ok(
+    FORM_1099_CSV_HEADERS.includes("Address"),
+    "1.5 the CSV carries the payee address a 1099-NEC needs",
   );
 
   // And the decision is written down where the next person will look.
@@ -314,15 +353,19 @@ const CONTRACTORS: ContractorFacts[] = [
     null,
   );
   const rows = form1099CsvRows(r);
+  // Addressed by COLUMN NAME, not index: §6 broke when Phase 12.1 inserted
+  // columns, and an index-based test breaks again the next time.
+  const col = (name: string) => FORM_1099_CSV_HEADERS.indexOf(name);
   eq(rows.length, 1, "6.1 by default the CSV holds only the payees who need a form");
-  eq(rows[0][0], "Dana Ruiz", "6.2 named");
-  eq(rows[0][2], 2500, "6.3 with the amount as a NUMBER in dollars, so the column sums");
-  eq(typeof rows[0][2], "number", "6.4 genuinely a number, not a formatted string");
-  eq(rows[0][6], "Yes", "6.5 and whether a W-9 is on file");
+  eq(rows[0][col("Payee")], "Dana Ruiz", "6.2 named");
+  eq(rows[0][col("Total paid")], 2500, "6.3 with the amount as a NUMBER in dollars, so the column sums");
+  eq(typeof rows[0][col("Total paid")], "number", "6.4 genuinely a number, not a formatted string");
+  eq(rows[0][col("W-9 on file")], "Yes (uploaded)", "6.5 and whether a W-9 is on file, and where it came from");
 
   const all = form1099CsvRows(r, { includeBelow: true });
   eq(all.length, 2, "6.6 including the below-threshold payees is opt-in");
   eq(FORM_1099_CSV_HEADERS.length, rows[0].length, "6.7 every row matches the header width");
+  ok(col("Address") > -1 && col("Tax ID (last 4)") > -1, "6.8 the 1099-NEC columns are present");
 }
 
 // ── 7. Source guarantees ────────────────────────────────────────────────────
@@ -360,6 +403,94 @@ const CONTRACTORS: ContractorFacts[] = [
   // A 1099 is cash-basis, so a payout counts in the year it was PAID.
   ok(/paidAt: \{ gte: from, lte: to \}/.test(server), "7.12 a payout is dated by when it was paid, not when it was created");
   ok(/status: "PAID"/.test(server), "7.13 and only paid payouts count");
+}
+
+// ── 8. Phase 12.1: employees are excluded, and the W-9 is the authority ─────
+console.log("");
+{
+  // The pure layer carries the count the server computed, so the UI can say
+  // how many people were left out rather than leaving a silent gap.
+  const r = buildForm1099Report(
+    2026,
+    [pay({ id: "p1", amountCents: 250_000 })],
+    CONTRACTORS,
+    null,
+    { excludedEmployeeCount: 3 },
+  );
+  eq(r.excludedEmployeeCount, 3, "8.1 the report reports how many employees were excluded");
+  eq(
+    buildForm1099Report(2026, [], CONTRACTORS, null).excludedEmployeeCount,
+    0,
+    "8.2 and zero when none were",
+  );
+
+  // A 1099-NEC needs an address. The report counts the payees still missing
+  // one, because that is work the club must do before filing.
+  const noAddress = buildForm1099Report(
+    2026,
+    [pay({ id: "p1", amountCents: 250_000 })],
+    [{ id: "c1", name: "Dana Ruiz", email: null, hasW9: true, address: null }],
+    null,
+  );
+  eq(noAddress.missingAddressCount, 1, "8.3 a reportable payee with no address is counted");
+  const withAddress = buildForm1099Report(
+    2026,
+    [pay({ id: "p1", amountCents: 250_000 })],
+    [{ id: "c1", name: "Dana Ruiz", email: null, hasW9: true, address: "14 Mill Road, Dayton, OH 45402" }],
+    null,
+  );
+  eq(withAddress.missingAddressCount, 0, "8.4 and one with an address is not");
+  eq(withAddress.rows[0].address, "14 Mill Road, Dayton, OH 45402", "8.5 which is carried onto the row");
+  // Only payees who actually need a form are counted — chasing an address for
+  // somebody under the threshold is busywork.
+  const under = buildForm1099Report(
+    2026,
+    [pay({ id: "p1", amountCents: 1_000 })],
+    [{ id: "c1", name: "Dana Ruiz", email: null, hasW9: true, address: null }],
+    null,
+  );
+  eq(under.missingAddressCount, 0, "8.6 a below-threshold payee's missing address is not counted");
+
+  // "W-9 on file" distinguishes data we hold from a PDF somebody uploaded.
+  const inApp = buildForm1099Report(
+    2026,
+    [pay({ id: "p1", amountCents: 250_000 })],
+    [{ id: "c1", name: "Dana Ruiz", email: null, hasW9: true, w9InApp: true, taxIdLast4: "6789" }],
+    null,
+  );
+  ok(inApp.rows[0].w9InApp, "8.7 a W-9 completed in the app is marked as such");
+  eq(inApp.rows[0].taxIdLast4, "6789", "8.8 and its masked tax id is available without a decryption");
+  ok(!inApp.rows[0].missingW9, "8.9 and it counts as on file");
+  const uploaded = buildForm1099Report(
+    2026,
+    [pay({ id: "p1", amountCents: 250_000 })],
+    [{ id: "c1", name: "Dana Ruiz", email: null, hasW9: true, w9InApp: false }],
+    null,
+  );
+  ok(!uploaded.rows[0].w9InApp, "8.10 an uploaded paper W-9 is distinguished from one in the app");
+  ok(!uploaded.rows[0].missingW9, "8.11 but still counts as on file — a club that collected paper has what it needs");
+
+  // Source: the server must do the excluding, and must prefer the W-9's legal
+  // name — a club's label for a contractor may be "Ref - Dana", and a 1099
+  // needs the name on their tax return.
+  const server = readFileSync(join(ROOT, "lib/form1099Server.ts"), "utf8");
+  ok(/workerType: "EMPLOYEE"/.test(server), "8.12 the server looks up who is classified EMPLOYEE");
+  ok(
+    /payments\.filter\(\(p\) => !employeeContractorIds\.has\(p\.contractorId\)\)/.test(server),
+    "8.13 and leaves their payments out of the report entirely",
+  );
+  ok(
+    /\.filter\(\(c\) => !employeeContractorIds\.has\(c\.id\)\)/.test(server),
+    "8.14 and leaves them out of the payee list too, so they cannot appear with a zero",
+  );
+  ok(
+    /c\.w9Current\?\.legalName \?\? c\.name/.test(server),
+    "8.15 the W-9's legal name is preferred over the club's own label for the contractor",
+  );
+  ok(
+    /convertedUserId/.test(server),
+    "8.16 using the existing contractor↔staff link rather than a second one",
+  );
 }
 
 // ── Done ───────────────────────────────────────────────────────────────────

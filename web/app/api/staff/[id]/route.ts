@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { contractorForStaff, ensureContractorLink } from "@/lib/workerType";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -39,6 +40,10 @@ const updateSchema = z.object({
   phone: z.string().max(50).optional().nullable(),
   photoUrl: z.string().optional().nullable(),
   showOnPortal: z.boolean().optional(),
+  // Phase 12.1: EMPLOYEE (payroll) | CONTRACTOR (W-9 / 1099). Nullable so a
+  // club can clear a classification it set in error; there is no default,
+  // because this is the club's legal determination to make, not ours.
+  workerType: z.enum(["EMPLOYEE", "CONTRACTOR"]).nullable().optional(),
   permissions: permissionsSchema,
 });
 
@@ -164,6 +169,11 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const lessonCount = lessonTypes.filter((t) =>
     Array.isArray(t.eligibleCoachIds) && (t.eligibleCoachIds as unknown[]).includes(user.id)).length;
 
+  // The Contractor record linked to this staff user, if any. Read through the
+  // existing `convertedUserId` link rather than a second one.
+  const linkedContractor =
+    financesView || self ? await contractorForStaff(session.user.clubId, user.id) : null;
+
   const { resetToken, staffProfile, ...rest } = user;
   return NextResponse.json({
     staff: {
@@ -181,6 +191,13 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       permissions: seesPrivate ? resolvePermissions(raw) : {},
       messagesSubScopes: seesPrivate ? (raw?.messages_subScopes as Record<string, boolean> | undefined) ?? null : null,
       billingSubScopes: seesPrivate ? (raw?.billing_subScopes as Record<string, boolean> | undefined) ?? null : null,
+      // Phase 12.1. Worker type travels with pay visibility, because it
+      // decides whether somebody is paid through payroll or gets a 1099.
+      workerType: financesView || self ? staffProfile?.workerType ?? null : null,
+      // The linked Contractor record, so the W-9 card knows what to load.
+      // Never a tax id — this payload carries nothing sensitive.
+      contractorId: financesView || self ? linkedContractor?.id ?? null : null,
+      w9Status: financesView || self ? linkedContractor?.w9Status ?? null : null,
     },
     viewer,
     counts: {
@@ -234,10 +251,13 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     // The legacy pay columns are pay: staff:full alone does not write them.
     const touchesPay =
       data.hourlyRate !== undefined || data.salary !== undefined ||
-      data.appointmentPrice !== undefined || data.perSessionRate !== undefined;
+      data.appointmentPrice !== undefined || data.perSessionRate !== undefined ||
+      // Worker type decides whether someone is paid through payroll or gets a
+      // 1099, so it is pay, not staff administration.
+      data.workerType !== undefined;
     if (touchesPay && !(await hasPermissionLive(session, "finances", "full"))) {
       return NextResponse.json(
-        { error: "Changing pay needs Financials & payroll: full.", code: "FINANCES_FULL_REQUIRED" },
+        { error: "Changing pay or worker type needs Financials & payroll: full.", code: "FINANCES_FULL_REQUIRED" },
         { status: 403 },
       );
     }
@@ -254,6 +274,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       ...(data.photoUrl !== undefined && { photoUrl: data.photoUrl }),
       ...(data.showOnPortal !== undefined && { showOnPortal: data.showOnPortal }),
       ...(data.phone !== undefined && { phone: data.phone }),
+      ...(data.workerType !== undefined && { workerType: data.workerType }),
       ...(data.permissions && { permissions: foldPermissions(data.permissions) as unknown as object }),
     };
 
@@ -299,6 +320,13 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     // 20s, and busting the cache for a change that then rolled back would serve
     // a re-read of the OLD row as if it were new.
     invalidatePermissionCache(user.id);
+
+    // A contractor needs a Contractor record to hang a W-9 and payment history
+    // on. AFTER the commit, so a rolled-back save never leaves a stray record
+    // behind — and idempotent, so saving the modal twice creates one.
+    if (data.workerType === "CONTRACTOR") {
+      await ensureContractorLink(session.user.clubId, user.id).catch(() => null);
+    }
 
     // B21 — Recent activity, after the commit.
     {
