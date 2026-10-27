@@ -98,6 +98,7 @@
     "test:pay-ledger-server": "TZ=UTC tsx scripts/pay-ledger-server-tests.ts",
     "test:gl-posting": "tsx scripts/gl-posting-tests.ts",
     "test:gl-reports": "tsx scripts/gl-reports-tests.ts",
+    "test:gl-reports-ui": "tsx --tsconfig scripts/tsconfig.render.json scripts/gl-reports-ui-tests.ts",
     "test:gl-close": "tsx scripts/gl-close-tests.ts",
     "test:form1099": "tsx scripts/form1099-tests.ts",
     "test:gl-opening": "tsx scripts/gl-opening-tests.ts"

@@ -86,6 +86,12 @@ export const GATED = [
   // cents make an exact check possible and a tolerance check would hide the
   // drift these tests exist to catch.
   ["scripts/gl-reports-tests.ts"],
+  // Phase 12.1 Part 1 (2026-10-27): server-renders every Books → Reports view.
+  // Four of the five crashed in production because the statement on screen and
+  // the payload in state were separate pieces of state, so a view could be
+  // handed another report's data for one render. RENDER tests, so it needs the
+  // react-jsx tsconfig override.
+  ["scripts/gl-reports-ui-tests.ts", RENDER],
   // accounting Phase 3 (2026-10-22): depreciation schedules that total exactly
   // cost less salvage over 600+ parameter combinations, a disposal that
   // balances at every combination of proceeds and accumulated depreciation,

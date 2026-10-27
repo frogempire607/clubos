@@ -631,6 +631,83 @@ const ENTRIES = new Map<string, ReportEntry>(FIXTURE.map((f) => [f.entry.id, f.e
   ok(/differenceCents/.test(src) && /balanced/.test(src), "12.5 it reports whether statements balance rather than assuming it");
   ok(/ties: differenceCents === 0/.test(src), "12.6 and the cash flow proves itself against the actual cash movement");
   ok(/=== 0/.test(src) && !/Math\.abs\([^)]*\)\s*<\s*[0-9]/.test(src), "12.7 balance checks are exact, never a tolerance");
+
+  // A VOID entry keeps all its rows — Phase 1 never hard-deletes — so a report
+  // that forgot this filter would count voided money as real. The bug report
+  // mentions voided test entries, so this is pinned rather than assumed.
+  const server = readFileSync(join(ROOT, "lib/glReportsServer.ts"), "utf8");
+  ok(/status: "POSTED"/.test(server), "12.8 the server reads POSTED entries only");
+  ok(
+    (server.match(/status: "POSTED"/g) ?? []).length >= 1 && /entry: \{/.test(server),
+    "12.9 filtering on the ENTRY, so a voided entry's lines never reach a statement",
+  );
+}
+
+// ── 13. An empty club, and voided entries ──────────────────────────────────
+// Phase 12.1 Part 1. The production state that was reported broken: a Pro club
+// with a chart of accounts, NO books start date, and zero or a few entries —
+// some of them voided test entries. Every statement must be empty-but-valid
+// rather than an error, and must still prove it balances.
+{
+  // No accounts at all, which is the state before the chart is seeded.
+  const bare = trialBalance([], []);
+  ok(bare.balanced, "13.1 a trial balance with no accounts balances");
+  eq(bare.rows, [], "13.2 with no rows");
+  eq(bare.totalDebitCents, 0, "13.3 and nothing on either side");
+
+  // A seeded chart with NOTHING posted — the common case.
+  const chartOnly = trialBalance(ACCOUNTS, []);
+  ok(chartOnly.balanced, "13.4 a seeded chart with no postings balances");
+  eq(chartOnly.rows, [], "13.5 and lists no accounts, because a zero row carries no information");
+
+  const bs = balanceSheet(ACCOUNTS, [], "2026-10-27", "2026-01-01");
+  ok(bs.balanced, "13.6 an empty balance sheet balances");
+  eq(bs.totalAssetsCents, 0, "13.7 at zero");
+  eq(bs.currentYearNetIncomeCents, 0, "13.8 with no current-year income");
+  ok(
+    bs.equity.lines.some((l) => l.accountId === "__current_year_net_income__"),
+    "13.9 but the net-income equity line is still present, so the sheet reads as a sheet",
+  );
+
+  const pnl = profitAndLoss(ACCOUNTS, [], [
+    { key: "period", label: "Total", from: "2026-10-01", to: "2026-10-31" },
+  ]);
+  eq(pnl.income.totalCents, 0, "13.10 an empty P&L has no income");
+  eq(pnl.netIncome.totalCents, 0, "13.11 and no net income");
+  eq(pnl.income.lines, [], "13.12 and no lines");
+  eq(pnl.columns.length, 1, "13.13 with its single column intact");
+
+  const gl = generalLedger(ACCOUNTS, [], new Map(), []);
+  eq(gl, [], "13.14 an empty general ledger is an empty list, not a crash");
+
+  const inputs = classifyForCashFlow(ACCOUNTS, []);
+  const cf = cashFlowIndirect(ACCOUNTS, [], [], "2026-10-01", "2026-10-31", inputs);
+  ok(cf.ties, "13.15 an empty cash flow statement ties");
+  eq(cf.netChangeCents, 0, "13.16 at zero");
+  eq(cf.openingCashCents, 0, "13.17 with no opening cash");
+  eq(cf.operating.lines, [], "13.18 and no lines in any section");
+
+  // A club with NO bank account mapped: "cash" is only 1020 and 1050. It must
+  // still tie, because the statement proves itself against whatever it counted
+  // as cash.
+  ok(inputs.cashAccountIds.has("undep"), "13.19 with no bank mapped, undeposited funds is still cash");
+  ok(inputs.cashAccountIds.size >= 2, "13.20 as is Stripe clearing");
+
+  // A single VOIDED entry contributes nothing. Void filtering happens in the
+  // server's query (`status: "POSTED"`), so at this layer the proof is that a
+  // statement built from no lines is valid — and §13.21 pins the query.
+  const onlyVoided = trialBalance(ACCOUNTS, []);
+  ok(onlyVoided.balanced, "13.21 a club whose only entries are voided sees a valid empty trial balance");
+
+  // One lone entry, which is "a few entries" in the bug report.
+  const oneEntry = FIXTURE[1].lines; // the single card charge
+  const tbOne = trialBalance(ACCOUNTS, oneEntry);
+  ok(tbOne.balanced, "13.22 a club with ONE entry still balances");
+  eq(tbOne.rows.length, 3, "13.23 showing its three accounts");
+  const bsOne = balanceSheet(ACCOUNTS, oneEntry, "2027-01-31", "2027-01-01");
+  ok(bsOne.balanced, "13.24 and its balance sheet balances");
+  const cfOne = cashFlowIndirect(ACCOUNTS, oneEntry, [], "2027-01-01", "2027-01-31", inputs);
+  ok(cfOne.ties, "13.25 and its cash flow ties");
 }
 
 // ── Done ───────────────────────────────────────────────────────────────────

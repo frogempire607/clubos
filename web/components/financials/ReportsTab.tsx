@@ -45,7 +45,7 @@ type TbRow = {
   debitCents: number;
   creditCents: number;
 };
-type Tb = {
+export type Tb = {
   rows: TbRow[];
   totalDebitCents: number;
   totalCreditCents: number;
@@ -75,10 +75,10 @@ type GlAcct = {
   creditCents: number;
   closingCents: number;
 };
-type Gl = { accounts: GlAcct[]; basisNote: string };
+export type Gl = { accounts: GlAcct[]; basisNote: string };
 type StmtLine = { accountId: string; number: string; name: string; cells: number[]; totalCents: number };
 type StmtSection = { key: string; label: string; lines: StmtLine[]; cells: number[]; totalCents: number };
-type Bs = {
+export type Bs = {
   asOf: string;
   assets: StmtSection;
   liabilities: StmtSection;
@@ -91,7 +91,7 @@ type Bs = {
   basisNote: string;
   fiscalYearStart: string;
 };
-type Pnl = {
+export type Pnl = {
   columns: { key: string; label: string }[];
   income: StmtSection;
   costOfSales: StmtSection;
@@ -102,7 +102,7 @@ type Pnl = {
 };
 type CfLine = { label: string; accountId: string | null; amountCents: number };
 type CfSection = { key: string; label: string; lines: CfLine[]; totalCents: number };
-type Cf = {
+export type Cf = {
   from: string;
   to: string;
   netIncomeCents: number;
@@ -127,6 +127,50 @@ type Drill = {
   from: string | null;
   to: string | null;
 };
+
+// ── A loaded report carries the statement it was fetched FOR ────────────────
+//
+// THIS IS THE FIX FOR THE PRODUCTION CRASH. `statement` and `data` were two
+// independent pieces of state: clicking a statement button set `statement`
+// synchronously, so for one render the new view was handed the OLD statement's
+// payload and `data as Gl` asserted a shape nobody had checked.
+// GeneralLedgerView then ran `gl.accounts.map` on `undefined` and React tore
+// the tree down — "Application error: a client-side exception has occurred".
+//
+// The trial balance was the only one that worked, which was the clue: it is
+// the default statement, so its payload always matched the view on screen.
+// Every other report was reached by a click.
+//
+// Binding the payload to its statement in one value makes the mismatch
+// unrepresentable, and the union below makes TypeScript narrow `payload` at
+// each branch — so the casts are gone and the compiler now rejects the
+// original mistake rather than compiling it.
+/// Which payload shape belongs to which statement. One place, so adding a
+/// sixth report is a line here and a compiler error everywhere it is missing.
+export type PayloadFor = {
+  "trial-balance": Tb;
+  "general-ledger": Gl;
+  "balance-sheet": Bs;
+  pnl: Pnl;
+  "cash-flow": Cf;
+};
+
+export type Loaded = { [K in StatementKey]: { statement: K; payload: PayloadFor[K] } }[StatementKey];
+
+/// The payload for the statement on screen, or null when what is loaded
+/// belongs to a different one — which is every render between clicking a
+/// statement and its data arriving.
+///
+/// The one cast is unavoidable: TypeScript does not narrow a discriminated
+/// union through a generic discriminant. It is also the only one left, and it
+/// is guarded by the equality check on the line above it.
+export function payloadForStatement<K extends StatementKey>(
+  statement: K,
+  data: Loaded | null,
+): PayloadFor[K] | null {
+  if (!data || data.statement !== statement) return null;
+  return data.payload as PayloadFor[K];
+}
 
 const fmtDate = (iso: string) =>
   new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
@@ -199,7 +243,7 @@ export default function ReportsTab({
   const [program, setProgram] = useState("all");
   const [byMonth, setByMonth] = useState(false);
   const [options, setOptions] = useState<Options | null>(null);
-  const [data, setData] = useState<Tb | Gl | Bs | Pnl | Cf | null>(null);
+  const [data, setData] = useState<Loaded | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [drill, setDrill] = useState<Drill | null>(null);
@@ -223,30 +267,44 @@ export default function ReportsTab({
       .catch(() => setOptions(null));
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setErr("");
-    try {
-      const extra = statement === "pnl" && byMonth ? "&byMonth=1" : "";
-      const r = await fetch(`/api/financials/ledger/reports?statement=${statement}&${qs}${extra}`);
-      if (!r.ok) {
-        const body = await r.json().catch(() => null);
-        setErr(body?.error || body?.message || "Couldn't load this statement.");
-        setData(null);
-      } else {
-        setData(await r.json());
-      }
-    } catch {
-      setErr("Couldn't load this statement.");
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [statement, qs, byMonth]);
-
+  // One effect, with cancellation, rather than a useCallback the render also
+  // calls: switching statements twice quickly leaves two requests in flight,
+  // and without this the slower one lands last and shows data for a statement
+  // the reader has already navigated away from.
   useEffect(() => {
-    void load();
-  }, [load]);
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setErr("");
+      try {
+        const extra = statement === "pnl" && byMonth ? "&byMonth=1" : "";
+        const r = await fetch(`/api/financials/ledger/reports?statement=${statement}&${qs}${extra}`);
+        if (cancelled) return;
+        if (!r.ok) {
+          const body = await r.json().catch(() => null);
+          if (cancelled) return;
+          setErr(body?.error || body?.message || "Couldn't load this statement.");
+          setData(null);
+        } else {
+          const payload = await r.json();
+          if (cancelled) return;
+          // `statement` here is the one this request was MADE for, captured by
+          // the closure — never whatever is on screen by the time it lands.
+          setData({ statement, payload } as Loaded);
+        }
+      } catch {
+        if (cancelled) return;
+        setErr("Couldn't load this statement.");
+        setData(null);
+      } finally {
+        // A superseded request must not clear the spinner the newer one set.
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [statement, qs, byMonth]);
 
   const openDrill = useCallback(
     async (accountId: string, range?: { from: string; to: string }) => {
@@ -367,21 +425,19 @@ export default function ReportsTab({
         </div>
       </div>
 
-      {data && "basisNote" in data && (
-        <p className="text-xs text-text-muted">{(data as { basisNote: string }).basisNote}</p>
+      {data && "basisNote" in data.payload && data.statement === statement && (
+        <p className="text-xs text-text-muted">{data.payload.basisNote}</p>
       )}
 
       {err && (
         <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">{err}</div>
       )}
 
-      {loading ? (
-        <SkeletonList rows={8} />
-      ) : !data ? null : statement === "trial-balance" ? (
-        <TrialBalanceView tb={data as Tb} onDrill={openDrill} />
-      ) : statement === "general-ledger" ? (
-        <GeneralLedgerView
-          gl={data as Gl}
+      {err ? null : (
+        <StatementBody
+          statement={statement}
+          data={data}
+          loading={loading}
           expanded={expanded}
           onToggle={(id) =>
             setExpanded((s) => {
@@ -391,14 +447,9 @@ export default function ReportsTab({
               return next;
             })
           }
+          onDrill={openDrill}
           onOpenJournal={(accountId) => onOpenJournal({ account: accountId, from, to })}
         />
-      ) : statement === "balance-sheet" ? (
-        <BalanceSheetView bs={data as Bs} onDrill={openDrill} />
-      ) : statement === "pnl" ? (
-        <PnlView pnl={data as Pnl} onDrill={openDrill} />
-      ) : (
-        <CashFlowView cf={data as Cf} onDrill={openDrill} />
       )}
 
       {(drill || drillLoading) && (
@@ -416,9 +467,63 @@ export default function ReportsTab({
   );
 }
 
+// ── Which view, and with what ───────────────────────────────────────────────
+//
+// Switches on the statement ON SCREEN, then asks for THAT statement's payload.
+// A payload belonging to any other statement yields null, and null renders the
+// skeleton — so the window between clicking a statement and its data arriving
+// shows a loading state instead of handing one report's data to another
+// report's view.
+//
+// No casts: `payloadForStatement` narrows the union, so each view receives a
+// value TypeScript has already proven is the right shape.
+function StatementBody({
+  statement,
+  data,
+  loading,
+  expanded,
+  onToggle,
+  onDrill,
+  onOpenJournal,
+}: {
+  statement: StatementKey;
+  data: Loaded | null;
+  loading: boolean;
+  expanded: Set<string>;
+  onToggle: (id: string) => void;
+  onDrill: (accountId: string, range?: { from: string; to: string }) => void;
+  onOpenJournal: (accountId: string) => void;
+}) {
+  const waiting = <SkeletonList rows={8} />;
+  if (loading) return waiting;
+
+  if (statement === "trial-balance") {
+    const tb = payloadForStatement("trial-balance", data);
+    return tb ? <TrialBalanceView tb={tb} onDrill={onDrill} /> : waiting;
+  }
+  if (statement === "general-ledger") {
+    const gl = payloadForStatement("general-ledger", data);
+    return gl ? (
+      <GeneralLedgerView gl={gl} expanded={expanded} onToggle={onToggle} onOpenJournal={onOpenJournal} />
+    ) : (
+      waiting
+    );
+  }
+  if (statement === "balance-sheet") {
+    const bs = payloadForStatement("balance-sheet", data);
+    return bs ? <BalanceSheetView bs={bs} onDrill={onDrill} /> : waiting;
+  }
+  if (statement === "pnl") {
+    const pnl = payloadForStatement("pnl", data);
+    return pnl ? <PnlView pnl={pnl} onDrill={onDrill} /> : waiting;
+  }
+  const cf = payloadForStatement("cash-flow", data);
+  return cf ? <CashFlowView cf={cf} onDrill={onDrill} /> : waiting;
+}
+
 // ── Trial balance ───────────────────────────────────────────────────────────
 
-function TrialBalanceView({ tb, onDrill }: { tb: Tb; onDrill: (id: string) => void }) {
+export function TrialBalanceView({ tb, onDrill }: { tb: Tb; onDrill: (id: string) => void }) {
   return (
     <div className="space-y-3">
       <TieBanner
@@ -477,7 +582,7 @@ function TrialBalanceView({ tb, onDrill }: { tb: Tb; onDrill: (id: string) => vo
 
 // ── General ledger ──────────────────────────────────────────────────────────
 
-function GeneralLedgerView({
+export function GeneralLedgerView({
   gl,
   expanded,
   onToggle,
@@ -588,7 +693,7 @@ function GeneralLedgerView({
 
 // ── Balance sheet ───────────────────────────────────────────────────────────
 
-function BalanceSheetView({ bs, onDrill }: { bs: Bs; onDrill: (id: string) => void }) {
+export function BalanceSheetView({ bs, onDrill }: { bs: Bs; onDrill: (id: string) => void }) {
   const section = (s: StmtSection, total: number) => (
     <div key={s.key} className="overflow-hidden rounded-xl border border-app-border bg-surface">
       <div className="bg-app-bg px-3 py-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
@@ -664,7 +769,7 @@ function BalanceSheetView({ bs, onDrill }: { bs: Bs; onDrill: (id: string) => vo
 
 // ── Profit & loss ───────────────────────────────────────────────────────────
 
-function PnlView({ pnl, onDrill }: { pnl: Pnl; onDrill: (id: string) => void }) {
+export function PnlView({ pnl, onDrill }: { pnl: Pnl; onDrill: (id: string) => void }) {
   const multi = pnl.columns.length > 1;
   const cols = pnl.columns;
 
@@ -732,7 +837,7 @@ function PnlView({ pnl, onDrill }: { pnl: Pnl; onDrill: (id: string) => void }) 
 
 // ── Cash flow ───────────────────────────────────────────────────────────────
 
-function CashFlowView({ cf, onDrill }: { cf: Cf; onDrill: (id: string) => void }) {
+export function CashFlowView({ cf, onDrill }: { cf: Cf; onDrill: (id: string) => void }) {
   const section = (s: CfSection) => (
     <tbody key={s.key}>
       <tr className="border-t border-app-border bg-app-bg">
