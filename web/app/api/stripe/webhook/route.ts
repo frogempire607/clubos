@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { stripe } from "@/lib/stripe";
 import { applyNonRenewal, planNonRenewal } from "@/lib/autopay";
-import { invoicePeriodEnd } from "@/lib/stripeTruth";
+import { invoicePeriodEnd, refundFeeFactsForCharge } from "@/lib/stripeTruth";
 import { prisma } from "@/lib/prisma";
 import { releaseStock } from "@/lib/productStock";
 import { recordProductMoney } from "@/lib/productMoney";
@@ -1068,12 +1068,19 @@ export async function POST(req: Request) {
           break;
         }
         const fullyRefunded = refunded >= Number(tx.amount) - 0.005;
+        // The fee movement on the refund, from the REFUND's own balance
+        // transaction. Phase 12 built the ledger path for this and had nothing
+        // to fill it; this is the fill. Never throws and never blocks the
+        // refund being recorded — the figure improves the journal entry, it is
+        // not a precondition for it.
+        const { refundFeeAmount } = await refundFeeFactsForCharge(charge.id, event.account ?? null);
         await prisma.transaction.update({
           where: { id: tx.id },
           data: {
             refundedAmount: refunded,
+            ...(refundFeeAmount !== null ? { refundFeeAmount } : {}),
             ...(fullyRefunded ? { status: "REFUNDED" } : {}),
-            notes: `${tx.notes ? tx.notes + "\n" : ""}Refunded $${refunded.toFixed(2)}${fullyRefunded ? " (full)" : " (partial)"} — Stripe ${charge.id}.`,
+            notes: `${tx.notes ? tx.notes + "\n" : ""}Refunded $${refunded.toFixed(2)}${fullyRefunded ? " (full)" : " (partial)"} — Stripe ${charge.id}.${refundFeeAmount !== null ? ` Processing fee ${refundFeeAmount >= 0 ? "returned" : "charged"} $${Math.abs(refundFeeAmount).toFixed(2)}.` : ""}`,
           },
         });
         break;

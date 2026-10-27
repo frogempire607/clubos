@@ -177,6 +177,8 @@ export function analyzeRouteSource(raw: string): HandlerFinding[] {
 export const APPROVED_INLINE: Record<string, string> = {
   "app/api/messages/dm/[userId]/route.ts#POST":
     "Session-only by design: members may DM staff and owners freely. Recipient and subject athlete are both looked up with clubId = the caller's club, so there is no cross-tenant reach.",
+  "app/api/contractors/[id]/w9/route.ts#POST":
+    "SELF-ONLY by design, which is STRICTER than any permission level and cannot be expressed as one. A W-9's Part II is a certification under penalties of perjury, so only the person it is for may sign it — not an owner, and not a staffer with payroll permission. The handler loads the contractor with clubId = the caller's club and then requires contractor.convertedUserId === session.user.id, refusing everyone else with a 403. Phase 12.1.",
 };
 
 type Row = { rel: string; verb: string; line: number };

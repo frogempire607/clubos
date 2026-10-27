@@ -230,9 +230,10 @@ export type ChargeFacts = {
   /// The fee Stripe gave back (or charged) on the refund, from the refund's
   /// own balance transaction — positive when the club got fee money back.
   ///
-  /// NOTHING POPULATES THIS TODAY; see the note on planRefund. The posting
-  /// path is here and tested so wiring it up is a one-line change rather than
-  /// a re-think.
+  /// Filled since Phase 12.1 from `Transaction.refundFeeAmount`, which the
+  /// `charge.refunded` webhook writes via `refundFeeFactsForCharge`. NULL
+  /// means Stripe reported no fee movement, which is the common case and is
+  /// exactly how every refund behaved before the column existed.
   refundFeeDeltaCents?: number | null;
 };
 
@@ -403,15 +404,14 @@ export function planRefund(
   // a fee REFUNDED is a credit (the expense is reduced), a fee CHARGED on the
   // refund is a debit.
   //
-  // DOCUMENTED LIMITATION: nothing populates `refundFeeDeltaCents` today. The
-  // sweep makes no per-refund Stripe call by design — Phase 2 chose a sweep
-  // precisely so no money-critical payment path changed — and the figure is
-  // not stored anywhere. Filling it needs an additive `Transaction`
-  // column written by the `charge.refunded` webhook from
-  // `refund.balance_transaction`, which is the follow-up recorded in
-  // docs/accounting/plan.md. Until then a refund posts without a fee effect,
-  // which is exactly what Phase 2 did, and this path is here and tested so
-  // turning it on is one line.
+  // SWITCHED ON IN PHASE 12.1. `Transaction.refundFeeAmount` is written by the
+  // `charge.refunded` webhook from the REFUND's own balance transaction, and
+  // the sweep passes it through. The sweep itself still makes no per-refund
+  // Stripe call — the webhook already had the charge in hand, which is why
+  // that is where the lookup belongs.
+  //
+  // A NULL is still the common case: most Stripe refunds return no fee, and
+  // then a refund posts with no fee effect, exactly as before.
   const feeDelta = t.refundFeeDeltaCents ?? 0;
   const feeId = feeDelta !== 0 ? resolveAccount(accounts, PROCESSING_FEES.number) : null;
   if (feeDelta !== 0 && !feeId) return skip("MISSING_ACCOUNT", PROCESSING_FEES.number);

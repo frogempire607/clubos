@@ -104,6 +104,11 @@ export const GATED = [
   // encryption, so no TIN was stored, and this fails the build if one
   // appears without it.
   ["scripts/form1099-tests.ts"],
+  // Phase 12.1 Part 2 (2026-10-27): AES-256-GCM field encryption and the
+  // W-9. §1 proves there is NO plaintext path; §6 is the build guard that a
+  // tax-id field may only exist while the encryption protecting it exists,
+  // is the only way it is written, and is read in exactly one audited place.
+  ["scripts/field-crypto-tests.ts"],
   // accounting Phase 3 (2026-10-22): the QuickBooks opening balance and the
   // read-only history archive. §6 greps the reports and posting modules to
   // prove the archive never feeds a report, a balance or a posting — the

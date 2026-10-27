@@ -101,6 +101,7 @@
     "test:gl-reports-ui": "tsx --tsconfig scripts/tsconfig.render.json scripts/gl-reports-ui-tests.ts",
     "test:gl-close": "tsx scripts/gl-close-tests.ts",
     "test:form1099": "tsx scripts/form1099-tests.ts",
+    "test:field-crypto": "tsx scripts/field-crypto-tests.ts",
     "test:gl-opening": "tsx scripts/gl-opening-tests.ts"
   },
   "dependencies": {

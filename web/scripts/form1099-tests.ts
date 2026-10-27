@@ -61,34 +61,55 @@ function walk(dir: string): string[] {
   return out;
 }
 
-// ── 1. NO TIN IS STORED — the standing guard ────────────────────────────────
+// ── 1. A TIN MAY ONLY EXIST ENCRYPTED — the standing guard ──────────────────
+//
+// UPDATED IN PHASE 12.1. Until then this asserted that NO tax-identification
+// field existed anywhere, because the repo had no field-level encryption and
+// Phase 12 therefore stopped rather than storing one. Julian approved the
+// encryption design, so one now exists — and the guard changes shape rather
+// than being deleted: a plaintext tax-id field must still never appear, and
+// the encrypted one must still be backed by real encryption.
+//
+// The detailed guard (one decrypting module, audit before decrypt, nothing
+// logged, a CHECK constraint on the column) lives in
+// scripts/field-crypto-tests.ts §6.
 {
   const schema = readFileSync(join(ROOT, "prisma/schema.prisma"), "utf8");
 
-  // A field whose NAME says it holds a tax identification number. Written as
-  // Prisma field declarations so a comment mentioning "TIN" doesn't trip it.
-  const tinField =
-    /^\s*(taxId|tin|ssn|socialSecurity\w*|federalTaxId|payeeTaxId|taxIdentificationNumber)\s+\w/im;
-  ok(!tinField.test(schema), "1.1 prisma/schema.prisma declares NO tax-identification field");
+  // Anchored to the whole field name — a substring search matches
+  // "busine(ssN)ame" and "set(tin)gs" and cries wolf.
+  const tinFields = [
+    ...schema.matchAll(
+      /^\s*((?:taxId|tin|ssn|socialSecurity|federalTaxId|payeeTaxId|taxpayerId)[A-Za-z0-9]*)\s+\w/gim,
+    ),
+  ].map((m) => m[1]);
+  const allowed = new Set(["taxIdEncrypted", "taxIdLast4", "taxIdKind"]);
+  eq(
+    tinFields.filter((f) => !allowed.has(f)),
+    [],
+    "1.1 the schema declares no PLAINTEXT tax-identification field",
+  );
+  ok(tinFields.includes("taxIdEncrypted"), "1.1b and the encrypted one exists, so 1.1 is not vacuous");
 
-  // If one is ever added, field-level encryption must exist first. These are
-  // the markers of a real implementation.
+  // The encryption that justifies the field existing at all.
   const hasEncryption = walk(join(ROOT, "lib")).some((f) => {
     const src = readFileSync(f, "utf8");
-    return /createCipheriv|createDecipheriv|aes-256-gcm/.test(src);
+    return /createCipheriv|createDecipheriv/.test(src) && /aes-256-gcm/.test(src);
   });
   ok(
-    !tinField.test(schema) || hasEncryption,
-    "1.2 and if one is ever added, field-level encryption exists to protect it",
-    "a TIN field appeared with no createCipheriv/aes-256-gcm anywhere in lib/ — STOP and build the encryption first",
+    hasEncryption,
+    "1.2 AES-256-GCM field encryption exists to protect it",
+    "a TIN field without createCipheriv/aes-256-gcm in lib/ must fail the build",
   );
 
-  // Nothing in this phase's code handles a TIN.
+  // The 1099 report still handles no TIN: it reports who needs a form and for
+  // how much, and the number itself is only ever read through
+  // lib/contractorTin.revealTin.
   for (const f of ["lib/form1099.ts", "lib/form1099Server.ts"]) {
     const src = readFileSync(join(ROOT, f), "utf8");
     ok(
-      !/\btaxId\b|\bssn\b|socialSecurity/i.test(src.replace(/\/\/[^\n]*/g, "")),
-      `1.3 ${f} handles no tax identification number outside its comments`,
+      !/\btaxId\b|\bssn\b|socialSecurity|decryptField/i.test(src.replace(/\/\/[^\n]*/g, "")),
+      `1.3 ${f} still handles no tax identification number outside its comments`,
     );
   }
 
