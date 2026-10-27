@@ -28,7 +28,7 @@ const updateSchema = z.object({
 
 async function getDoc(id: string, clubId: string) {
   return prisma.document.findFirst({
-    where: { id, clubId, deletedAt: null },
+    where: { audience: "MEMBER", id, clubId, deletedAt: null },
   });
 }
 

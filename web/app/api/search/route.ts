@@ -83,7 +83,7 @@ export async function GET(req: Request) {
         : [],
       can("documents")
         ? prisma.document.findMany({
-            where: { clubId, deletedAt: null, title: like },
+            where: { audience: "MEMBER", clubId, deletedAt: null, title: like },
             select: { id: true, title: true, type: true },
             take: TAKE,
           })

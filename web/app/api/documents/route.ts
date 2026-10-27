@@ -12,7 +12,7 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const docs = await prisma.document.findMany({
-    where: { clubId: session.user.clubId, deletedAt: null },
+    where: { audience: "MEMBER", clubId: session.user.clubId, deletedAt: null },
     orderBy: { createdAt: "desc" },
     // Which events each document is attached to (for the "linked events"
     // display; All-Events docs list none here — the flag says it all).

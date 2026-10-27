@@ -109,6 +109,11 @@ export const GATED = [
   // tax-id field may only exist while the encryption protecting it exists,
   // is the only way it is written, and is read in exactly one audited place.
   ["scripts/field-crypto-tests.ts"],
+  // Phase 12.1 Part 4 (2026-10-27): staff documents and e-signatures. §6 is
+  // the SEPARATION GUARD — Document.audience defaults to MEMBER, so a missed
+  // filter on a member-facing read is invisible until a club creates its
+  // first staff document. It enumerates every one of those reads.
+  ["scripts/staff-documents-tests.ts"],
   // accounting Phase 3 (2026-10-22): the QuickBooks opening balance and the
   // read-only history archive. §6 greps the reports and posting modules to
   // prove the archive never feeds a report, a balance or a posting — the

@@ -1087,6 +1087,231 @@ async function main() {
     ok((await appBase.plaidTransaction.findMany()).length === 0, "T11.45 …and 0 bank rows");
     ok((await appBase.stripeReconciliation.findMany()).length === 0, "T11.46 …and 0 Stripe reconciliations");
 
+    // ── 17. Phase 12.1's tables (2026-10-27) ────────────────────────────────
+    // contractor_w9_submissions holds ENCRYPTED TAX IDS, so a cross-tenant
+    // read here is not a privacy annoyance but somebody else's social security
+    // number. The staff document tables carry FKs into documents and users,
+    // and Postgres FK checks bypass RLS — which is what T12.14 onwards proves
+    // the FK-aware policies catch.
+    console.log("\n[Phase 12.1 tables — cross-club isolation]");
+
+    for (const [c, p] of [["club_a", "a"], ["club_b", "b"]] as const) {
+      await sys.contractor.create({
+        data: { id: `con_${p}1`, clubId: c, name: `${p} referee`, email: `${p}ref@example.com` },
+      });
+      await sys.contractorW9Submission.create({
+        data: {
+          id: `w9_${p}1`,
+          clubId: c,
+          contractorId: `con_${p}1`,
+          legalName: `${p.toUpperCase()} Referee`,
+          taxClassification: "INDIVIDUAL",
+          streetAddress: "1 Road",
+          city: "Town",
+          state: "OH",
+          zipCode: "45402",
+          taxIdKind: "SSN",
+          // Shaped like real ciphertext so the CHECK constraint accepts it.
+          taxIdEncrypted: `v1:1:${p}aaaaaaaaaaaa:${p}bbbbbbbbbbbb:${p}cccccccccccc`,
+          taxIdLast4: "6789",
+          certificationText: "Under penalties of perjury…",
+          signedName: `${p.toUpperCase()} Referee`,
+        },
+      });
+      await sys.document.create({
+        data: { id: `sdoc_${p}1`, clubId: c, title: `${p} handbook`, type: "POLICY", audience: "STAFF", version: 1 },
+      });
+      await sys.staffDocumentAssignment.create({
+        data: { id: `sas_${p}1`, clubId: c, documentId: `sdoc_${p}1`, scope: "ALL" },
+      });
+      await sys.staffDocumentSignature.create({
+        data: {
+          id: `ssig_${p}1`,
+          clubId: c,
+          documentId: `sdoc_${p}1`,
+          staffUserId: `u_${p}1`,
+          signerName: `Owner ${p.toUpperCase()}`,
+          documentVersion: 1,
+        },
+      });
+    }
+
+    // Positive controls, so a later "0 rows" means isolation and not emptiness.
+    ok((await A.contractorW9Submission.count()) === 1, "T12.0 A sees its own W-9 submission");
+    ok((await A.staffDocumentAssignment.count()) === 1, "T12.1 A sees its own assignment");
+    ok((await A.staffDocumentSignature.count()) === 1, "T12.2 A sees its own staff signature");
+
+    // Reads across the tenant — the one that matters most.
+    ok(
+      (await A.contractorW9Submission.findUnique({ where: { id: "w9_b1" } })) === null,
+      "T12.3 A cannot read B's W-9 submission — this one is somebody's tax ID",
+    );
+    ok((await A.staffDocumentAssignment.findUnique({ where: { id: "sas_b1" } })) === null, "T12.4 A cannot read B's assignment");
+    ok((await A.staffDocumentSignature.findUnique({ where: { id: "ssig_b1" } })) === null, "T12.5 A cannot read B's staff signature");
+    ok((await A.contractorW9Submission.count({ where: { clubId: "club_b" } })) === 0, "T12.6 A counting B's W-9s gets 0");
+    // Not even the ciphertext leaks.
+    ok(
+      (await A.contractorW9Submission.findMany({ select: { taxIdEncrypted: true } })).every((r) =>
+        r.taxIdEncrypted.startsWith("v1:1:a"),
+      ),
+      "T12.7 and the only ciphertext A can see is its own",
+    );
+
+    // Writes into the other club.
+    await throws(
+      "T12.8 A cannot INSERT a W-9 into club B",
+      () =>
+        A.contractorW9Submission.create({
+          data: {
+            id: "evil_w9", clubId: "club_b", contractorId: "con_b1", legalName: "x",
+            taxClassification: "INDIVIDUAL", streetAddress: "1", city: "x", state: "OH", zipCode: "45402",
+            taxIdKind: "SSN", taxIdEncrypted: "v1:1:aaaa:bbbb:cccc", taxIdLast4: "0001",
+            certificationText: "x", signedName: "x",
+          },
+        }),
+      /row-level security|42501/i,
+    );
+    await throws(
+      "T12.9 A cannot INSERT an assignment into club B",
+      () => A.staffDocumentAssignment.create({ data: { id: "evil_sas", clubId: "club_b", documentId: "sdoc_b1", scope: "ALL" } }),
+      /row-level security|42501/i,
+    );
+    await throws(
+      "T12.10 A cannot INSERT a staff signature into club B",
+      () =>
+        A.staffDocumentSignature.create({
+          data: { id: "evil_ssig", clubId: "club_b", documentId: "sdoc_b1", staffUserId: "u_b1", signerName: "x" },
+        }),
+      /row-level security|42501/i,
+    );
+
+    // ── THE FK-CROSSING FAMILY ──────────────────────────────────────────────
+    // Each claims club A — so a clubId-only policy would admit it — while
+    // pointing a foreign key at club B.
+    await throws(
+      "T12.11 A cannot attach its W-9 to B's CONTRACTOR",
+      () =>
+        A.contractorW9Submission.create({
+          data: {
+            id: "evil_w92", clubId: "club_a", contractorId: "con_b1", legalName: "x",
+            taxClassification: "INDIVIDUAL", streetAddress: "1", city: "x", state: "OH", zipCode: "45402",
+            taxIdKind: "SSN", taxIdEncrypted: "v1:1:aaaa:bbbb:cccc", taxIdLast4: "0002",
+            certificationText: "x", signedName: "x",
+          },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T12.12 A cannot assign B's DOCUMENT",
+      () => A.staffDocumentAssignment.create({ data: { id: "evil_sas2", clubId: "club_a", documentId: "sdoc_b1", scope: "ALL" } }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T12.13 A cannot assign a document to B's STAFF MEMBER",
+      () =>
+        A.staffDocumentAssignment.create({
+          data: { id: "evil_sas3", clubId: "club_a", documentId: "sdoc_a1", scope: "STAFF", staffUserId: "u_b1" },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T12.14 A cannot record a signature against B's DOCUMENT",
+      () =>
+        A.staffDocumentSignature.create({
+          data: { id: "evil_ssig2", clubId: "club_a", documentId: "sdoc_b1", staffUserId: "u_a1", signerName: "x" },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+    await throws(
+      "T12.15 nor claim B's STAFF MEMBER signed its own document",
+      () =>
+        A.staffDocumentSignature.create({
+          data: { id: "evil_ssig3", clubId: "club_a", documentId: "sdoc_a1", staffUserId: "u_b1", signerName: "x" },
+        }),
+      /row-level security|foreign key|42501|23503/i,
+    );
+
+    // Positive controls: the same shapes must still work inside one club, or
+    // the policies are too tight and the feature is broken rather than safe.
+    // Phase 12 shipped a policy that refused EVERY insert and looked like
+    // perfect isolation, because only its positive control failed.
+    const okW9 = await A.contractorW9Submission.create({
+      data: {
+        id: "good_w9", clubId: "club_a", contractorId: "con_a1", legalName: "A Referee",
+        taxClassification: "SOLE_PROPRIETOR", streetAddress: "2 Road", city: "Town", state: "OH",
+        zipCode: "45402", taxIdKind: "EIN", taxIdEncrypted: "v1:1:dddddddddddd:eeeeeeeeeeee:ffffffffffff",
+        taxIdLast4: "4321", certificationText: "Under penalties of perjury…", signedName: "A Referee",
+      },
+    });
+    ok(okW9.id === "good_w9", "T12.16 …but A CAN file a W-9 against its own contractor");
+    await A.contractorW9Submission.delete({ where: { id: "good_w9" } });
+
+    const okSig = await A.staffDocumentSignature.create({
+      data: {
+        id: "good_ssig", clubId: "club_a", documentId: "sdoc_a1", staffUserId: "u_a1",
+        signerName: "A Owner", documentVersion: 2,
+      },
+    });
+    ok(okSig.documentVersion === 2, "T12.17 …and CAN record its own staff signature, at a new version");
+    await A.staffDocumentSignature.delete({ where: { id: "good_ssig" } });
+
+    // The CHECK constraint: a PLAINTEXT tax id must be refused by the database
+    // itself, not only by the service.
+    await throws(
+      "T12.18 the database REFUSES a plaintext tax id, whatever the service does",
+      () =>
+        A.contractorW9Submission.create({
+          data: {
+            id: "plaintext_w9", clubId: "club_a", contractorId: "con_a1", legalName: "x",
+            taxClassification: "INDIVIDUAL", streetAddress: "1", city: "x", state: "OH", zipCode: "45402",
+            taxIdKind: "SSN", taxIdEncrypted: "123456789", taxIdLast4: "6789",
+            certificationText: "x", signedName: "x",
+          },
+        }),
+      /check constraint|23514/i,
+    );
+    await throws(
+      "T12.19 and a last-four that isn't four digits",
+      () =>
+        A.contractorW9Submission.create({
+          data: {
+            id: "badlast4_w9", clubId: "club_a", contractorId: "con_a1", legalName: "x",
+            taxClassification: "INDIVIDUAL", streetAddress: "1", city: "x", state: "OH", zipCode: "45402",
+            taxIdKind: "SSN", taxIdEncrypted: "v1:1:aaaa:bbbb:cccc", taxIdLast4: "123456789",
+            certificationText: "x", signedName: "x",
+          },
+        }),
+      /check constraint|23514/i,
+    );
+
+    // Update / delete isolation.
+    ok(
+      (await A.contractorW9Submission.updateMany({ where: { clubId: "club_b" }, data: { taxIdLast4: "0000" } })).count === 0,
+      "T12.20 A cannot rewrite B's W-9",
+    );
+    ok(
+      (await A.staffDocumentSignature.deleteMany({ where: { clubId: "club_b" } })).count === 0,
+      "T12.21 A cannot delete B's staff signatures",
+    );
+    await throws(
+      "T12.22 A cannot re-home its W-9 into club B",
+      () => A.contractorW9Submission.update({ where: { id: "w9_a1" }, data: { clubId: "club_b" } }),
+      /row-level security|42501/i,
+    );
+
+    // System check: B is untouched.
+    ok((await sys.contractorW9Submission.count({ where: { clubId: "club_b" } })) === 1, "T12.23 system check: B still has its W-9");
+    ok(
+      (await sys.contractorW9Submission.findUnique({ where: { id: "w9_b1" } }))?.taxIdLast4 === "6789",
+      "T12.24 system check: unchanged",
+    );
+    ok((await sys.staffDocumentSignature.count({ where: { clubId: "club_b" } })) === 1, "T12.25 system check: B still has its signature");
+
+    // Fail closed with no tenant.
+    ok((await appBase.contractorW9Submission.findMany()).length === 0, "T12.26 no tenant → 0 W-9 submissions (fail closed)");
+    ok((await appBase.staffDocumentAssignment.findMany()).length === 0, "T12.27 …and 0 assignments");
+    ok((await appBase.staffDocumentSignature.findMany()).length === 0, "T12.28 …and 0 staff signatures");
+
     await sys.$disconnect().catch(() => {});
     await appBase.$disconnect().catch(() => {});
     await sysPool.end().catch(() => {});

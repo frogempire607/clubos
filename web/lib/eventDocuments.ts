@@ -45,7 +45,7 @@ export async function documentsForEvent(clubId: string, eventId: string): Promis
   const now = new Date();
   const docs = await prisma.document.findMany({
     where: {
-      clubId,
+      audience: "MEMBER", clubId,
       deletedAt: null,
       AND: [
         { OR: [{ publishAt: null }, { publishAt: { lte: now } }] },
