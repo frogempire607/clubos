@@ -52,6 +52,8 @@ export function makeFakeDb(cfg: FakeConfig) {
       else if (op === "gt") { if (v == null || !lt(x, v)) return false; }
       else if (op === "lte") { if (v == null || lt(x, v)) return false; }
       else if (op === "lt") { if (v == null || !lt(v, x)) return false; }
+      else if (op === "contains") { const a = String(v ?? ""), b = String(x); if (cond.mode === "insensitive" ? !a.toLowerCase().includes(b.toLowerCase()) : !a.includes(b)) return false; }
+      else if (op === "mode") { /* read by "contains" */ }
       else if (op === "array_contains") { if (!Array.isArray(v) || !(x as any[]).every((y) => v.includes(y))) return false; }
       else throw new Error(`fake-prisma: unsupported filter operator "${op}"`);
     }

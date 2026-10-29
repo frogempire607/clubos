@@ -225,3 +225,42 @@ export function membershipSiblingSummary(cfg: MembershipSiblingConfig): string {
       : cfg.tiers!.map((t, i) => `${ordinalWord(i + 2)}${i === cfg.tiers!.length - 1 ? "+" : ""} ${describeAmount(t)}`).join(", ");
   return `On — ${amount}; the ${cfg.discountWhich === "CHEAPER" ? "priciest" : "cheapest"} membership pays full price.`;
 }
+
+// ── Who counts as family (2026-10-29) ───────────────────────────────────────
+// The family used to be "whoever pays". A coach paying for a whole team
+// (Jason Reynolds, eight athletes) made all eight "siblings", and seven would
+// have got the sibling discount. A payer is NOT family when:
+//   · their guardian link to the athlete is labelled a coach / team payer, or
+//   · they were set as "Paid by" without being the athlete's guardian or own
+//     login (the sponsor path — paying grants no access).
+// Then the athlete's family is their primary guardian who IS family; with none,
+// they are a family of one. Every other case is exactly as before.
+
+/** A guardian link labelled as a coach / team payer is not family. */
+export function isCoachRelationship(rel: string | null | undefined): boolean {
+  return !!rel && /\b(coach|team)\b/i.test(rel);
+}
+
+export type FamilyKeyInput = {
+  /** resolvePayerUserId(subscription payer → member "Paid by" → own login). */
+  payerUserId: string | null;
+  memberUserId: string | null;
+  memberResponsiblePayerUserId: string | null;
+  /** Every CONFIRMED guardian login of the athlete. */
+  guardianUserIds: string[];
+  /** Those of them whose link is labelled coach / team. */
+  coachUserIds: string[];
+  /** The primary (else earliest) CONFIRMED guardian that is NOT a coach link. */
+  primaryFamilyGuardian: string | null;
+};
+
+/** PURE. The key an athlete's memberships are grouped under for the sibling discount; null = a family of one. */
+export function siblingFamilyKey(k: FamilyKeyInput): string | null {
+  const p = k.payerUserId;
+  const nonFamily = !!p && (
+    k.coachUserIds.includes(p) ||
+    (p === k.memberResponsiblePayerUserId && p !== k.memberUserId && !k.guardianUserIds.includes(p))
+  );
+  if (p && !nonFamily) return p;
+  return k.primaryFamilyGuardian ?? null;
+}

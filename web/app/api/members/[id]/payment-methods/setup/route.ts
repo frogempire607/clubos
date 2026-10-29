@@ -8,6 +8,7 @@ import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { stripe } from "@/lib/stripe";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
 import { writeBillingAudit } from "@/lib/billingAudit";
+import { familyWallet } from "@/lib/payerWallet";
 
 // POST /api/members/[id]/payment-methods/setup  (billing:full)
 //
@@ -67,6 +68,17 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // Reuse whichever customer already exists so the saved card lands where
   // billing flows (approval, reactivation, portal) will look for it.
   let customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId ?? null;
+  // 2026-10-29 — no customer yet, but the person who pays for this athlete
+  // already has cards on another athlete (a parent's other child, a coach's
+  // team): the new card joins THAT customer, so it's usable for all of them.
+  if (!customerId) {
+    const wallet = await familyWallet(member.clubId, member.id).catch(() => null);
+    const shared = wallet?.sources[0]?.customerId ?? null;
+    if (shared) {
+      customerId = shared;
+      await prisma.member.update({ where: { id: member.id }, data: { stripeSetupCustomerId: customerId } });
+    }
+  }
   if (!customerId) {
     const customer = await stripe.customers.create(
       {
