@@ -30,6 +30,7 @@ import { parseOptions as parseOptionsShared } from "@/lib/membershipOptions";
 import { listPaymentMethodsForCustomer, lastPaidWithForCustomers } from "@/lib/paymentMethodsAdmin";
 import { paymentMethodLabel, paymentTypeName, isOffSessionChargeable, type LastPaidWith } from "@/lib/billingDataRules";
 import { chargeDateMoved } from "@/lib/chargeDate";
+import { familyWallet } from "@/lib/payerWallet";
 
 export const dynamic = "force-dynamic";
 
@@ -263,6 +264,34 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     }
   }
 
+  // ── The payer's wallet (2026-10-29) ─────────────────────────────────────
+  // Cards saved on the OTHER athletes this same person pays for (a parent's
+  // other kids, or a coach's team). "Use for <athlete>" points this athlete at
+  // that customer + card — see lib/payerWallet. Opaque refs only, as above.
+  type FamilyCardSource = { sourceMemberId: string; names: string[]; methods: { ref: string; label: string; chargeableOffSession: boolean; isDefault: boolean }[] };
+  let familyCards: { payerUserId: string | null; payerName: string | null; sharedWith: string[]; sources: FamilyCardSource[] } | null = null;
+  if (club.stripeAccountId) {
+    try {
+      const w = await familyWallet(club.id, member.id);
+      if (w) {
+        const sources: FamilyCardSource[] = [];
+        for (const src of w.sources.slice(0, 5)) {
+          const { methods } = await listCustomerPaymentMethods(src.customerId, club.stripeAccountId, "SETUP", null);
+          const usable = methods.filter((m) => m.chargeableOffSession);
+          if (usable.length === 0) continue;
+          sources.push({
+            sourceMemberId: src.members[0].id,
+            names: src.members.map((m) => m.name),
+            methods: usable.map((m) => ({ ref: m.ref, label: m.label, chargeableOffSession: m.chargeableOffSession, isDefault: m.isDefault })),
+          });
+        }
+        familyCards = { payerUserId: w.payerUserId, payerName: w.payerName, sharedWith: w.sharedWith.map((x) => x.name), sources };
+      }
+    } catch (e) {
+      console.error("billing-admin: family wallet read failed", e);
+    }
+  }
+
   // ── Guardians & payer ───────────────────────────────────────────────────
   const guardians = member.guardianLinks.map((l) => ({
     userId: l.user.id,
@@ -467,6 +496,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     },
     guardians,
     payer,
+    familyCards,
     // ONE authoritative state with strict precedence (live Stripe > pending
     // offer/approval > paid draft config > manual > free > settled) so the
     // page can never show contradictory chips without explanation.
@@ -707,16 +737,16 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     }
   }
 
-  // Payer must be a guardian-linked portal user of THIS member (or its own user).
+  // Payer: any portal account in THIS club (2026-10-29). It used to have to be
+  // a linked guardian, which made a coach paying for a team impossible
+  // without also making him every athlete's guardian. Paying grants no access.
   if (data.responsiblePayerUserId) {
-    const allowed =
-      data.responsiblePayerUserId === member.userId ||
-      member.guardianLinks.some((l) => l.userId === data.responsiblePayerUserId);
-    if (!allowed) {
-      return NextResponse.json(
-        { error: "The payer must be this athlete's own account or a linked guardian. Link the guardian first." },
-        { status: 400 },
-      );
+    const payerUser = await prisma.user.findFirst({
+      where: { id: data.responsiblePayerUserId, clubId: member.clubId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!payerUser) {
+      return NextResponse.json({ error: "That payer isn't an account in this club." }, { status: 400 });
     }
   }
 

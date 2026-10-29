@@ -10,6 +10,8 @@ import { parseOptions } from "@/lib/membershipOptions";
 import {
   parseMembershipSibling,
   planFamily,
+  isCoachRelationship,
+  siblingFamilyKey,
   siblingForPurchase,
   siblingOn,
   coversPlan,
@@ -33,29 +35,41 @@ const LIVE = ["active", "past_due", "trialing"];
 
 type MemberKeyInput = { id: string; userId: string | null; responsiblePayerUserId: string | null };
 
-/** The primary (else earliest) CONFIRMED guardian login per member. */
-async function primaryGuardians(clubId: string, memberIds: string[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+/** Per member: every CONFIRMED guardian, the coach-labelled ones, and the primary family guardian (2026-10-29). */
+type GuardianInfo = { all: string[]; coach: string[]; primaryFamily: string | null };
+async function primaryGuardians(clubId: string, memberIds: string[]): Promise<Map<string, GuardianInfo>> {
+  const out = new Map<string, GuardianInfo>();
   if (memberIds.length === 0) return out;
   const links = await prisma.memberGuardianUser.findMany({
     where: { clubId, memberId: { in: memberIds }, status: "CONFIRMED" },
     orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-    select: { memberId: true, userId: true },
+    select: { memberId: true, userId: true, relationship: true },
   });
-  for (const l of links) if (!out.has(l.memberId)) out.set(l.memberId, l.userId);
+  for (const l of links) {
+    const g = out.get(l.memberId) ?? { all: [], coach: [], primaryFamily: null };
+    g.all.push(l.userId);
+    if (isCoachRelationship(l.relationship)) g.coach.push(l.userId);
+    else if (!g.primaryFamily) g.primaryFamily = l.userId;
+    out.set(l.memberId, g);
+  }
   return out;
 }
 
-function payerKey(sub: { payerUserId: string | null } | null, m: MemberKeyInput, guardians: Map<string, string>): string | null {
-  return (
-    resolvePayerUserId({
+/** The sibling family an athlete counts in — lib/membershipSiblingDiscount.siblingFamilyKey. */
+function payerKey(sub: { payerUserId: string | null } | null, m: MemberKeyInput, guardians: Map<string, GuardianInfo>): string | null {
+  const g = guardians.get(m.id) ?? { all: [], coach: [], primaryFamily: null };
+  return siblingFamilyKey({
+    payerUserId: resolvePayerUserId({
       subscriptionPayerUserId: sub?.payerUserId ?? null,
       memberResponsiblePayerUserId: m.responsiblePayerUserId,
       memberUserId: m.userId,
-    }) ??
-    guardians.get(m.id) ??
-    null
-  );
+    }),
+    memberUserId: m.userId,
+    memberResponsiblePayerUserId: m.responsiblePayerUserId,
+    guardianUserIds: g.all,
+    coachUserIds: g.coach,
+    primaryFamilyGuardian: g.primaryFamily,
+  });
 }
 
 export type Families = {

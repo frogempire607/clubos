@@ -17,6 +17,11 @@ import {
 } from "@/lib/subscriptionEvents";
 import { stripe } from "@/lib/stripe";
 import { setStripeStop } from "@/lib/stripeStop";
+import { familyWallet } from "@/lib/payerWallet";
+import { listPaymentMethodsForCustomer } from "@/lib/paymentMethodsAdmin";
+import { paymentMethodLabel, isOffSessionChargeable } from "@/lib/billingDataRules";
+import { pmRef } from "@/lib/billingAdmin";
+import { isCoachRelationship } from "@/lib/membershipSiblingDiscount";
 import { createSavedCardSubscription } from "@/lib/cardActivation";
 import { resolveDraftOptionId, addUTCMonths } from "@/lib/billingAdmin";
 import { minimumTermEndForOptionId, parseOptions, resolveTerms } from "@/lib/membershipOptions";
@@ -62,6 +67,9 @@ const schema = z.object({
     "end_trial_now",
     // 2026-10-20 — charge a past-due membership's open invoice now.
     "retry_payment",
+    // 2026-10-29 — the payer's wallet + "Paid by" (coach pays for a team).
+    "use_family_card",
+    "set_payer",
   ]),
   confirm: z.literal(true, { errorMap: () => ({ message: "This action requires explicit confirmation." }) }),
   // reassign_subscription:
@@ -92,6 +100,15 @@ const schema = z.object({
   cancelReason: z.string().max(60).optional().nullable(),
   // pause_membership: resume date (YYYY-MM-DD) or null = until resumed.
   pausedUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  // use_family_card: a card saved on ANOTHER athlete the same person pays for.
+  sourceMemberId: z.string().optional(),
+  paymentMethodRef: z.string().min(8).optional(),
+  // set_payer: who pays (any account in the club; null clears), the other
+  // athletes to set at the same time, and whether this payer is a coach /
+  // team payer rather than family (then they never make athletes "siblings").
+  payerUserId: z.string().nullable().optional(),
+  alsoMemberIds: z.array(z.string()).max(40).optional(),
+  payerIsCoach: z.boolean().optional(),
   // set_dates: each key present is applied; null clears. YYYY-MM-DD.
   dates: z.object({
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
@@ -451,6 +468,124 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // first period immediately. Refused unless it is a REAL free trial: "Change
   // charge date" also parks paying members in Stripe's trial state, and ending
   // that early would charge them for time they already paid for.
+  // use_family_card — 2026-10-29. Point this athlete at a card already saved
+  // on another athlete the SAME person pays for (lib/payerWallet): the coach's
+  // card saved once on Owen, used for the whole team; a parent's card saved on
+  // one child, used for the next. Nothing is charged here. The athlete's
+  // on-file customer + card become that customer + card, so "Assign
+  // membership → card on file" (and approvals / offers) charge it.
+  // A running card membership keeps its own customer — Stripe can't move a
+  // live subscription between customers — so that case is refused.
+  if (data.action === "use_family_card") {
+    if (!data.sourceMemberId || !data.paymentMethodRef) {
+      return NextResponse.json({ error: "sourceMemberId and paymentMethodRef are required." }, { status: 400 });
+    }
+    const club = await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { stripeAccountId: true } });
+    if (!club?.stripeAccountId) return NextResponse.json({ error: "Stripe isn't connected for this club." }, { status: 409 });
+    const wallet = await familyWallet(session.user.clubId, member.id);
+    const src = wallet?.sources.find((x) => x.members.some((m) => m.id === data.sourceMemberId));
+    if (!wallet?.payerUserId || !src) {
+      return NextResponse.json({
+        error: `That card isn't paid by the same person as ${member.firstName}. Set "Paid by" first, then use the card.`,
+        code: "NOT_SAME_PAYER",
+      }, { status: 409 });
+    }
+    const liveCard = await prisma.memberSubscription.findFirst({
+      where: { memberId: member.id, stripeSubscriptionId: { not: null }, status: { in: ["active", "past_due", "trialing"] } },
+      select: { optionLabel: true },
+    });
+    if (liveCard) {
+      return NextResponse.json({
+        error: `${member.firstName}'s running card membership (${liveCard.optionLabel}) keeps the card it was started on — Stripe can't move it. Use Replace… on Payment methods to change that card.`,
+        code: "LIVE_CARD_MEMBERSHIP",
+      }, { status: 409 });
+    }
+    let pm: Awaited<ReturnType<typeof listPaymentMethodsForCustomer>>[number] | undefined;
+    try {
+      const methods = await listPaymentMethodsForCustomer(src.customerId, club.stripeAccountId);
+      pm = methods.find((m) => pmRef(m.id) === data.paymentMethodRef);
+    } catch (e) {
+      return NextResponse.json({ error: `Couldn't reach Stripe — nothing was changed: ${String(e)}` }, { status: 502 });
+    }
+    if (!pm) return NextResponse.json({ error: "That card is no longer saved — refresh and pick again.", code: "PM_GONE" }, { status: 404 });
+    if (!isOffSessionChargeable(pm)) {
+      return NextResponse.json({ error: "That method can't be charged automatically — pick a card.", code: "NOT_CHARGEABLE" }, { status: 409 });
+    }
+    const label = paymentMethodLabel(pm as unknown as Parameters<typeof paymentMethodLabel>[0]);
+    const holder = src.members[0].name;
+    await prisma.member.update({
+      where: { id: member.id },
+      data: { stripeSetupCustomerId: src.customerId, stripeSetupPaymentMethodId: pm.id },
+    });
+    await writeBillingAudit({
+      clubId: session.user.clubId, memberId: member.id, actorUserId: session.user.id,
+      action: "FAMILY_CARD_LINKED",
+      before: { hadCardOnFile: !!member.stripeSetupPaymentMethodId },
+      after: { card: label, savedOn: holder, payerUserId: wallet.payerUserId },
+      note: `${label} (saved on ${holder}, paid by ${wallet.payerName ?? "the same payer"}) is now ${member.firstName}'s card on file. Nothing was charged.`,
+    });
+    return NextResponse.json({
+      ok: true,
+      message: `${label} is now ${member.firstName}'s card on file (shared with ${holder}). Nothing was charged — assign the membership by card to use it.`,
+    });
+  }
+
+  // set_payer — 2026-10-29. "Paid by": who pays for this athlete (and, in the
+  // same step, any others). Any account in the club — a coach paying for a
+  // team doesn't have to be anyone's guardian, and paying grants no portal
+  // access. payerIsCoach marks the payer's guardian links (where they have
+  // one) as "Coach", so the sibling discount never treats a team as brothers.
+  // Running memberships are not repriced or moved.
+  if (data.action === "set_payer") {
+    if (data.payerUserId === undefined) return NextResponse.json({ error: "payerUserId is required (null clears it)." }, { status: 400 });
+    let payerName = "nobody";
+    if (data.payerUserId) {
+      const u = await prisma.user.findFirst({
+        where: { id: data.payerUserId, clubId: session.user.clubId, deletedAt: null },
+        select: { firstName: true, lastName: true },
+      });
+      if (!u) return NextResponse.json({ error: "That account isn't in this club." }, { status: 400 });
+      payerName = `${u.firstName} ${u.lastName}`.trim();
+    }
+    const ids = Array.from(new Set([member.id, ...(data.alsoMemberIds ?? [])]));
+    const targets = await prisma.member.findMany({
+      where: { id: { in: ids }, clubId: session.user.clubId, deletedAt: null },
+      select: { id: true, firstName: true, lastName: true, responsiblePayerUserId: true },
+    });
+    if (targets.length !== ids.length) return NextResponse.json({ error: "One of those athletes isn't in this club." }, { status: 404 });
+    let relabeled = 0;
+    for (const t of targets) {
+      await prisma.member.update({ where: { id: t.id }, data: { responsiblePayerUserId: data.payerUserId ?? null } });
+      if (data.payerUserId && data.payerIsCoach) {
+        const links = await prisma.memberGuardianUser.findMany({
+          where: { clubId: session.user.clubId, memberId: t.id, userId: data.payerUserId, status: "CONFIRMED" },
+          select: { id: true, relationship: true },
+        });
+        for (const l of links) {
+          if (isCoachRelationship(l.relationship)) continue;
+          await prisma.memberGuardianUser.update({ where: { id: l.id }, data: { relationship: "Coach" } });
+          relabeled++;
+        }
+      }
+      await writeBillingAudit({
+        clubId: session.user.clubId, memberId: t.id, actorUserId: session.user.id,
+        action: "PAYER_SET",
+        before: { responsiblePayerUserId: t.responsiblePayerUserId },
+        after: { responsiblePayerUserId: data.payerUserId ?? null, coach: !!data.payerIsCoach },
+        note: data.payerUserId
+          ? `Paid by set to ${payerName}${data.payerIsCoach ? " (coach / team payer — not family)" : ""}. Running memberships unchanged.`
+          : "Paid by cleared — falls back to the athlete's own login or guardian.",
+      });
+    }
+    const n = targets.length;
+    return NextResponse.json({
+      ok: true,
+      message: data.payerUserId
+        ? `${payerName} now pays for ${n === 1 ? targets[0].firstName : `${n} athletes`}.${relabeled ? ` Marked as their coach, not family — they won't count as siblings.` : ""}`
+        : `Paid by cleared for ${n === 1 ? targets[0].firstName : `${n} athletes`}.`,
+    });
+  }
+
   // retry_payment — 2026-10-20. A card charge failed (e.g. insufficient
   // funds) and the family says the money is there now. Stripe retries on its
   // own schedule; this charges the open invoice immediately, on the card the
