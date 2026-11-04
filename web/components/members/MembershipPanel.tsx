@@ -403,7 +403,15 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
   const [optId, setOptId] = useState(defaultOpt);
   const [override, setOverride] = useState<string>(data.draft?.price != null && data.options.find((o) => o.id === defaultOpt)?.price !== data.draft.price ? String(data.draft.price) : "");
   const [showOverride, setShowOverride] = useState(override !== "");
-  const [start, setStart] = useState(todayISO());
+  // The date box reports "" while a date is half-typed (or cleared). Every date
+  // below is derived from the start, and an empty one crashed the whole page
+  // ("Application error", 2026-11-04). So the box keeps what was typed, and the
+  // sheet works from the last COMPLETE date until a new one is finished.
+  const [startRaw, setStartRaw] = useState(todayISO());
+  const [startOk, setStartOk] = useState(todayISO());
+  const start = startOk;
+  const setStart = (v: string) => { setStartRaw(v); if (/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v + "T00:00:00Z")) && v >= "2000-01-01") setStartOk(v); };
+  const startIncomplete = startRaw !== startOk;
   const [pay, setPay] = useState<"CARD" | "CASH" | "OFFER">(initialMode ?? (data.hasCard ? "CARD" : data.requestedPaymentMethod === "CASH" || data.requestedPaymentMethod === "CHECK" ? "CASH" : "OFFER"));
   // "When is the card charged?" — null = the default for the start date
   // (the start date when it's in the future, else today; lib/chargeDate).
@@ -488,7 +496,7 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
   if (o && !isComp && discounted && quote!.applied) conseq = { ...conseq, text: `${conseq.text} ${quote!.applied.title} applied: ${money(quote!.basePrice)} → ${money2(price)}${per}.` };
 
   const quoteBlocked = !!o && !isComp && (quoting || !quote || !!quote.codeError);
-  const disabled = busy || !o || quoteBlocked || (pay === "OFFER" && !isComp && !offerPlan.ok) || (pay === "CARD" && !isComp && (!!cardBlocked || !cardPlan.ok || (chargesToday && !ack)));
+  const disabled = busy || startIncomplete || !o || quoteBlocked || (pay === "OFFER" && !isComp && !offerPlan.ok) || (pay === "CARD" && !isComp && (!!cardBlocked || !cardPlan.ok || (chargesToday && !ack)));
 
   async function submit() {
     if (!o) return;
@@ -558,7 +566,7 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
           )}
         </div>
         <div className="border border-app-border rounded-xl p-3 mt-2.5">
-          <Field label="Starts"><input className={input} type="date" value={start} onChange={(e) => { setStart(e.target.value); setThrough(""); }} /></Field>
+          <Field label="Starts"><input className={input} type="date" value={startRaw} onChange={(e) => { setStart(e.target.value); setThrough(""); }} />{startIncomplete && <span className="block text-xs text-[var(--color-warn-text)] mt-1">Finish the date — using {fmt(start)} until then.</span>}</Field>
           {o && <p className="text-[12px] text-text-muted mt-1">{commit ? `Committed through ${fmt(iso(commit))}${end ? " · ends there" : " · renews after"}` : end ? `Ends ${fmt(iso(end))} unless renewed` : "Renews until cancelled"}</p>}
         </div>
         {!isComp && (
