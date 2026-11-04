@@ -114,8 +114,8 @@ ok(siblingFamilyKey({ ...base, payerUserId: "michael" }) === "michael", "a trans
 ok(isCoachRelationship("Coach") && !isCoachRelationship("Parent") && !isCoachRelationship(null), "isCoachRelationship");
 
 console.log("\nliveSubBelongsTo (shared customers):");
-ok(actions.liveSubBelongsTo({ memberId: "jack" }, "jack") && !actions.liveSubBelongsTo({ memberId: "owen" }, "jack"), "Owen's subscription on Jason's card doesn't block Jack");
-ok(actions.liveSubBelongsTo({}, "jack") && actions.liveSubBelongsTo(null, "jack"), "no member metadata → counted (fail closed)");
+ok(W.liveSubBelongsTo({ memberId: "jack" }, "jack") && !W.liveSubBelongsTo({ memberId: "owen" }, "jack"), "Owen's subscription on Jason's card doesn't block Jack");
+ok(W.liveSubBelongsTo({}, "jack") && W.liveSubBelongsTo(null, "jack"), "no member metadata → counted (fail closed)");
 
 // ── World ───────────────────────────────────────────────────────────────────
 const M = (id: string, first: string, extra: Record<string, unknown> = {}) => ({

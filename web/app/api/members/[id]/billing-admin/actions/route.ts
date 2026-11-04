@@ -17,7 +17,7 @@ import {
 } from "@/lib/subscriptionEvents";
 import { stripe } from "@/lib/stripe";
 import { setStripeStop } from "@/lib/stripeStop";
-import { walletsFor, stampOwner } from "@/lib/payerWallet";
+import { walletsFor, stampOwner, liveSubBelongsTo } from "@/lib/payerWallet";
 import { listPaymentMethodsForCustomer } from "@/lib/paymentMethodsAdmin";
 import { paymentMethodLabel, isOffSessionChargeable } from "@/lib/billingDataRules";
 import { pmRef } from "@/lib/billingAdmin";
@@ -171,14 +171,6 @@ async function findWalletCard(clubId: string, memberId: string, stripeAccount: s
     return { ok: true, customerId: c.customerId, pmId: pm.id, label: paymentMethodLabel(pm as unknown as Parameters<typeof paymentMethodLabel>[0]), ownerName: wal.ownerName };
   }
   return { ok: false, status: 404, code: "PM_GONE", error: "That card is no longer saved — refresh and pick again." };
-}
-
-/** PURE. Does a live Stripe subscription belong to THIS athlete? Customers can be shared
- *  (a parent's or coach's wallet), so another athlete's subscription on the same
- *  customer is not "already subscribed". No member metadata → counted (fail closed). */
-export function liveSubBelongsTo(meta: Record<string, string> | null | undefined, memberId: string): boolean {
-  const owner = meta?.memberId || meta?.migrationMemberId || null;
-  return !owner || owner === memberId;
 }
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {

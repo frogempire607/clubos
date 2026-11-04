@@ -32,6 +32,15 @@ export const OWNER_META = "aoxOwnerUserId";
 export type LinkInput = { userId: string; relationship: string | null };
 export type AthleteInput = { isMinor: boolean; userId: string | null; responsiblePayerUserId: string | null };
 
+/** PURE. Does a live Stripe subscription belong to THIS athlete? Customers can be shared
+ *  (a parent's or coach's wallet), so another athlete's subscription on the same
+ *  customer is not "already subscribed". No member metadata → counted (fail closed).
+ *  (Lives here, not in the route: a Next.js route file may only export handlers.) */
+export function liveSubBelongsTo(meta: Record<string, string> | null | undefined, memberId: string): boolean {
+  const owner = meta?.memberId || meta?.migrationMemberId || null;
+  return !owner || owner === memberId;
+}
+
 /** PURE. The customer an athlete's on-file card lives on. */
 export const customerOf = (m: { stripeSetupCustomerId: string | null; stripeCustomerId: string | null }) =>
   m.stripeSetupCustomerId ?? m.stripeCustomerId ?? null;
