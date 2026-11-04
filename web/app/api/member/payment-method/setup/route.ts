@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
+import { walletsFor, OWNER_META } from "@/lib/payerWallet";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
 import { resolveFamilyContext } from "@/lib/memberContext";
 
@@ -63,23 +64,23 @@ export async function POST(req: Request) {
   }
 
   const stripeAccount = club.stripeAccountId;
-  // Reuse whichever customer already exists so the saved card lands where
-  // billing flows (portal, migration approve) will look for it.
-  let customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId ?? null;
+  // 2026-11-03 — the card is the SIGNED-IN person's (lib/payerWallet): it goes
+  // to their own wallet customer, never into the customer of whoever else's
+  // card is on file (a coach's, another parent's). The webhook then makes it
+  // this athlete's card on file.
+  const wallets = await walletsFor(clubId, member.id, stripeAccount).catch(() => null);
+  const mine = wallets?.wallets.find((w) => w.ownerUserId === session.user.id);
+  let customerId = mine?.customers[0]?.customerId ?? null;
   if (!customerId) {
     const customer = await stripe.customers.create(
       {
-        email: member.email ?? member.guardianEmail ?? user?.email ?? undefined,
-        name: `${member.firstName} ${member.lastName}`.trim(),
-        metadata: { memberId: member.id, clubId },
+        email: user?.email ?? member.email ?? member.guardianEmail ?? undefined,
+        name: mine?.ownerName ?? `${member.firstName} ${member.lastName}`.trim(),
+        metadata: { memberId: member.id, clubId, [OWNER_META]: session.user.id },
       },
       { stripeAccount },
     );
     customerId = customer.id;
-    await prisma.member.update({
-      where: { id: member.id },
-      data: { stripeSetupCustomerId: customerId },
-    });
   }
 
   const baseUrl = baseUrlFromRequest(req);

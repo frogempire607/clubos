@@ -50,13 +50,19 @@ type AdminSlice = {
   member?: { firstName: string };
   /** "Paid by" (Member.responsiblePayerUserId), null = the implied guardian / own login. */
   payer?: { userId: string; name: string; email: string } | null;
-  /** The payer's wallet: cards saved on the other athletes the same person pays for (2026-10-29). */
-  familyCards?: {
-    payerName: string | null;
-    sharedWith: string[];
-    sources: { sourceMemberId: string; names: string[]; methods: { ref: string; label: string; isDefault: boolean }[] }[];
-  } | null;
+  /** 2026-11-03 — cards belong to PEOPLE: one wallet per person who pays for
+   *  this athlete (Paid by, family guardians, own login). Never another family's. */
+  payerWallets?: {
+    ownerUserId: string;
+    ownerName: string;
+    roles: ("MEMBERSHIPS" | "GUARDIAN" | "SELF")[];
+    methods: { ref: string; label: string; isDefault: boolean; onFile: boolean; sharedWith: string[] }[];
+  }[];
+  onFileOwnerName?: string | null;
 };
+
+const ROLE_WORD: Record<string, string> = { MEMBERSHIPS: "pays memberships", GUARDIAN: "guardian", SELF: "their own account" };
+const rolesLine = (roles: string[]) => roles.map((x) => ROLE_WORD[x] ?? x).join(" · ");
 
 type Details = {
   stripe: {
@@ -76,7 +82,8 @@ export function paymentMethodName(pm: Pick<PaymentMethod, "label" | "type" | "br
 }
 
 type Confirm =
-  | { kind: "USE_FAMILY"; sourceMemberId: string; ref: string; label: string; holder: string }
+  | { kind: "USE_FAMILY"; ownerUserId: string; ownerName: string; ref: string; label: string }
+  | { kind: "WHOSE" }
   | { kind: "REPLACE" }
   | { kind: "DEFAULT"; pm: PaymentMethod }
   | { kind: "REMOVE"; pm: PaymentMethod };
@@ -107,6 +114,7 @@ export default function PaymentMethodsCard({
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [paidByOpen, setPaidByOpen] = useState(false);
+  const [whose, setWhose] = useState<string | null>(null);
 
   const load = useCallback(() => {
     fetch(`/api/members/${memberId}/billing-admin`)
@@ -135,10 +143,10 @@ export default function PaymentMethodsCard({
 
   const changed = () => { load(); onChanged?.(); };
 
-  async function openStripe(intent: "ADD" | "REPLACE") {
+  async function openStripe(intent: "ADD" | "REPLACE", ownerUserId?: string | null) {
     setBusy(true);
     const r = await fetch(`/api/members/${memberId}/payment-methods/setup`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intent, returnTo }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intent, returnTo, ...(ownerUserId ? { ownerUserId } : {}) }),
     });
     const d = await r.json().catch(() => ({}));
     setBusy(false);
@@ -168,7 +176,7 @@ export default function PaymentMethodsCard({
     setBusy(true);
     const r = await fetch(`/api/members/${memberId}/billing-admin/actions`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "use_family_card", confirm: true, sourceMemberId: c.sourceMemberId, paymentMethodRef: c.ref }),
+      body: JSON.stringify({ action: "use_family_card", confirm: true, ownerUserId: c.ownerUserId, paymentMethodRef: c.ref }),
     });
     const d = await r.json().catch(() => ({}));
     setBusy(false);
@@ -193,8 +201,9 @@ export default function PaymentMethodsCard({
 
   const methods = admin?.paymentMethods ?? [];
   const first = admin?.member?.firstName ?? "this athlete";
-  const shared = admin?.familyCards?.sharedWith ?? [];
-  const familySources = admin?.familyCards?.sources ?? [];
+  const wallets = admin?.payerWallets ?? [];
+  const onFileShared = wallets.flatMap((w) => w.methods).find((m) => m.onFile)?.sharedWith ?? [];
+  const shared = onFileShared;
   const lastPaid = admin?.lastPaidWith
     ? typeof admin.lastPaidWith === "string" ? admin.lastPaidWith : admin.lastPaidWith.label ?? null
     : null;
@@ -205,8 +214,8 @@ export default function PaymentMethodsCard({
         <h2 className="text-sm font-semibold text-text-primary">Payment methods</h2>
         {canManage && (
           <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={busy} onClick={() => openStripe("ADD")} className={BTN}>
-              <CreditCard className="h-3.5 w-3.5" /> Add method
+            <button type="button" disabled={busy} onClick={() => (wallets.length > 1 ? setConfirm({ kind: "WHOSE" }) : openStripe("ADD", wallets[0]?.ownerUserId ?? null))} className={BTN}>
+              <CreditCard className="h-3.5 w-3.5" /> Add card
             </button>
             {methods.length > 0 && (
               <button type="button" disabled={busy} onClick={() => setConfirm({ kind: "REPLACE" })} className={BTN}>
@@ -227,7 +236,7 @@ export default function PaymentMethodsCard({
       {admin !== null && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-app-bg px-3 py-2 text-sm">
           <span className="text-text-primary">
-            Paid by <strong>{admin.payer?.name ?? admin.familyCards?.payerName ?? "their guardian / own account"}</strong>
+            Memberships paid by <strong>{admin.payer?.name ?? admin.onFileOwnerName ?? wallets[0]?.ownerName ?? "their guardian / own account"}</strong>
             {!admin.payer && <span className="text-xs text-text-muted"> (not set — implied)</span>}
           </span>
           {canManage && (
@@ -244,8 +253,11 @@ export default function PaymentMethodsCard({
             <p className="mb-2 text-xs text-[var(--color-warn-text)]">Stripe couldn&apos;t be reached — payment methods may be incomplete. Refresh to retry.</p>
           )}
           {lastPaid && <p className="mb-2 text-xs text-text-muted">Last paid with <strong className="text-text-primary">{lastPaid}</strong></p>}
-          {shared.length > 0 && methods.length > 0 && (
-            <p className="mb-2 text-xs text-text-muted">Shared wallet — these cards are also on file for <strong className="text-text-primary">{shared.join(", ")}</strong>. A change here applies to them too.</p>
+          {methods.length > 0 && (
+            <p className="mb-2 text-xs text-text-muted">
+              <strong className="text-text-primary">Card on file{admin.onFileOwnerName ? ` — ${admin.onFileOwnerName}'s` : ""}</strong>: events, privates, store, and memberships unless the Assign sheet picks another card.
+              {shared.length > 0 && <> Also on file for {shared.join(", ")} — a change here applies to them too.</>}
+            </p>
           )}
           {methods.length === 0 ? (
             <p className="text-sm text-text-muted">
@@ -286,27 +298,33 @@ export default function PaymentMethodsCard({
               })}
             </ul>
           )}
-          {familySources.length > 0 && (
+          {wallets.some((w) => w.methods.some((m) => !m.onFile)) && (
             <div className="mt-3 rounded-lg border border-dashed border-app-border px-3 py-2">
-              <p className="text-xs font-medium text-text-primary">
-                Cards {admin.familyCards?.payerName ? `${admin.familyCards.payerName} saved` : "saved"} for their other athletes
-              </p>
-              <ul className="mt-1 space-y-1.5">
-                {familySources.flatMap((src) => src.methods.map((m) => {
-                  const holder = src.names[0] + (src.names.length > 1 ? ` +${src.names.length - 1}` : "");
-                  return (
-                    <li key={`${src.sourceMemberId}:${m.ref}`} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                      <span className="min-w-0"><span className="font-medium text-text-primary">{m.label}</span> <span className="text-xs text-text-muted">· saved on {holder}</span></span>
-                      {canManage && (
-                        <button type="button" disabled={busy} className={BTN}
-                          onClick={() => setConfirm({ kind: "USE_FAMILY", sourceMemberId: src.sourceMemberId, ref: m.ref, label: m.label, holder: src.names[0] })}>
-                          Use for {first}
-                        </button>
-                      )}
-                    </li>
-                  );
-                }))}
+              <p className="text-xs font-medium text-text-primary">Cards of the people who pay for {first}</p>
+              <ul className="mt-1 space-y-2">
+                {wallets.filter((w) => w.methods.some((m) => !m.onFile)).map((w) => (
+                  <li key={w.ownerUserId}>
+                    <p className="text-xs text-text-muted"><strong className="text-text-primary">{w.ownerName}</strong> · {rolesLine(w.roles)}</p>
+                    <ul className="mt-1 space-y-1">
+                      {w.methods.filter((m) => !m.onFile).map((m) => (
+                        <li key={m.ref} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                          <span className="min-w-0">
+                            <span className="font-medium text-text-primary">{m.label}</span>
+                            {m.sharedWith.length > 0 && <span className="text-xs text-text-muted"> · on file for {m.sharedWith.slice(0, 3).join(", ")}{m.sharedWith.length > 3 ? ` +${m.sharedWith.length - 3}` : ""}</span>}
+                          </span>
+                          {canManage && (
+                            <button type="button" disabled={busy} className={BTN}
+                              onClick={() => setConfirm({ kind: "USE_FAMILY", ownerUserId: w.ownerUserId, ownerName: w.ownerName, ref: m.ref, label: m.label })}>
+                              Use as card on file
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
               </ul>
+              <p className="mt-2 text-xs text-text-muted">To bill only the membership to one of these, keep the card on file and pick it under “Charge to” when you assign the membership.</p>
             </div>
           )}
         </>
@@ -344,7 +362,8 @@ export default function PaymentMethodsCard({
         open={!!confirm}
         onClose={() => { if (!busy) setConfirm(null); }}
         title={
-          confirm?.kind === "USE_FAMILY" ? `Use ${confirm.label} for ${first}?`
+          confirm?.kind === "WHOSE" ? "Whose card is this?"
+            : confirm?.kind === "USE_FAMILY" ? `Use ${confirm.ownerName}'s ${confirm.label} for ${first}?`
             : confirm?.kind === "REPLACE" ? "Collect a new card?"
             : confirm?.kind === "DEFAULT" ? `Make ${paymentMethodName(confirm.pm)} the default?`
             : confirm?.kind === "REMOVE" ? `Remove ${paymentMethodName(confirm.pm)}?`
@@ -355,22 +374,34 @@ export default function PaymentMethodsCard({
             <button type="button" onClick={() => setConfirm(null)} disabled={busy} className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-app-border px-4 text-sm text-text-primary hover:bg-app-bg">Cancel</button>
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || (confirm?.kind === "WHOSE" && !whose)}
               onClick={() => {
                 if (!confirm) return;
-                if (confirm.kind === "USE_FAMILY") useFamilyCard(confirm);
+                if (confirm.kind === "WHOSE") { if (whose) openStripe("ADD", whose); }
+                else if (confirm.kind === "USE_FAMILY") useFamilyCard(confirm);
                 else if (confirm.kind === "REPLACE") openStripe("REPLACE");
                 else act(confirm.kind, confirm.pm);
               }}
               className={`inline-flex min-h-[44px] items-center justify-center rounded-lg px-4 text-sm text-white disabled:opacity-50 ${confirm?.kind === "REMOVE" ? "bg-red-600 hover:bg-red-700" : "bg-brand hover:bg-brand-hover"}`}
             >
-              {busy ? "Working…" : confirm?.kind === "USE_FAMILY" ? "Use this card" : confirm?.kind === "REPLACE" ? "Open Stripe page" : confirm?.kind === "DEFAULT" ? "Make default" : "Remove"}
+              {busy ? "Working…" : confirm?.kind === "WHOSE" ? "Open Stripe page" : confirm?.kind === "USE_FAMILY" ? "Use this card" : confirm?.kind === "REPLACE" ? "Open Stripe page" : confirm?.kind === "DEFAULT" ? "Make default" : "Remove"}
             </button>
           </>
         }
       >
+        {confirm?.kind === "WHOSE" && (
+          <div className="mb-3 space-y-1">
+            {wallets.map((w) => (
+              <label key={w.ownerUserId} className="flex min-h-[44px] items-center gap-2 rounded-lg border border-app-border px-3 text-sm text-text-primary">
+                <input type="radio" name="whose" checked={whose === w.ownerUserId} onChange={() => setWhose(w.ownerUserId)} />
+                <span><strong>{w.ownerName}</strong> <span className="text-xs text-text-muted">· {rolesLine(w.roles)}</span></span>
+              </label>
+            ))}
+            <p className="text-xs text-text-muted">The card is saved to that person&apos;s cards, never another family&apos;s. If someone else&apos;s card is on file, it stays on file — pick this one under “Charge to” when you assign a membership.</p>
+          </div>
+        )}
         <p className="text-sm text-text-primary">
-          {confirm?.kind === "USE_FAMILY" && `The card saved on ${confirm.holder} becomes ${first}'s card on file — nothing is charged now. Assign ${first}'s membership by card and it bills this card. Changing or removing the card later affects everyone sharing it.`}
+          {confirm?.kind === "USE_FAMILY" && `${confirm.ownerName}'s card becomes ${first}'s card on file — events, privates and store charge it, and so does a membership unless you pick another card. Nothing is charged now.`}
           {confirm?.kind === "REPLACE" && "Opens a secure Stripe page to collect a new card. The current card keeps being charged until you make the new one the default."}
           {confirm?.kind === "DEFAULT" && `This becomes the customer default, any live membership charges it from the next payment, and so does a pending activation or offer.${shared.length ? ` Shared wallet: that includes ${shared.join(", ")}.` : ""}`}
           {confirm?.kind === "REMOVE" && "Removal is blocked automatically if a live or pending membership still charges this method. Payment history is never deleted."}

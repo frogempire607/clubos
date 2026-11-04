@@ -415,6 +415,32 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
   const [through, setThrough] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  // "Charge to" (2026-11-03): the membership can be billed on the card of any
+  // person who pays for this athlete — the coach's, while the parent's card
+  // stays on file. Read from the wallets on billing-admin (never another family's).
+  const [chargeOpts, setChargeOpts] = useState<{ value: string; label: string; ownerUserId: string | null }[]>([]);
+  const [chargeTo, setChargeTo] = useState<string>("ONFILE");
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/members/${memberId}/billing-admin`).then((x) => (x.ok ? x.json() : null)).then((d) => {
+      if (!live || !d) return;
+      const opts: { value: string; label: string; ownerUserId: string | null }[] = [];
+      for (const w of (d.payerWallets ?? []) as { ownerUserId: string; ownerName: string; methods: { ref: string; label: string; onFile: boolean }[] }[]) {
+        for (const m of w.methods) {
+          opts.push({ value: m.onFile ? "ONFILE" : `${w.ownerUserId}|${m.ref}`, label: `${w.ownerName}'s ${m.label}${m.onFile ? " (card on file)" : ""}`, ownerUserId: w.ownerUserId });
+        }
+      }
+      if (data.hasCard && !opts.some((x) => x.value === "ONFILE")) opts.unshift({ value: "ONFILE", label: `Card on file${data.cardLabel ? ` · ${data.cardLabel}` : ""}`, ownerUserId: null });
+      setChargeOpts(opts);
+      // Default: the "Paid by" person's card when one is set, else the card on file.
+      const payer = d.payer?.userId as string | undefined;
+      const pick = (payer && (opts.find((x) => x.ownerUserId === payer && x.value === "ONFILE") ?? opts.find((x) => x.ownerUserId === payer))) || opts.find((x) => x.value === "ONFILE") || opts[0];
+      if (pick) setChargeTo(pick.value);
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [memberId, data.hasCard, data.cardLabel]);
+  const chargeLabel = chargeOpts.find((x) => x.value === chargeTo)?.label ?? data.cardLabel ?? "the saved card";
+  const anyCard = data.hasCard || chargeOpts.length > 0;
   // B3 — the family's automatic discount (sibling / group rate) is pre-applied
   // when it qualifies; staff can turn it off, or pick a staff code instead.
   const [applyFamily, setApplyFamily] = useState(true);
@@ -447,7 +473,7 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
   // a card on the link); /reactivation then requires a first charge date.
   const offerPlan = offerChargePlan({ cardMode: data.club.stripeReady, date: offerDate || start, cardCharge: quote?.cardCharge ?? price, billingPeriod: o?.billingPeriod ?? "MONTHLY", startDate: start });
   const cashDue = o ? cashNextDueLine({ paidThrough: throughD, amount: price, hasCardOnFile: data.hasCard }) : null;
-  const cardBlocked = !data.hasCard ? "No card on file — send the offer, or add a card under Payment methods below." : !data.club.stripeReady ? "Online payments aren't connected for this club." : null;
+  const cardBlocked = !anyCard ? "No card on file — send the offer, or add a card under Payment methods below." : !data.club.stripeReady ? "Online payments aren't connected for this club." : null;
 
   let conseq: { text: string; tone: "info" | "warn" }; let cta: string;
   if (!o) { conseq = { text: "pick an option first.", tone: "info" }; cta = "Assign"; }
@@ -455,8 +481,8 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
   else if (pay === "CARD") {
     if (cardBlocked) { conseq = { text: "nothing yet — " + cardBlocked.toLowerCase(), tone: "info" }; cta = "Assign"; }
     else if (!cardPlan.ok) { conseq = { text: `nothing yet — ${cardPlan.error.charAt(0).toLowerCase()}${cardPlan.error.slice(1)}`, tone: "warn" }; cta = "Assign"; }
-    else if (chargesToday) { conseq = { text: `creates a subscription on ${data.cardLabel ?? "the saved card"} — <b>${money2(total)} charged today</b>, ${cardPlan.line.split(" · ").slice(1).join(" · ")}.${end ? ` Ends ${fmtS(end)}.` : " Renews until cancelled."}`, tone: "warn" }; cta = `Charge ${money2(total)} & assign`; }
-    else { conseq = { text: `creates a subscription on ${data.cardLabel ?? "the saved card"} — nothing today; first charge ${money2(total)} on ${fmtS(cardPlan.firstCharge)}, ${cardPlan.line.split(" · ").slice(1).join(" · ")}.${end ? ` Ends ${fmtS(end)}.` : ""}`, tone: "info" }; cta = `Assign · ${cardPlan.short}`; }
+    else if (chargesToday) { conseq = { text: `creates a subscription on ${chargeLabel} — <b>${money2(total)} charged today</b>, ${cardPlan.line.split(" · ").slice(1).join(" · ")}.${end ? ` Ends ${fmtS(end)}.` : " Renews until cancelled."}`, tone: "warn" }; cta = `Charge ${money2(total)} & assign`; }
+    else { conseq = { text: `creates a subscription on ${chargeLabel} — nothing today; first charge ${money2(total)} on ${fmtS(cardPlan.firstCharge)}, ${cardPlan.line.split(" · ").slice(1).join(" · ")}.${end ? ` Ends ${fmtS(end)}.` : ""}`, tone: "info" }; cta = `Assign · ${cardPlan.short}`; }
   } else if (pay === "CASH") { conseq = { text: `nothing — recorded as a ${method.toLowerCase()} membership, ${money(amt)} received, paid through ${fmtS(throughD)}. Next payment due ${fmtS(throughD)}.`, tone: "info" }; cta = `Record ${money(amt)} & assign · next due ${fmtS(throughD)}`; }
   else { conseq = { text: `nothing until the family confirms from the link — the offer is ${money2(price)}${per}. ${offerPlan.line}`, tone: offerPlan.ok ? "info" : "warn" }; cta = offerPlan.firstChargeDate && !offerPlan.immediate ? `Send offer · ${money2(quote?.cardCharge ?? price)} on ${fmtS(new Date(offerPlan.firstChargeDate + "T00:00:00Z"))}` : `Send offer · ${money(price)}${per}`; }
   if (o && !isComp && discounted && quote!.applied) conseq = { ...conseq, text: `${conseq.text} ${quote!.applied.title} applied: ${money(quote!.basePrice)} → ${money2(price)}${per}.` };
@@ -494,7 +520,7 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
         if (isComp) await post(`/api/members/${memberId}/billing-admin/actions`, { action: "comp_membership", confirm: true, subscriptionId: r.d.subscriptionId ?? r.d.subscription?.id });
         onDone(isComp ? `${first} is on "${o.label}" — free, comped on purpose.` : r.d.message ?? `${first} is on "${o.label}" — ${money(amt)} ${method.toLowerCase()} recorded, paid through ${fmtS(throughD)}.`);
       } else if (pay === "CARD") {
-        const r = await post(`/api/members/${memberId}/billing-admin/actions`, { action: "activate_card", confirm: true, confirmImmediateCharge: chargesToday && ack, assign: { applyFamily, expectedFinalPrice: quote?.finalPrice ?? null } });
+        const r = await post(`/api/members/${memberId}/billing-admin/actions`, { action: "activate_card", confirm: true, confirmImmediateCharge: chargesToday && ack, assign: { applyFamily, expectedFinalPrice: quote?.finalPrice ?? null }, ...(chargeTo !== "ONFILE" && chargeTo.includes("|") ? { chargeCard: { ownerUserId: chargeTo.split("|")[0], paymentMethodRef: chargeTo.split("|")[1] } } : {}) });
         if (!r.ok) throw new Error(r.d.error ?? "Couldn't start the subscription.");
         onDone(r.d.message ?? `${first} is on "${o.label}".`);
       } else {
@@ -551,6 +577,15 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
                 </button>
               ))}
             </div>
+            {pay === "CARD" && !cardBlocked && chargeOpts.length > 1 && (
+              <label className="block mt-3">
+                <span className="block text-[13px] font-semibold text-text-primary mb-1.5">Charge to</span>
+                <select aria-label="Charge to" value={chargeTo} onChange={(e) => setChargeTo(e.target.value)} className="w-full min-h-[44px] rounded-lg border border-app-border bg-surface px-3 text-sm text-text-primary">
+                  {chargeOpts.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+                </select>
+                <span className="block text-xs text-text-muted mt-1">Only this membership is billed here. The card on file stays as it is for events, privates and store.</span>
+              </label>
+            )}
             {pay === "CARD" && !cardBlocked && o && (
               <div className="mt-3">
                 <span id="charge-when" className="block text-[13px] font-semibold text-text-primary mb-1.5">When is the card charged?</span>
