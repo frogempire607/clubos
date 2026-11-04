@@ -365,7 +365,9 @@ export async function POST(req: Request) {
         // explicitly confirms via make-default. Never charges anything.
         if (session.metadata?.adminCardSetupMemberId && session.mode === "setup") {
           const adminMemberId = session.metadata.adminCardSetupMemberId;
-          const intent = session.metadata.adminCardSetupIntent === "REPLACE" ? "REPLACE" : "ADD";
+          // WALLET (2026-11-03): saved to the payer's wallet; the member's card on file is untouched.
+          const rawIntent = session.metadata.adminCardSetupIntent;
+          const intent = rawIntent === "REPLACE" ? "REPLACE" : rawIntent === "WALLET" ? "WALLET" : "ADD";
           try {
             const target = await prisma.member.findUnique({
               where: { id: adminMemberId },
@@ -398,9 +400,11 @@ export async function POST(req: Request) {
               await writeBillingAudit({
                 clubId: target.clubId,
                 memberId: target.id,
-                action: intent === "ADD" ? "PM_ADDED" : "PM_COLLECTED_AWAITING_CONFIRM",
+                action: intent === "ADD" ? "PM_ADDED" : intent === "WALLET" ? "PM_ADDED_TO_WALLET" : "PM_COLLECTED_AWAITING_CONFIRM",
                 note:
-                  intent === "ADD"
+                  intent === "WALLET"
+                    ? "New card saved to the payer's wallet via Stripe. The athlete's card on file is unchanged (2026-11-03)."
+                    : intent === "ADD"
                     ? "New payment method saved via Stripe and set as the on-file method."
                     : "Replacement payment method collected via Stripe — awaiting staff confirmation before it becomes the default.",
               });

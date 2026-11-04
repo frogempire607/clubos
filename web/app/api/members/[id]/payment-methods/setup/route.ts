@@ -8,7 +8,7 @@ import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
 import { stripe } from "@/lib/stripe";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
 import { writeBillingAudit } from "@/lib/billingAudit";
-import { familyWallet } from "@/lib/payerWallet";
+import { walletsFor, OWNER_META } from "@/lib/payerWallet";
 
 // POST /api/members/[id]/payment-methods/setup  (billing:full)
 //
@@ -30,6 +30,10 @@ const schema = z.object({
   // payment methods live on the profile's Memberships tab, and only a member
   // still mid-migration collects a card from the Migration setup page.
   returnTo: z.enum(["profile", "migration"]).default("profile"),
+  // 2026-11-03 — WHOSE card this is: a person who pays for the athlete (Paid
+  // by, a family guardian, their own login). The card is saved to that
+  // person's wallet, never into another family's.
+  ownerUserId: z.string().optional().nullable(),
 });
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -65,38 +69,62 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
   const stripeAccount = club.stripeAccountId;
 
-  // Reuse whichever customer already exists so the saved card lands where
-  // billing flows (approval, reactivation, portal) will look for it.
-  let customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId ?? null;
-  // 2026-10-29 — no customer yet, but the person who pays for this athlete
-  // already has cards on another athlete (a parent's other child, a coach's
-  // team): the new card joins THAT customer, so it's usable for all of them.
-  if (!customerId) {
-    const wallet = await familyWallet(member.clubId, member.id).catch(() => null);
-    const shared = wallet?.sources[0]?.customerId ?? null;
-    if (shared) {
-      customerId = shared;
-      await prisma.member.update({ where: { id: member.id }, data: { stripeSetupCustomerId: customerId } });
+  // Where the card goes (2026-11-03). Cards belong to people (lib/payerWallet):
+  //   · the chosen owner's existing wallet customer, else a NEW customer
+  //     stamped with that owner — never the customer of another family;
+  //   · the athlete's card on file only changes when it is empty or already
+  //     that owner's ("ADD"). Otherwise the card just joins the owner's wallet
+  //     ("WALLET") — e.g. the coach adds his card on an athlete whose mom's card
+  //     is on file; the Assign sheet can then bill the membership to it.
+  const wallets = await walletsFor(member.clubId, member.id, stripeAccount).catch(() => null);
+  const ownerUserId =
+    data.ownerUserId ?? wallets?.onFile?.ownerUserId ?? wallets?.wallets[0]?.ownerUserId ?? null;
+  let customerId: string | null = null;
+  let ownerName: string | null = null;
+  if (ownerUserId) {
+    const wallet = wallets?.wallets.find((w) => w.ownerUserId === ownerUserId);
+    if (!wallet) {
+      return NextResponse.json(
+        { error: "That person doesn't pay for this athlete. Set them as Paid by, or link them as a guardian, first.", code: "NOT_A_PAYER" },
+        { status: 409 },
+      );
+    }
+    ownerName = wallet.ownerName;
+    customerId = wallet.customers[0]?.customerId ?? null;
+    if (!customerId) {
+      const owner = await prisma.user.findFirst({ where: { id: ownerUserId, clubId: member.clubId }, select: { email: true } });
+      const customer = await stripe.customers.create(
+        { email: owner?.email ?? undefined, name: wallet.ownerName, metadata: { [OWNER_META]: ownerUserId, clubId: member.clubId, memberId: member.id } },
+        { stripeAccount },
+      );
+      customerId = customer.id;
+    }
+  } else {
+    // Nobody to name (no login, no guardian, no Paid by): the athlete's own customer, as before.
+    customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId ?? null;
+    if (!customerId) {
+      const customer = await stripe.customers.create(
+        {
+          email: member.email ?? member.guardianEmail ?? undefined,
+          name: `${member.firstName} ${member.lastName}`.trim(),
+          metadata: { memberId: member.id, migrationMemberId: member.id, clubId: member.clubId },
+        },
+        { stripeAccount },
+      );
+      customerId = customer.id;
     }
   }
-  if (!customerId) {
-    const customer = await stripe.customers.create(
-      {
-        email: member.email ?? member.guardianEmail ?? undefined,
-        name: `${member.firstName} ${member.lastName}`.trim(),
-        metadata: { memberId: member.id, migrationMemberId: member.id, clubId: member.clubId },
-      },
-      { stripeAccount },
-    );
-    customerId = customer.id;
-    await prisma.member.update({
-      where: { id: member.id },
-      data: { stripeSetupCustomerId: customerId },
-    });
-  }
 
-  // REPLACE only makes sense when something is already on file.
-  const intent = data.intent === "REPLACE" && member.stripeSetupPaymentMethodId ? "REPLACE" : "ADD";
+  const onFileCustomer = member.stripeSetupCustomerId ?? null;
+  const sameWallet = !!onFileCustomer && onFileCustomer === customerId;
+  const hasOnFile = !!member.stripeSetupPaymentMethodId;
+  let intent: "ADD" | "REPLACE" | "WALLET";
+  if (!hasOnFile) intent = "ADD";
+  else if (sameWallet) intent = data.intent === "REPLACE" ? "REPLACE" : "ADD";
+  else if (ownerUserId && wallets?.onFile?.ownerUserId && wallets.onFile.ownerUserId !== ownerUserId) intent = "WALLET";
+  else intent = data.intent === "REPLACE" ? "REPLACE" : "ADD";
+  // REPLACE confirms on the customer the athlete already uses; a different wallet is a plain ADD.
+  if (intent === "REPLACE" && !sameWallet) intent = "ADD";
 
   // Request-derived origin: on a deploy preview the Stripe success/cancel
   // return must land back on the SAME deployment, not production.
@@ -133,8 +161,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     note:
       intent === "REPLACE"
         ? "Staff opened a Stripe card-collection page to REPLACE the saved method (old method stays in charge until confirmed)."
-        : "Staff opened a Stripe card-collection page to add a payment method.",
+        : intent === "WALLET"
+          ? `Staff opened a Stripe card-collection page to save a card to ${ownerName ?? "the payer"}'s wallet (the card on file is unchanged).`
+          : `Staff opened a Stripe card-collection page to add a payment method${ownerName ? ` (${ownerName}'s card)` : ""}.`,
   });
 
-  return NextResponse.json({ url: checkout.url, intent });
+  return NextResponse.json({ url: checkout.url, intent, ownerName });
 }

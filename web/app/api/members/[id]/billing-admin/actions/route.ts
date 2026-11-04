@@ -17,7 +17,7 @@ import {
 } from "@/lib/subscriptionEvents";
 import { stripe } from "@/lib/stripe";
 import { setStripeStop } from "@/lib/stripeStop";
-import { familyWallet } from "@/lib/payerWallet";
+import { walletsFor, stampOwner } from "@/lib/payerWallet";
 import { listPaymentMethodsForCustomer } from "@/lib/paymentMethodsAdmin";
 import { paymentMethodLabel, isOffSessionChargeable } from "@/lib/billingDataRules";
 import { pmRef } from "@/lib/billingAdmin";
@@ -100,9 +100,13 @@ const schema = z.object({
   cancelReason: z.string().max(60).optional().nullable(),
   // pause_membership: resume date (YYYY-MM-DD) or null = until resumed.
   pausedUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-  // use_family_card: a card saved on ANOTHER athlete the same person pays for.
-  sourceMemberId: z.string().optional(),
+  // use_family_card: a card owned by a person who pays for this athlete.
+  ownerUserId: z.string().optional(),
   paymentMethodRef: z.string().min(8).optional(),
+  // activate_card (Assign sheet, 2026-11-03): "Charge to" — the membership is
+  // billed on this person's card instead of the athlete's card on file (a coach
+  // paying the membership while the parent's card stays on file).
+  chargeCard: z.object({ ownerUserId: z.string(), paymentMethodRef: z.string().min(8) }).optional().nullable(),
   // set_payer: who pays (any account in the club; null clears), the other
   // athletes to set at the same time, and whether this payer is a coach /
   // team payer rather than family (then they never make athletes "siblings").
@@ -143,6 +147,38 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   const preview = await previewAutopayChange(subscriptionId, session.user.clubId, direction);
   if (!preview) return NextResponse.json({ error: "Subscription not found." }, { status: 404 });
   return NextResponse.json(preview);
+}
+
+type WalletCardHit = { ok: true; customerId: string; pmId: string; label: string; ownerName: string };
+type WalletCardMiss = { ok: false; error: string; code: string; status: number };
+/** A card (by opaque ref) owned by `ownerUserId`, who must pay for this athlete (lib/payerWallet). */
+async function findWalletCard(clubId: string, memberId: string, stripeAccount: string, ownerUserId: string, ref: string): Promise<WalletCardHit | WalletCardMiss> {
+  const w = await walletsFor(clubId, memberId, stripeAccount);
+  const wal = w?.wallets.find((x) => x.ownerUserId === ownerUserId);
+  if (!wal) {
+    return { ok: false, status: 409, code: "NOT_A_PAYER", error: "That person doesn't pay for this athlete. Set them as Paid by, or link them as a guardian, first." };
+  }
+  for (const c of wal.customers) {
+    let methods: Awaited<ReturnType<typeof listPaymentMethodsForCustomer>>;
+    try {
+      methods = await listPaymentMethodsForCustomer(c.customerId, stripeAccount);
+    } catch (e) {
+      return { ok: false, status: 502, code: "STRIPE_FAILED", error: `Couldn't reach Stripe — nothing was changed: ${String(e)}` };
+    }
+    const pm = methods.find((m) => pmRef(m.id) === ref);
+    if (!pm) continue;
+    if (!isOffSessionChargeable(pm)) return { ok: false, status: 409, code: "NOT_CHARGEABLE", error: "That method can't be charged automatically — pick a card." };
+    return { ok: true, customerId: c.customerId, pmId: pm.id, label: paymentMethodLabel(pm as unknown as Parameters<typeof paymentMethodLabel>[0]), ownerName: wal.ownerName };
+  }
+  return { ok: false, status: 404, code: "PM_GONE", error: "That card is no longer saved — refresh and pick again." };
+}
+
+/** PURE. Does a live Stripe subscription belong to THIS athlete? Customers can be shared
+ *  (a parent's or coach's wallet), so another athlete's subscription on the same
+ *  customer is not "already subscribed". No member metadata → counted (fail closed). */
+export function liveSubBelongsTo(meta: Record<string, string> | null | undefined, memberId: string): boolean {
+  const owner = meta?.memberId || meta?.migrationMemberId || null;
+  return !owner || owner === memberId;
 }
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -241,7 +277,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         price = q.quote.finalPrice;
       }
     }
-    if (!member.stripeSetupCustomerId || !member.stripeSetupPaymentMethodId) {
+    // "Charge to" (2026-11-03): another payer's card — the coach's — while the
+    // athlete's own card stays on file for everything else.
+    let charge: { customerId: string; pmId: string | null; ownerUserId: string | null; label: string | null } | null =
+      member.stripeSetupCustomerId ? { customerId: member.stripeSetupCustomerId, pmId: member.stripeSetupPaymentMethodId, ownerUserId: null, label: null } : null;
+    if (data.chargeCard) {
+      const hit = await findWalletCard(club.id, member.id, club.stripeAccountId, data.chargeCard.ownerUserId, data.chargeCard.paymentMethodRef);
+      if (!hit.ok) return NextResponse.json({ error: hit.error, code: hit.code }, { status: hit.status });
+      charge = { customerId: hit.customerId, pmId: hit.pmId, ownerUserId: data.chargeCard.ownerUserId, label: `${hit.ownerName}'s ${hit.label}` };
+    }
+    if (!charge || !charge.pmId) {
       return NextResponse.json(
         { error: "No saved card on file. Use “Add method” to collect one, or switch the payment method to cash/check in Edit and record it with “Already paid?”.", code: "CARD_SETUP_INCOMPLETE" },
         { status: 409 },
@@ -257,11 +302,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     if (localLive) {
       return NextResponse.json({ error: `A live card subscription ("${localLive.optionLabel}") already exists — activating again would bill them twice.`, code: "ALREADY_SUBSCRIBED" }, { status: 409 });
     }
-    for (const custId of [member.stripeSetupCustomerId, member.stripeCustomerId]) {
+    // A wallet customer is shared — only THIS athlete's subscriptions count.
+    for (const custId of Array.from(new Set([charge.customerId, member.stripeSetupCustomerId, member.stripeCustomerId]))) {
       if (!custId) continue;
       try {
-        const subs = await stripe.subscriptions.list({ customer: custId, status: "all", limit: 20 }, { stripeAccount: club.stripeAccountId });
-        if (subs.data.some((x) => ["active", "trialing", "past_due", "unpaid"].includes(x.status))) {
+        const subs = await stripe.subscriptions.list({ customer: custId, status: "all", limit: 50 }, { stripeAccount: club.stripeAccountId });
+        if (subs.data.some((x) => ["active", "trialing", "past_due", "unpaid"].includes(x.status) && liveSubBelongsTo(x.metadata, member.id))) {
           return NextResponse.json({ error: "Stripe shows a live subscription on this member already. Run a billing sync; nothing was created or charged.", code: "ALREADY_SUBSCRIBED" }, { status: 409 });
         }
       } catch (e) {
@@ -303,9 +349,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const activation = await createSavedCardSubscription({
       member: {
         id: member.id,
-        stripeSetupCustomerId: member.stripeSetupCustomerId,
-        stripeSetupPaymentMethodId: member.stripeSetupPaymentMethodId,
+        stripeSetupCustomerId: charge.customerId,
+        stripeSetupPaymentMethodId: charge.pmId,
       },
+      persistPaymentMethod: !data.chargeCard,
+      payerUserId: charge.ownerUserId,
       startDate: rowStart,
       club: { id: club.id, stripeAccountId: club.stripeAccountId, passProcessingFees: club.passProcessingFees, passPlatformFee: club.passPlatformFee, tier: club.tier },
       membershipId: plan.id,
@@ -320,7 +368,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       cancelSource: member.commitmentEndDate ?? null,
       discount,
       discountFields,
-      notes: `Activated from the billing centre by staff on ${new Date().toISOString().slice(0, 10)} — saved card.${discountFields?.discountLabel && discountFields.discountSource !== "CODE" ? ` ${discountFields.discountLabel} applied.` : ""}`,
+      notes: `Activated from the billing centre by staff on ${new Date().toISOString().slice(0, 10)} — ${charge.label ?? "saved card"}.${discountFields?.discountLabel && discountFields.discountSource !== "CODE" ? ` ${discountFields.discountLabel} applied.` : ""}`,
       metadata: { memberId: member.id, clubId: club.id, activatedBy: "billing-admin" },
       idempotencyPrefix: "aox-activate-card",
     });
@@ -468,65 +516,45 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   // first period immediately. Refused unless it is a REAL free trial: "Change
   // charge date" also parks paying members in Stripe's trial state, and ending
   // that early would charge them for time they already paid for.
-  // use_family_card — 2026-10-29. Point this athlete at a card already saved
-  // on another athlete the SAME person pays for (lib/payerWallet): the coach's
-  // card saved once on Owen, used for the whole team; a parent's card saved on
-  // one child, used for the next. Nothing is charged here. The athlete's
-  // on-file customer + card become that customer + card, so "Assign
-  // membership → card on file" (and approvals / offers) charge it.
-  // A running card membership keeps its own customer — Stripe can't move a
-  // live subscription between customers — so that case is refused.
+  // use_family_card — "Use as card on file". 2026-10-29, reworked 2026-11-03:
+  // the card must belong to a PERSON who pays for this athlete (lib/payerWallet
+  // walletsFor: Paid by, a family guardian, their own login) — never another
+  // family's. It becomes the athlete's card on file (events, privates, store,
+  // and memberships unless the Assign sheet picks another). Nothing charged.
+  // A running card membership keeps its own card — Stripe can't move it.
   if (data.action === "use_family_card") {
-    if (!data.sourceMemberId || !data.paymentMethodRef) {
-      return NextResponse.json({ error: "sourceMemberId and paymentMethodRef are required." }, { status: 400 });
+    if (!data.ownerUserId || !data.paymentMethodRef) {
+      return NextResponse.json({ error: "ownerUserId and paymentMethodRef are required." }, { status: 400 });
     }
     const club = await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { stripeAccountId: true } });
     if (!club?.stripeAccountId) return NextResponse.json({ error: "Stripe isn't connected for this club." }, { status: 409 });
-    const wallet = await familyWallet(session.user.clubId, member.id);
-    const src = wallet?.sources.find((x) => x.members.some((m) => m.id === data.sourceMemberId));
-    if (!wallet?.payerUserId || !src) {
-      return NextResponse.json({
-        error: `That card isn't paid by the same person as ${member.firstName}. Set "Paid by" first, then use the card.`,
-        code: "NOT_SAME_PAYER",
-      }, { status: 409 });
-    }
+    const found = await findWalletCard(session.user.clubId, member.id, club.stripeAccountId, data.ownerUserId, data.paymentMethodRef);
+    if (!found.ok) return NextResponse.json({ error: found.error, code: found.code }, { status: found.status });
     const liveCard = await prisma.memberSubscription.findFirst({
       where: { memberId: member.id, stripeSubscriptionId: { not: null }, status: { in: ["active", "past_due", "trialing"] } },
       select: { optionLabel: true },
     });
     if (liveCard) {
       return NextResponse.json({
-        error: `${member.firstName}'s running card membership (${liveCard.optionLabel}) keeps the card it was started on — Stripe can't move it. Use Replace… on Payment methods to change that card.`,
+        error: `${member.firstName}'s running card membership (${liveCard.optionLabel}) keeps the card it was started on — Stripe can't move it. When it ends, assign the next one and pick this card under "Charge to".`,
         code: "LIVE_CARD_MEMBERSHIP",
       }, { status: 409 });
     }
-    let pm: Awaited<ReturnType<typeof listPaymentMethodsForCustomer>>[number] | undefined;
-    try {
-      const methods = await listPaymentMethodsForCustomer(src.customerId, club.stripeAccountId);
-      pm = methods.find((m) => pmRef(m.id) === data.paymentMethodRef);
-    } catch (e) {
-      return NextResponse.json({ error: `Couldn't reach Stripe — nothing was changed: ${String(e)}` }, { status: 502 });
-    }
-    if (!pm) return NextResponse.json({ error: "That card is no longer saved — refresh and pick again.", code: "PM_GONE" }, { status: 404 });
-    if (!isOffSessionChargeable(pm)) {
-      return NextResponse.json({ error: "That method can't be charged automatically — pick a card.", code: "NOT_CHARGEABLE" }, { status: 409 });
-    }
-    const label = paymentMethodLabel(pm as unknown as Parameters<typeof paymentMethodLabel>[0]);
-    const holder = src.members[0].name;
     await prisma.member.update({
       where: { id: member.id },
-      data: { stripeSetupCustomerId: src.customerId, stripeSetupPaymentMethodId: pm.id },
+      data: { stripeSetupCustomerId: found.customerId, stripeSetupPaymentMethodId: found.pmId },
     });
+    await stampOwner(found.customerId, data.ownerUserId, club.stripeAccountId);
     await writeBillingAudit({
       clubId: session.user.clubId, memberId: member.id, actorUserId: session.user.id,
       action: "FAMILY_CARD_LINKED",
       before: { hadCardOnFile: !!member.stripeSetupPaymentMethodId },
-      after: { card: label, savedOn: holder, payerUserId: wallet.payerUserId },
-      note: `${label} (saved on ${holder}, paid by ${wallet.payerName ?? "the same payer"}) is now ${member.firstName}'s card on file. Nothing was charged.`,
+      after: { card: found.label, ownerUserId: data.ownerUserId },
+      note: `${found.ownerName}'s ${found.label} is now ${member.firstName}'s card on file. Nothing was charged.`,
     });
     return NextResponse.json({
       ok: true,
-      message: `${label} is now ${member.firstName}'s card on file (shared with ${holder}). Nothing was charged — assign the membership by card to use it.`,
+      message: `${found.ownerName}'s ${found.label} is now ${member.firstName}'s card on file. Nothing was charged.`,
     });
   }
 

@@ -47,6 +47,10 @@ export type CardActivationInput = {
   notes: string;
   metadata: Record<string, string>;
   idempotencyPrefix: string;
+  /** 2026-11-03 — billed on someone else's card ("Charge to" on the Assign
+   *  sheet): don't rewrite the athlete's on-file pointer, and record who pays. */
+  persistPaymentMethod?: boolean;
+  payerUserId?: string | null;
 };
 
 export type CardActivationResult =
@@ -102,7 +106,7 @@ export async function createSavedCardSubscription(input: CardActivationInput): P
         "The saved payment method is no longer attached to this member's billing account (it was likely replaced or removed). Send the card-setup link again, or bill offline. Nothing was charged.",
     };
   }
-  if (chargePmId !== member.stripeSetupPaymentMethodId) {
+  if (input.persistPaymentMethod !== false && chargePmId !== member.stripeSetupPaymentMethodId) {
     await prisma.member.update({
       where: { id: member.id },
       data: { stripeSetupPaymentMethodId: chargePmId },
@@ -167,6 +171,7 @@ export async function createSavedCardSubscription(input: CardActivationInput): P
     const memberSub = await prisma.memberSubscription.create({
       data: {
         memberId: member.id,
+        ...(input.payerUserId ? { payerUserId: input.payerUserId } : {}),
         membershipId: input.membershipId,
         optionId: input.optionId,
         // A minimum term that outlives the subscription's end is the one shape

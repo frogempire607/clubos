@@ -30,7 +30,7 @@ import { parseOptions as parseOptionsShared } from "@/lib/membershipOptions";
 import { listPaymentMethodsForCustomer, lastPaidWithForCustomers } from "@/lib/paymentMethodsAdmin";
 import { paymentMethodLabel, paymentTypeName, isOffSessionChargeable, type LastPaidWith } from "@/lib/billingDataRules";
 import { chargeDateMoved } from "@/lib/chargeDate";
-import { familyWallet } from "@/lib/payerWallet";
+import { walletsFor } from "@/lib/payerWallet";
 
 export const dynamic = "force-dynamic";
 
@@ -264,31 +264,39 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     }
   }
 
-  // ── The payer's wallet (2026-10-29) ─────────────────────────────────────
-  // Cards saved on the OTHER athletes this same person pays for (a parent's
-  // other kids, or a coach's team). "Use for <athlete>" points this athlete at
-  // that customer + card — see lib/payerWallet. Opaque refs only, as above.
-  type FamilyCardSource = { sourceMemberId: string; names: string[]; methods: { ref: string; label: string; chargeableOffSession: boolean; isDefault: boolean }[] };
-  let familyCards: { payerUserId: string | null; payerName: string | null; sharedWith: string[]; sources: FamilyCardSource[] } | null = null;
+  // ── Wallets: the cards of the people who pay for this athlete (2026-11-03) ─
+  // Grouped by the PERSON who owns each card (lib/payerWallet): "Paid by"
+  // (memberships), family guardians, own login. Another family's card is never
+  // listed — Thaeden's mom's card shows on her kids only. Opaque refs only.
+  type WalletMethod = { ref: string; label: string; isDefault: boolean; onFile: boolean; sharedWith: string[] };
+  let payerWallets: { ownerUserId: string; ownerName: string; roles: string[]; methods: WalletMethod[] }[] = [];
+  let onFileOwnerName: string | null = null;
   if (club.stripeAccountId) {
     try {
-      const w = await familyWallet(club.id, member.id);
+      const w = await walletsFor(club.id, member.id, club.stripeAccountId);
       if (w) {
-        const sources: FamilyCardSource[] = [];
-        for (const src of w.sources.slice(0, 5)) {
-          const { methods } = await listCustomerPaymentMethods(src.customerId, club.stripeAccountId, "SETUP", null);
-          const usable = methods.filter((m) => m.chargeableOffSession);
-          if (usable.length === 0) continue;
-          sources.push({
-            sourceMemberId: src.members[0].id,
-            names: src.members.map((m) => m.name),
-            methods: usable.map((m) => ({ ref: m.ref, label: m.label, chargeableOffSession: m.chargeableOffSession, isDefault: m.isDefault })),
-          });
+        for (const wal of w.wallets) {
+          const methods: WalletMethod[] = [];
+          const seenRef = new Set<string>();
+          for (const c of wal.customers.slice(0, 5)) {
+            const { methods: list } = await listCustomerPaymentMethods(c.customerId, club.stripeAccountId, "SETUP", member.stripeSetupPaymentMethodId);
+            for (const m of list) {
+              if (!m.chargeableOffSession || seenRef.has(m.ref)) continue;
+              seenRef.add(m.ref);
+              methods.push({
+                ref: m.ref, label: m.label, isDefault: m.isDefault,
+                onFile: c.customerId === w.onFile?.customerId && m.isCapturedForActivation,
+                sharedWith: c.athletes.map((a) => a.name),
+              });
+            }
+          }
+          payerWallets.push({ ownerUserId: wal.ownerUserId, ownerName: wal.ownerName, roles: wal.roles, methods });
+          if (w.onFile?.ownerUserId === wal.ownerUserId) onFileOwnerName = wal.ownerName;
         }
-        familyCards = { payerUserId: w.payerUserId, payerName: w.payerName, sharedWith: w.sharedWith.map((x) => x.name), sources };
       }
     } catch (e) {
-      console.error("billing-admin: family wallet read failed", e);
+      console.error("billing-admin: wallets read failed", e);
+      payerWallets = [];
     }
   }
 
@@ -496,7 +504,8 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     },
     guardians,
     payer,
-    familyCards,
+    payerWallets,
+    onFileOwnerName,
     // ONE authoritative state with strict precedence (live Stripe > pending
     // offer/approval > paid draft config > manual > free > settled) so the
     // page can never show contradictory chips without explanation.
