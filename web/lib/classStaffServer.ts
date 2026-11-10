@@ -41,7 +41,7 @@
 //   addUserRule(db, {...})                            one coach ON the recurring list (every class day)
 //   applySeriesListChange(db, {...})                  a legacy "series coach list" save → the two above
 //   initClassStaffFromLegacy(db, classId, opts?)      a class created after switch-on
-//   ensureSession(classId, dateYmd, db?)              get-or-create one class day
+//   ensureSession(classId, dateYmd, db?, {now?})      get-or-create one class day
 // Day operations (each returns DayOpResult with before/after rows)
 //   setDayStaff / addDayStaff / removeDayStaff
 //   callOut / callOutRange / cancelCoverageRequest / fillCoverage / closeCoverage
@@ -418,6 +418,7 @@ export async function ensureSession(
   classId: string,
   dateYmd: string,
   db: Db = prisma,
+  opts: { now?: Date } = {},
 ): Promise<{ session: { id: string; classId: string; clubId: string; date: Date; startsAt: Date; endsAt: Date; canceled: boolean }; created: boolean }> {
   if (!isYmd(dateYmd)) throw new ClassStaffError("BAD_INPUT", "date must be YYYY-MM-DD");
   const date = ymdToDate(dateYmd);
@@ -440,7 +441,10 @@ export async function ensureSession(
   });
   const session = await db.classSession.findUnique({ where: { classId_date: { classId, date } }, select: pick });
   if (!session) throw new ClassStaffError("NOT_FOUND", "Class day could not be created");
-  if (made.count > 0) await syncSessionStaff(db, classId, dateYmd);
+  // Pass the clock on: the sync decides from "today" which days get rule rows,
+  // so a caller working to a fixed date must not have it fall back to the wall
+  // clock here — the new day would silently come back without its coaches.
+  if (made.count > 0) await syncSessionStaff(db, classId, dateYmd, { now: opts.now });
   return { session, created: made.count > 0 };
 }
 
@@ -908,7 +912,7 @@ export async function applyScopeChange(
     throw new ClassStaffError("NOT_SWITCHED_ON", "This date is before the assignment start date");
   }
   if (args.scope === "OCCURRENCE") {
-    const { session } = await ensureSession(args.classId, args.date, db);
+    const { session } = await ensureSession(args.classId, args.date, db, { now: args.now });
     const day = await setDayStaff(db, { clubId: args.clubId, sessionId: session.id, staff: args.desired, byUserId: args.byUserId });
     const { dayOps, ...rest } = day;
     return { scope: args.scope, classId: args.classId, date: args.date, ruleOps: [], dayOps, recurringBefore: [], recurringAfter: [], day: rest, sync: null };

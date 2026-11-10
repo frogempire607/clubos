@@ -37,12 +37,22 @@ export type SessionSyncResult = {
 // row's time carries every booking with it.
 //
 // Past sessions are never touched — that is attendance history.
-export async function syncFutureSessions(cls: SeriesShape): Promise<SessionSyncResult> {
+export async function syncFutureSessions(
+  cls: SeriesShape,
+  opts: { now?: Date } = {},
+): Promise<SessionSyncResult> {
   // UTC midnight, matching how buildSessions stamps ClassSession.date and how
   // the occurrence route's dayWindow() reads it. Local midnight would shift
   // today's boundary on any server not running in UTC, and today's session is
   // exactly the one a same-day time change is about.
-  const todayStart = new Date();
+  //
+  // `now` is injectable for the same reason every function in
+  // lib/classStaffServer takes one: "today" decides which days get built, so a
+  // test that cannot pin it is really asserting against the wall clock, and
+  // its fixture goes stale the day the calendar passes it. Production passes
+  // nothing and gets the real clock.
+  const now = opts.now ?? new Date();
+  const todayStart = new Date(now);
   todayStart.setUTCHours(0, 0, 0, 0);
 
   const existingRows = await prisma.classSession.findMany({
@@ -90,7 +100,7 @@ export async function syncFutureSessions(cls: SeriesShape): Promise<SessionSyncR
   // New days need their coaches; a moved day keeps its row (and its coaches).
   // A deleted day took its coach rows with it (cascade). No-op for a club that
   // is not switched on.
-  const staffSync = await syncSessionStaff(prisma, cls.id);
+  const staffSync = await syncSessionStaff(prisma, cls.id, null, { now });
 
   return {
     staffSync,
