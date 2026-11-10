@@ -1145,7 +1145,24 @@ is a **standing guard**: if a field named `taxId`/`tin`/`ssn`/… ever appears i
 the schema without `createCipheriv`/`aes-256-gcm` somewhere in `lib/`, the build
 fails. The CSV has no tax-identification column and no address column either.
 
-#### 1099 — the TIN question
+#### 1099 — the TIN question — **APPROVED AND BUILT (Phase 12.1, 2026-10-27)**
+
+Julian approved the design below and it is implemented in `lib/fieldCrypto.ts`,
+`lib/tin.ts` and `lib/contractorTin.ts`. What shipped matches the proposal,
+with two additions worth knowing:
+
+- **`FIELD_ENCRYPTION_KEYS_RETIRED`** holds keys that may still DECRYPT after a
+  rotation, so rotating does not strand existing values.
+- **A CHECK constraint** on `contractor_w9_submissions.taxIdEncrypted` means the
+  DATABASE refuses a plaintext tax ID too, not only the service. Proven by RLS
+  harness T12.18.
+
+`scripts/field-crypto-tests.ts` §6 is the standing build guard: a tax-id field
+may exist only while the encryption protecting it exists, is written by exactly
+one module, is read by exactly one module, and has no index on the ciphertext.
+
+The original proposal, for reference:
+
 
 **What is needed, and the proposed design — for Julian's approval before
 anything stores a TIN.**
@@ -1352,11 +1369,103 @@ re-think.
 | What | Why it is not done here |
 |---|---|
 | `Club.fiscalYearStartMonth` | The fiscal year is assumed to be the calendar year. A club on a non-calendar year gets the wrong retained-earnings split; the balance sheet states the start it used, so the assumption is visible rather than silent. |
-| `Transaction.refundFeeAmount` | Task 10's posting path has nothing to read. Needs an additive column written by the `charge.refunded` webhook. |
-| `Contractor.address` | A 1099-NEC needs the payee's address and AthletixOS stores none. Not sensitive in the way a TIN is, so it can be added plainly. |
-| `Contractor.taxIdEncrypted` + `lib/fieldCrypto.ts` | The STOP. Needs Julian's approval of the design above before any TIN is stored. |
+| ~~`Transaction.refundFeeAmount`~~ | **DONE in Phase 12.1.** Written by the `charge.refunded` webhook from the refund's own balance transaction; the posting path is switched on. |
+| ~~`Contractor.address`~~ | **DONE in Phase 12.1.** `streetAddress`/`city`/`state`/`zipCode`, named to match `members`. |
+| ~~`Contractor.taxIdEncrypted` + `lib/fieldCrypto.ts`~~ | **DONE in Phase 12.1**, on Julian's approval. See the section above. |
 | RLS on the remaining 20 tables | Phase 3 reads none of them, and each needs its own think about FK shape. Listed under Task 1. |
 | A gain/loss-on-disposal account in the chart | Adding one to `CHART_TEMPLATE` would not reach an already-seeded club, so disposals use 4950 and 6900 and say so on screen. |
+
+## Phase 12.1 — report fixes, encrypted TINs, staff tax forms & documents — **BUILT (2026-10-27)**
+
+Branch `claude/athletixos-phase-12-1`, cut from `origin/main` at `963d52b`.
+Migration `20261027000000_staff_tax_forms_documents` — **written, additive, NOT
+applied.**
+
+### Part 1 — the Books → Reports crash
+
+Four of the five reports showed "Application error: a client-side exception has
+occurred". **The trial balance working was the clue.**
+
+`statement` and `data` were two independent pieces of React state. Clicking a
+statement button set `statement` synchronously, so for one render the new view
+was handed the PREVIOUS statement's payload — and `data as Gl` asserted a shape
+nobody had checked. `gl.accounts.map` ran on `undefined`. The trial balance was
+the only one that worked because it is the DEFAULT statement: its payload
+always matched the view on screen. Everything else was reached by a click.
+
+Fixed by making the two values one, as a discriminated union keyed on the
+statement, so TypeScript narrows the payload at each branch and **every cast is
+gone** — the compiler now rejects the original mistake. Not a try/catch, and
+not an error boundary.
+
+Found while fixing it: two in-flight requests could land out of order, so a
+slow response for an abandoned statement could overwrite a newer one. The fetch
+now lives in an effect with a cancellation flag.
+
+The empty-club state was NOT the cause — all five views already rendered an
+empty club correctly, which is how that was ruled out. It is now covered
+anyway, at both layers.
+
+### Part 2 — encrypted TINs
+
+See "1099 — the TIN question" above. Also: `Contractor.address`, and
+`Transaction.refundFeeAmount` with Phase 12's refund-fee posting switched on.
+
+### Part 3 — worker type and the W-9
+
+`StaffProfile.workerType` is **nullable with no default**. Classification is a
+legal determination with tax consequences, and defaulting everybody to one side
+would be AthletixOS making it for the club. Gated on Financials & payroll:
+full, because it decides payroll versus 1099.
+
+The contractor↔staff link **reuses `Contractor.convertedUserId`**, which
+already meant "this contractor is also this staff user" and is unique. Setting
+CONTRACTOR restores a soft-deleted record rather than creating a second one:
+two contractor rows for one person would split their payment history, and
+whichever half the 1099 read would be the number on the form.
+
+**The W-9 is self-service and an owner cannot fill it in.** Part II is a
+certification under penalties of perjury. An owner with a paper copy attaches
+it as a staff document instead. That required an entry in
+permission-boundary-guard's `APPROVED_INLINE` — self-ownership is stricter than
+any permission level and cannot be expressed as one — and staff-authz's
+exemption ratchet was updated from one entry to two, deliberately and visibly.
+
+The 1099 report now excludes employees and prefers the W-9's legal name: a
+club's label may be "Ref - Dana", and a 1099 needs the name on their tax
+return.
+
+### Part 4 — staff documents
+
+Reuses `Document` (model, body, sanitiser, renderer) and the existing signing
+mechanic. **The link table is staff-specific**, and that is the one deviation
+from "don't build a parallel one": `DocumentSignature.memberId` is a required
+FK to Member with a unique on (documentId, memberId), and relaxing it would
+turn it nullable across the twenty files that read it — member onboarding,
+migration activation, event-document gating, member deletion.
+
+`Document.audience` defaults to MEMBER, so nothing existing changes — and a
+missed filter would be invisible until a club created its first staff document.
+All 17 member-facing reads across 12 files filter it, and
+`scripts/staff-documents-tests.ts` §6 enumerates those files so a dropped
+filter fails the build.
+
+Only the title and body publish a new version, because those are what somebody
+signed. A due date is never a lock: locking a coach out of the app over an
+unsigned handbook would be worse than the unsigned handbook.
+
+### What this phase changed about existing tests
+
+Four assertions were updated rather than deleted, each because the world
+changed under them:
+
+| Assertion | Was | Now |
+|---|---|---|
+| `form1099` §1 | "no tax-identification field exists anywhere" — true while Phase 12 had stopped rather than store one | "no PLAINTEXT tax-id field, and the encrypted one is backed by real encryption" |
+| `form1099` 1.4/1.5 | "no tax-id column, no address column" in the CSV | a masked last-four column (four digits, asserted on the values) and the address a 1099-NEC needs |
+| `form1099` §6 | addressed CSV columns by index | by name, because inserting a column broke it and would again |
+| `gl-posting` 12.48 | "the refund-fee limitation is documented" | "the limitation is gone and the path is wired" |
+| `staff-authz` | the exemption list is exactly one entry | exactly two, each required to carry an explanation |
 
 ## Sports-club chart of accounts template
 

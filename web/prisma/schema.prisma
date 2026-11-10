@@ -285,6 +285,9 @@ model Club {
   glOpeningImports               GlOpeningImport[]
   qboHistoryFiles                QboHistoryFile[]
   qboHistoryRows                 QboHistoryRow[]
+  contractorW9Submissions        ContractorW9Submission[]
+  staffDocumentAssignments       StaffDocumentAssignment[]
+  staffDocumentSignatures        StaffDocumentSignature[]
   glJournalEntries               GlJournalEntry[]
   glJournalLines                 GlJournalLine[]
   glEntryAttachments             GlEntryAttachment[]
@@ -662,6 +665,8 @@ model User {
   uploadedFiles              UploadedFile[]
   compensations              StaffCompensation[]
   staffDocuments             StaffDocument[]              @relation("StaffDocsTarget")
+  staffDocAssignments        StaffDocumentAssignment[]    @relation("StaffDocAssignmentTarget")
+  staffDocSignatures         StaffDocumentSignature[]     @relation("StaffDocSignatureSigner")
   uploadedStaffDocs          StaffDocument[]              @relation("StaffDocsUploader")
   legalAcceptances           LegalAcceptance[]
   parentalConsentsAsGuardian ParentalConsent[]            @relation("GuardianConsent")
@@ -821,6 +826,14 @@ model StaffProfile {
   // Private contact number — owner/staff-manager visible only, never shown in
   // the member portal (that is publicPhone). B21.
   phone            String?
+  /// EMPLOYEE (payroll) | CONTRACTOR (W-9 / 1099).
+  ///
+  /// NULLABLE ON PURPOSE, and there is no default. Worker classification is a
+  /// legal determination with tax consequences, and AthletixOS must not make
+  /// it on a club's behalf by defaulting everybody to one or the other. Null
+  /// means "not classified yet" and the UI says so, next to a line making
+  /// clear the classification is the owner's responsibility.
+  workerType       String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -2498,6 +2511,14 @@ model Transaction {
   /// Set by the "Record deposit" action; its presence is what stops the same
   /// cash being deposited twice.
   glDepositId           String?
+  /// The fee Stripe gave back (or charged) on a refund, from the REFUND's own
+  /// balance transaction — positive when the club got fee money back. Written
+  /// by the `charge.refunded` webhook.
+  ///
+  /// Phase 12 built the posting path for this (planRefund puts the movement
+  /// against 6400 Payment Processing Fees) and documented that nothing filled
+  /// it. This is the column that fills it.
+  refundFeeAmount       Decimal?              @db.Decimal(10, 2)
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
@@ -2609,6 +2630,22 @@ model Document {
   //                    registration and check-in
   appliesToAllEvents        Boolean   @default(false)
   eventRequirement          String    @default("INFO")
+  /// MEMBER | STAFF — who this document is FOR.
+  ///
+  /// Defaults to MEMBER so every existing row and every existing write keeps
+  /// behaving exactly as before; only the new staff surfaces ever write STAFF.
+  /// Member-facing reads filter on it, and scripts/staff-documents-tests.ts
+  /// enumerates those files so a missed filter fails the build rather than
+  /// leaking the staff handbook into a member's document list.
+  audience                  String    @default("MEMBER")
+  /// Bumped when the body or title of a STAFF document changes. A staff
+  /// signature records the version it signed, so "needs signing" is "no
+  /// signature at the current version" — which is how a new version requires
+  /// re-signing while the old signatures are kept.
+  ///
+  /// Member documents ignore this and use signatureValidForDays instead; that
+  /// mechanism is unchanged.
+  version                   Int       @default(1)
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
   deletedAt                 DateTime?
@@ -2616,8 +2653,11 @@ model Document {
   club       Club                @relation(fields: [clubId], references: [id], onDelete: Cascade)
   signatures DocumentSignature[]
   eventLinks EventDocumentLink[]
+  staffAssignments StaffDocumentAssignment[]
+  staffSignatures  StaffDocumentSignature[]
 
   @@index([clubId])
+  @@index([clubId, audience], map: "documents_clubId_audience_idx")
   @@map("documents")
 }
 
@@ -2708,6 +2748,79 @@ model UploadedFile {
 // memberId  = which member the signature applies to (the athlete, possibly a minor).
 // signerUserId = which logged-in User clicked "I have read and acknowledge".
 // relationship = "SELF" when the member signed for themselves; "GUARDIAN" when a parent/guardian signed for a minor.
+/// Who a STAFF document is for. One row per assignment; a document can be
+/// assigned several ways at once (everyone, plus a role, plus one person) and
+/// the union is who owes a signature.
+model StaffDocumentAssignment {
+  id          String @id @default(cuid())
+  clubId      String
+  documentId  String
+  /// ALL (every staff member) | ROLE (everyone whose StaffProfile.title
+  /// matches) | STAFF (one named person).
+  scope       String @default("ALL")
+  /// Set when scope is STAFF.
+  staffUserId String?
+  /// Set when scope is ROLE — matched against StaffProfile.title.
+  role        String?
+  /// Optional. Shown to the staff member and used to sort the owner's list;
+  /// nothing is blocked by it, because locking a coach out of the app over an
+  /// unsigned handbook would be worse than the unsigned handbook.
+  dueDate         DateTime? @db.Date
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+
+  club     Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  staff    User?    @relation("StaffDocAssignmentTarget", fields: [staffUserId], references: [id], onDelete: Cascade)
+
+  /// One assignment of a given shape per document. Postgres treats NULLs as
+  /// distinct, so this constrains the STAFF rows; ALL/ROLE duplicates are
+  /// prevented in the service.
+  @@unique([documentId, staffUserId], map: "staff_doc_assignment_document_staff_key")
+  @@index([clubId, documentId])
+  @@index([staffUserId])
+  @@map("staff_document_assignments")
+}
+
+/// A staff member's e-signature on a club document.
+///
+/// WHY THIS IS NOT DocumentSignature: that table's `memberId` is a REQUIRED FK
+/// to Member with a unique on (documentId, memberId), and staff are Users with
+/// a StaffProfile — they have no Member row. Making `memberId` nullable would
+/// turn it into `string | null` across 20 files, among them member onboarding,
+/// migration activation, event-document gating and member deletion — the paths
+/// CLAUDE.md's guardrails single out. The Document model, the SignaturePad
+/// component, sanitizeRichHtml and the who/when/IP/user-agent audit shape are
+/// all reused; only this link table is staff-specific, because the existing
+/// one cannot hold a staff signature.
+model StaffDocumentSignature {
+  id          String @id @default(cuid())
+  clubId      String
+  documentId  String
+  staffUserId String
+  signerName  String
+  /// The document version signed. A new version means a new signature is
+  /// owed, and this is what distinguishes the two.
+  documentVersion  Int      @default(1)
+  signedAt         DateTime @default(now())
+  ipAddress        String?
+  userAgent        String?
+  /// Drawn signature (PNG data URL), same as the member flow. Null when the
+  /// staff member typed their name instead.
+  signatureDataUrl String?
+
+  club     Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  staff    User     @relation("StaffDocSignatureSigner", fields: [staffUserId], references: [id], onDelete: Cascade)
+
+  /// One signature per person per VERSION — so re-signing a new version is
+  /// allowed and the old row is kept.
+  @@unique([documentId, staffUserId, documentVersion], map: "staff_doc_signature_unique")
+  @@index([clubId, documentId])
+  @@index([staffUserId])
+  @@map("staff_document_signatures")
+}
+
 model DocumentSignature {
   id               String   @id @default(cuid())
   documentId       String
@@ -3669,6 +3782,36 @@ model Contractor {
   role            String? // "Referee", "Photographer", "Guest clinician", ...
   w9Url           String? // private file URL from /api/upload (type=document)
   payoutNotes     String?
+  /// Mailing address. A 1099-NEC needs the payee's address and AthletixOS had
+  /// nowhere to put one (Phase 12 filed this as a blocker). Field names match
+  /// Member's so one address formatter serves both.
+  streetAddress   String?
+  city            String?
+  state           String?
+  zipCode         String?
+  /// ── W-9 ────────────────────────────────────────────────────────────────
+  /// NOT_STARTED | SUBMITTED. Set from the submission, never by hand.
+  w9Status        String    @default("NOT_STARTED")
+  /// The submission currently in force. THE SUBMISSION IS THE FACT: the TIN,
+  /// the certification and the signature all live on ContractorW9Submission,
+  /// and this is a pointer to the live one.
+  ///
+  /// Deliberately a pointer rather than a copy. CLAUDE.md records four
+  /// production bugs from member-level fields that duplicated a fact living
+  /// elsewhere; copying the ciphertext here would be a fifth of the same
+  /// shape, and the copy that went stale would be the one the 1099 read.
+  w9CurrentSubmissionId String? @unique
+  w9Current             ContractorW9Submission? @relation("ContractorCurrentW9", fields: [w9CurrentSubmissionId], references: [id], onDelete: SetNull)
+  /// Last four digits of the TIN on the current submission, in PLAINTEXT, so
+  /// a list can show "•••-••-1234" without a decryption call. Masked display
+  /// must never be a decrypt — that is how a decrypt ends up in a log line.
+  taxIdLast4      String?
+  /// SSN | EIN. Which mask to draw; never sensitive on its own.
+  taxIdKind       String?
+  /// Set when an owner asks for a fresh W-9. The old submission is kept and
+  /// superseded, never deleted.
+  w9RequestedAt   DateTime?
+  w9RequestedByUserId String?
   active          Boolean   @default(true)
   // Set when the contractor is converted into a full staff User account.
   convertedUserId String?   @unique
@@ -3679,13 +3822,88 @@ model Contractor {
   club           Club                  @relation(fields: [clubId], references: [id], onDelete: Cascade)
   payments       ContractorPayment[]
   eventCompRoles EventCompAssignment[]
+  w9Submissions  ContractorW9Submission[]
 
   @@index([clubId])
+  @@index([clubId, w9Status], map: "contractors_clubId_w9Status_idx")
   @@map("contractors")
 }
 
 // A logged payment / service rendered by a contractor. Feeds future
 // payouts/payroll/accounting exports.
+/// One completed W-9. Every submission is kept: an owner can ask for a fresh
+/// one, and the old one is superseded rather than overwritten, because what a
+/// contractor certified at the time is the record the IRS cares about.
+///
+/// ⚠️  THIS TABLE HOLDS A TAX IDENTIFICATION NUMBER. Read lib/fieldCrypto.ts
+/// before touching it.
+///   · `taxIdEncrypted` is AES-256-GCM ciphertext, never a readable value.
+///   · `taxIdLast4` is the ONLY plaintext fragment, so masked display never
+///     needs a decryption call.
+///   · Decryption happens in exactly one owner-only route, and every read is
+///     audited.
+///   · There is no index on the ciphertext and nothing joins through it.
+model ContractorW9Submission {
+  id           String @id @default(cuid())
+  clubId       String
+  contractorId String
+
+  /// Line 1 of the form: the name on the payee's income tax return.
+  legalName      String
+  /// Line 2: business/trade name, if different.
+  businessName   String?
+  /// Line 3: INDIVIDUAL | SOLE_PROPRIETOR | C_CORP | S_CORP | PARTNERSHIP |
+  /// TRUST_ESTATE | LLC_C | LLC_S | LLC_P | OTHER.
+  taxClassification String
+  /// Set when taxClassification is OTHER or an LLC needing a note.
+  classificationNote String?
+
+  /// Lines 5–6, as certified ON THE FORM. Distinct from Contractor's current
+  /// mailing address, which can change afterwards.
+  streetAddress String
+  city          String
+  state         String
+  zipCode       String
+
+  /// SSN | EIN.
+  taxIdKind      String
+  /// AES-256-GCM, `v1:<keyId>:<iv>:<ciphertext>:<tag>`. See lib/fieldCrypto.ts.
+  taxIdEncrypted String
+  /// Last four digits, plaintext, for masked display only.
+  taxIdLast4     String
+
+  /// The certification under penalties of perjury: the exact text shown, the
+  /// typed signature, and who/when/where from. The text is SNAPSHOTTED because
+  /// what they agreed to must not change when the app's copy does.
+  certificationText String
+  signedName        String
+  signedAt          DateTime @default(now())
+  signedByUserId    String?
+  ipAddress         String?
+  userAgent         String?
+
+  /// The generated PDF copy, kept so it can be produced on request — which is
+  /// what the IRS requires of an electronic W-9 system.
+  fileId      String?
+  fileUrl     String?
+  /// Also mirrored to a StaffDocument row (kind W9) so it appears with the
+  /// staff member's other files.
+  staffDocumentId String?
+
+  /// Set when a newer submission replaced this one. Never deleted.
+  supersededAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  club       Club       @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  contractor Contractor @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+  currentFor Contractor? @relation("ContractorCurrentW9")
+
+  @@index([clubId, contractorId])
+  @@index([contractorId, signedAt])
+  @@map("contractor_w9_submissions")
+}
+
 model ContractorPayment {
   id           String   @id @default(cuid())
   clubId       String

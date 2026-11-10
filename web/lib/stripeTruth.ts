@@ -128,6 +128,55 @@ export async function moneyFactsForInvoice(
  * created through this helper may carry paymentSource STRIPE +
  * reconciliationStatus VERIFIED.
  */
+/**
+ * The fee movement on a REFUND, in dollars, positive when the club got fee
+ * money back. Null when Stripe reports none, which is the common case.
+ *
+ * Phase 12 built the posting path for this (planRefund puts the movement
+ * against 6400 Payment Processing Fees) and documented that nothing filled the
+ * figure. This fills it.
+ *
+ * ── SIGN ────────────────────────────────────────────────────────────────────
+ * A balance transaction's `fee` is what Stripe took, i.e. an expense. On a
+ * refund balance transaction a NEGATIVE `fee` means fee money came back. So
+ * the club's gain is `-fee`, and that is what this returns: positive = the
+ * club is better off, which is what `Transaction.refundFeeAmount` means.
+ *
+ * Sums every refund on the charge, because a partially refunded charge can be
+ * refunded again and each refund carries its own balance transaction.
+ *
+ * NEVER THROWS. A refund must still be recorded if this lookup fails; the
+ * figure is an improvement to the entry, not a precondition for it.
+ */
+export async function refundFeeFactsForCharge(
+  chargeId: string | null | undefined,
+  stripeAccount?: string | null,
+): Promise<{ refundFeeAmount: number | null; refundCount: number }> {
+  if (!chargeId) return { refundFeeAmount: null, refundCount: 0 };
+  try {
+    const refunds = await stripe.refunds.list(
+      { charge: chargeId, limit: 100, expand: ["data.balance_transaction"] },
+      stripeAccount ? { stripeAccount } : undefined,
+    );
+    let feeCents = 0;
+    let seen = 0;
+    for (const r of refunds.data) {
+      const raw = (r as unknown as { balance_transaction?: unknown }).balance_transaction;
+      const bt = raw && typeof raw === "object" ? (raw as Stripe.BalanceTransaction) : null;
+      if (!bt) continue;
+      seen += 1;
+      feeCents += -bt.fee;
+    }
+    // Zero is reported as null: "Stripe returned no fee" and "the fee movement
+    // was exactly nothing" are the same thing here, and a zero would make the
+    // ledger write a pointless zero-value line.
+    return { refundFeeAmount: feeCents === 0 ? null : feeCents / 100, refundCount: seen };
+  } catch (err) {
+    console.error("stripeTruth: refundFeeFactsForCharge failed", chargeId, err);
+    return { refundFeeAmount: null, refundCount: 0 };
+  }
+}
+
 export function verifiedStripeTxFields(money: StripeMoneyFacts | null) {
   return {
     paymentSource: "STRIPE" as const,

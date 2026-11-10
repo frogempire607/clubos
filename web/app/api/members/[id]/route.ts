@@ -284,7 +284,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   try {
     const [clubDocs, sigs] = await Promise.all([
       prisma.document.findMany({
-        where: { clubId: session.user.clubId, deletedAt: null },
+        where: { audience: "MEMBER", clubId: session.user.clubId, deletedAt: null },
         orderBy: [{ required: "desc" }, { title: "asc" }],
         select: {
           id: true, title: true, type: true, requiredAt: true,

@@ -30,7 +30,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const [attached, available, links] = await Promise.all([
     documentsForEvent(clubId, event.id),
     prisma.document.findMany({
-      where: { clubId, deletedAt: null },
+      where: { audience: "MEMBER", clubId, deletedAt: null },
       select: { id: true, title: true, type: true, eventRequirement: true, appliesToAllEvents: true },
       orderBy: { title: "asc" },
     }),
@@ -67,7 +67,7 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
 
   // Only this club's live documents can be linked.
   const docs = await prisma.document.findMany({
-    where: { id: { in: parsed.data.documentIds }, clubId, deletedAt: null },
+    where: { audience: "MEMBER", id: { in: parsed.data.documentIds }, clubId, deletedAt: null },
     select: { id: true },
   });
   const validIds = docs.map((d) => d.id);

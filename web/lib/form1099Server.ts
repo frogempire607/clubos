@@ -37,6 +37,8 @@ const ymd = (d: Date): string => d.toISOString().slice(0, 10);
 export async function loadForm1099Payments(clubId: string, year: number): Promise<{
   payments: Form1099Payment[];
   contractors: ContractorFacts[];
+  /// Staff classified EMPLOYEE whose payments were left out entirely.
+  excludedEmployeeCount: number;
 }> {
   const from = new Date(`${year}-01-01T00:00:00.000Z`);
   const to = new Date(`${year}-12-31T23:59:59.999Z`);
@@ -44,7 +46,39 @@ export async function loadForm1099Payments(clubId: string, year: number): Promis
   const [contractorRows, paymentRows, payoutRows] = await Promise.all([
     prisma.contractor.findMany({
       where: { clubId, deletedAt: null },
-      select: { id: true, name: true, email: true, w9Url: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        w9Url: true,
+        // Phase 12.1: a contractor linked to a staff account classified
+        // EMPLOYEE is excluded from 1099 reporting entirely — their pay
+        // belongs on a W-2.
+        convertedUserId: true,
+        w9Status: true,
+        w9CurrentSubmissionId: true,
+        taxIdLast4: true,
+        streetAddress: true,
+        city: true,
+        state: true,
+        zipCode: true,
+        // The W-9 is the authority for the name and address that go on the
+        // form. The contractor's own `name` is a convenience label a club may
+        // have typed as "Ref - Dana"; the W-9's legalName is what they
+        // certified.
+        w9Current: {
+          select: {
+            legalName: true,
+            businessName: true,
+            taxClassification: true,
+            streetAddress: true,
+            city: true,
+            state: true,
+            zipCode: true,
+            signedAt: true,
+          },
+        },
+      },
       orderBy: { name: "asc" },
     }),
     prisma.contractorPayment.findMany({
@@ -86,7 +120,29 @@ export async function loadForm1099Payments(clubId: string, year: number): Promis
     }),
   ]);
 
-  const nameById = new Map(contractorRows.map((c) => [c.id, c.name]));
+  // Staff members classified as EMPLOYEE are excluded: their pay is payroll,
+  // and putting it on a 1099 as well would report the same money twice under
+  // the wrong form.
+  const linkedUserIds = contractorRows
+    .map((c) => c.convertedUserId)
+    .filter((v): v is string => !!v);
+  const employeeUserIds = new Set(
+    linkedUserIds.length
+      ? (
+          await prisma.staffProfile.findMany({
+            where: { userId: { in: linkedUserIds }, workerType: "EMPLOYEE", user: { clubId } },
+            select: { userId: true },
+          })
+        ).map((p) => p.userId)
+      : [],
+  );
+  const employeeContractorIds = new Set(
+    contractorRows
+      .filter((c) => c.convertedUserId && employeeUserIds.has(c.convertedUserId))
+      .map((c) => c.id),
+  );
+
+  const nameById = new Map(contractorRows.map((c) => [c.id, c.w9Current?.legalName ?? c.name]));
 
   const payments: Form1099Payment[] = [
     ...paymentRows.map((r) => ({
@@ -116,23 +172,49 @@ export async function loadForm1099Payments(clubId: string, year: number): Promis
   ];
 
   return {
-    payments,
-    contractors: contractorRows.map((c) => ({
-      id: c.id,
-      name: c.name,
-      email: c.email,
-      hasW9: !!c.w9Url,
-    })),
+    // Employees' payments never enter the report.
+    payments: payments.filter((p) => !employeeContractorIds.has(p.contractorId)),
+    contractors: contractorRows
+      .filter((c) => !employeeContractorIds.has(c.id))
+      .map((c) => ({
+        id: c.id,
+        // The name from the W-9 when there is one: that is the name on their
+        // income tax return, which is the name that belongs on a 1099.
+        name: c.w9Current?.legalName ?? c.name,
+        email: c.email,
+        // A W-9 IN THE APP counts, and so does an uploaded paper one
+        // (`w9Url`), because a club that collected paper before this existed
+        // has what it needs.
+        hasW9: !!c.w9CurrentSubmissionId || !!c.w9Url,
+        /// Set when the W-9 was completed in the app, so the report can tell
+        /// "we hold the data" from "somebody uploaded a PDF".
+        w9InApp: !!c.w9CurrentSubmissionId,
+        taxIdLast4: c.taxIdLast4,
+        businessName: c.w9Current?.businessName ?? null,
+        taxClassification: c.w9Current?.taxClassification ?? null,
+        address: addressLine(c.w9Current ?? c),
+      })),
+    excludedEmployeeCount: employeeContractorIds.size,
   };
 }
 
+/// One-line address, from the W-9 when there is one and the contractor record
+/// otherwise. Returns null when there is no address at all — a 1099-NEC needs
+/// one, and the report says so rather than printing a half address.
+function addressLine(
+  a: { streetAddress: string | null; city: string | null; state: string | null; zipCode: string | null },
+): string | null {
+  if (!a.streetAddress || !a.city || !a.state || !a.zipCode) return null;
+  return `${a.streetAddress}, ${a.city}, ${a.state} ${a.zipCode}`;
+}
+
 export async function form1099Report(clubId: string, year: number): Promise<Form1099Report> {
-  const [{ payments, contractors }, club] = await Promise.all([
+  const [{ payments, contractors, excludedEmployeeCount }, club] = await Promise.all([
     loadForm1099Payments(clubId, year),
     prisma.club.findUnique({ where: { id: clubId }, select: { form1099Thresholds: true } }),
   ]);
   const overrides = normaliseThresholds(club?.form1099Thresholds);
-  return buildForm1099Report(year, payments, contractors, overrides);
+  return buildForm1099Report(year, payments, contractors, overrides, { excludedEmployeeCount });
 }
 
 /// `Club.form1099Thresholds` is a JSON blob, so it has to be validated on the

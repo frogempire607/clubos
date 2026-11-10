@@ -282,6 +282,70 @@ export async function sendGuardianConsentRequestEmail({
   });
 }
 
+/**
+ * Phase 12.1 — "there's a document waiting for your signature."
+ *
+ * One email per person, naming the documents they owe. The document's CONTENT
+ * is deliberately not in the email, only its title: a handbook or a
+ * non-compete is read in the app, where the signature is recorded.
+ */
+export async function sendStaffDocumentReminderEmail({
+  to,
+  firstName,
+  clubName,
+  documents,
+  signInUrl,
+  fromName,
+  replyTo,
+}: {
+  to: string;
+  firstName: string;
+  clubName: string;
+  documents: { title: string; dueDate: string | null }[];
+  signInUrl: string;
+  fromName?: string | null;
+  replyTo?: string | null;
+}) {
+  const plural = documents.length === 1 ? "a document" : documents.length + " documents";
+  const list = documents
+    .map(
+      (d) =>
+        '<li style="color:#57534e;line-height:1.6">' +
+        escapeHtml(d.title) +
+        (d.dueDate
+          ? ' <span style="color:#a8a29e">\u2014 due ' +
+            new Date(d.dueDate + "T00:00:00Z").toLocaleDateString("en-US", {
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+              timeZone: "UTC",
+            }) +
+            "</span>"
+          : "") +
+        "</li>",
+    )
+    .join("");
+  await sendEmail({
+    to,
+    subject: plural.charAt(0).toUpperCase() + plural.slice(1) + " to sign at " + clubName,
+    html: baseLayout(
+      '<h2 style="color:#1c1917;margin:0 0 8px">Hi ' + escapeHtml(firstName) + ',</h2>' +
+      '<p style="color:#57534e;line-height:1.6;margin:0 0 12px">' +
+      escapeHtml(clubName) + " has " + plural + " waiting for your signature." +
+      "</p>" +
+      '<ul style="margin:0 0 16px;padding-left:20px">' + list + "</ul>" +
+      '<p style="margin:0 0 20px">' +
+      '<a href="' + signInUrl + '" style="background:#1F1F23;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;display:inline-block">Review and sign</a>' +
+      "</p>" +
+      '<p style="color:#a8a29e;font-size:12px;line-height:1.6;margin:0">' +
+      "You can read each one in full before signing. If you think you have received this by mistake, reply and ask." +
+      "</p>",
+    ),
+    fromName,
+    replyTo,
+  });
+}
+
 export async function sendStaffInviteEmail({
   to,
   firstName,

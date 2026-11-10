@@ -950,9 +950,20 @@ console.log("\n[12] Phase 3 changes to posting");
       /glDeposit\.findMany/.test(server),
       "12.47 and the server resolves the deposit's bank account in ONE batched lookup",
     );
+    // Phase 12.1 removed the limitation by filling the column, so the
+    // assertion flips: the path must now be WIRED, and the comment must not
+    // still claim nothing fills it.
     ok(
-      /DOCUMENTED LIMITATION/.test(posting),
-      "12.48 the refund-fee limitation is stated in the source, not just the commit",
+      !/NOTHING POPULATES THIS TODAY|DOCUMENTED LIMITATION/.test(posting),
+      "12.48 the refund-fee limitation note is gone, because Phase 12.1 filled the column",
+    );
+    ok(
+      /refundFeeDeltaCents: t\.refundFeeAmount === null \? null : cents\(t\.refundFeeAmount\)/.test(server),
+      "12.48b and the sweep passes Transaction.refundFeeAmount through to the plan",
+    );
+    ok(
+      /refundFeeAmount: true/.test(server),
+      "12.48c having selected the column, so it is not silently undefined",
     );
     ok(
       /if \(!dryRun\) await flagBankDuplicates/.test(server),

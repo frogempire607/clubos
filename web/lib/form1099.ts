@@ -144,10 +144,16 @@ export type Form1099Row = {
   unknownMethodCount: number;
   overThreshold: boolean;
   payments: Form1099Payment[];
-  /// True when the contractor has no W-9 on file. A 1099 needs the payee's TIN
-  /// and address, which come off the W-9 — and AthletixOS stores neither, so
-  /// the W-9 is where they have to come from.
+  /// True when the contractor has no W-9 on file at all.
   missingW9: boolean;
+  /// True when the W-9 was completed in the app, so its name, address and
+  /// masked tax ID are available here.
+  w9InApp: boolean;
+  businessName: string | null;
+  taxClassification: string | null;
+  /// Null when no usable address is on file. A 1099-NEC needs one.
+  address: string | null;
+  taxIdLast4: string | null;
 };
 
 export type Form1099Report = {
@@ -165,6 +171,11 @@ export type Form1099Report = {
   /// Set when nothing records how a payment was made, so "exclude card
   /// payments" could not be applied to it.
   unknownMethodTotalCents: number;
+  /// Reportable payees with no usable address. A 1099-NEC needs one, so this
+  /// is work the club has to do before filing.
+  missingAddressCount: number;
+  /// Staff classified as employees whose payments were left out entirely.
+  excludedEmployeeCount: number;
 };
 
 const MATCH_DAYS = 3;
@@ -209,7 +220,17 @@ export type ContractorFacts = {
   id: string;
   name: string;
   email: string | null;
+  /// A W-9 on file at all — completed in the app, or an uploaded paper copy.
   hasW9: boolean;
+  /// Completed IN THE APP, so the report can distinguish "we hold the data a
+  /// 1099 needs" from "somebody uploaded a PDF we can't read".
+  w9InApp?: boolean;
+  /// From the W-9 when there is one. Null address means a 1099-NEC cannot be
+  /// filled in yet, which the report says rather than printing half of one.
+  businessName?: string | null;
+  taxClassification?: string | null;
+  address?: string | null;
+  taxIdLast4?: string | null;
 };
 
 /// Build the year's report.
@@ -222,6 +243,7 @@ export function buildForm1099Report(
   payments: Form1099Payment[],
   contractors: ContractorFacts[],
   overrides: ThresholdOverrides,
+  opts?: { excludedEmployeeCount?: number },
 ): Form1099Report {
   const thresholdCents = thresholdCentsFor(year, overrides);
   const byId = new Map(contractors.map((c) => [c.id, c]));
@@ -262,6 +284,11 @@ export function buildForm1099Report(
       overThreshold: totalCents >= thresholdCents,
       payments: [...ps].sort((x, y) => (x.date === y.date ? x.id.localeCompare(y.id) : x.date < y.date ? -1 : 1)),
       missingW9: !c?.hasW9,
+      w9InApp: !!c?.w9InApp,
+      businessName: c?.businessName ?? null,
+      taxClassification: c?.taxClassification ?? null,
+      address: c?.address ?? null,
+      taxIdLast4: c?.taxIdLast4 ?? null,
     });
   }
 
@@ -286,6 +313,8 @@ export function buildForm1099Report(
     excludedTotalCents: excluded.reduce((s, p) => s + p.amountCents, 0),
     suspectedDuplicates: findSuspectedDuplicates(reportable),
     unknownMethodTotalCents: rows.reduce((s, r) => s + r.unknownMethodCents, 0),
+    missingAddressCount: over.filter((r) => !r.address).length,
+    excludedEmployeeCount: opts?.excludedEmployeeCount ?? 0,
   };
 }
 
@@ -302,6 +331,13 @@ export function buildForm1099Report(
 /// method was never recorded.
 export const FORM_1099_CSV_HEADERS = [
   "Payee",
+  "Business name",
+  "Tax classification",
+  "Address",
+  // The MASK, from the stored plaintext last four. Never the number: this file
+  // gets emailed, and a tax ID in a spreadsheet in an inbox is the thing the
+  // encryption exists to prevent.
+  "Tax ID (last 4)",
   "Email",
   "Total paid",
   "Payments",
@@ -315,12 +351,16 @@ export function form1099CsvRows(report: Form1099Report, opts?: { includeBelow?: 
   const rows = opts?.includeBelow ? report.rows : report.rows.filter((r) => r.overThreshold);
   return rows.map((r) => [
     r.contractorName,
+    r.businessName ?? "",
+    r.taxClassification ?? "",
+    r.address ?? "",
+    r.taxIdLast4 ? `xxx-xx-${r.taxIdLast4}` : "",
     r.email ?? "",
     r.totalCents / 100,
     r.paymentCount,
     r.unknownMethodCount,
     r.unknownMethodCents / 100,
-    r.missingW9 ? "No" : "Yes",
+    r.missingW9 ? "No" : r.w9InApp ? "Yes (in app)" : "Yes (uploaded)",
     r.overThreshold ? "Yes" : "No",
   ]);
 }

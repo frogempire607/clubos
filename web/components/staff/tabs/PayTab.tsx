@@ -5,9 +5,11 @@
 // the shared PayPlansPanel (also Payroll → Pay plans). The pay schedule card is
 // unchanged. Staff can see their own plans and their own pay lines but never
 // change them — the server refuses, and this tab is read-only for them.
+import { CLASSIFICATION_NOTE, WORKER_TYPES, workerTypeDescription, workerTypeLabel } from "@/lib/workerType";
+import W9Card from "@/components/staff/W9Card";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Lock } from "lucide-react";
+import { ArrowRight, Loader2, Lock } from "lucide-react";
 import PayScheduleCard from "@/components/staff/pay/PayScheduleCard";
 import PayPlansPanel from "@/components/staff/pay/PayPlansPanel";
 import PrivateLessonPayCard from "@/components/staff/pay/PrivateLessonPayCard";
@@ -48,6 +50,18 @@ export default function PayTab({ data, reload, setDirty }: StaffTabProps) {
 
       <div className="grid gap-4 md:grid-cols-[1.55fr_1fr]">
         <div className="min-w-0">
+          {/* Phase 12.1 — worker type comes FIRST, because it decides whether
+              anything below is payroll or a 1099. */}
+          <WorkerTypeCard
+            staffId={staff.id}
+            first={first}
+            workerType={staff.workerType ?? null}
+            contractorId={staff.contractorId ?? null}
+            readOnly={readOnly}
+            isSelf={viewer.isSelf}
+            staffName={`${staff.firstName} ${staff.lastName}`.trim()}
+            onChanged={() => void reload()}
+          />
           <PayPlansPanel staffId={staff.id} onChanged={() => void reload()} />
           <PrivateLessonPayCard staffId={staff.id} first={first} isSelf={viewer.isSelf} />
         </div>
@@ -90,5 +104,105 @@ function PayLink({ href, title, desc }: { href: string; title: string; desc: str
       </span>
       <ArrowRight className="h-4 w-4 shrink-0 text-text-muted" aria-hidden />
     </Link>
+  );
+}
+
+// ── Worker type (Phase 12.1) ────────────────────────────────────────────────
+//
+// Employee or contractor. Deliberately UNSET by default and shown as such:
+// classification is a legal determination with tax consequences, and
+// AthletixOS must not make it for a club by defaulting everybody to one side.
+//
+// Gated on the same permission as pay (Financials & payroll: full), because
+// this is what decides whether somebody is paid through payroll or gets a
+// 1099 — that is pay, not staff administration.
+function WorkerTypeCard({
+  staffId,
+  first,
+  workerType,
+  contractorId,
+  readOnly,
+  isSelf,
+  staffName,
+  onChanged,
+}: {
+  staffId: string;
+  first: string;
+  workerType: string | null;
+  contractorId: string | null;
+  readOnly: boolean;
+  isSelf: boolean;
+  staffName: string;
+  onChanged: () => void;
+}) {
+  const [saving, setSaving] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+
+  const save = async (next: "EMPLOYEE" | "CONTRACTOR") => {
+    setSaving(next);
+    setErr("");
+    try {
+      const r = await fetch(`/api/staff/${staffId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workerType: next }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => null);
+        setErr(d?.error || "That couldn't be saved.");
+      } else onChanged();
+    } catch {
+      setErr("That couldn't be saved.");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  return (
+    <section className="mb-4 rounded-xl border border-app-border bg-surface p-4 sm:p-5">
+      <h2 className="text-[15px] font-semibold text-text-primary">Worker type</h2>
+      <p className="mt-1 text-[13px] text-text-muted">{workerTypeDescription(workerType)}</p>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {WORKER_TYPES.map((t) => {
+          const active = workerType === t;
+          return (
+            <button
+              key={t}
+              type="button"
+              disabled={readOnly || saving !== null}
+              onClick={() => save(t)}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[13px] disabled:cursor-not-allowed disabled:opacity-60 ${
+                active
+                  ? "border-charcoal bg-charcoal text-white"
+                  : "border-app-border bg-surface text-text-primary hover:bg-app-bg"
+              }`}
+            >
+              {saving === t && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
+              {workerTypeLabel(t)}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* The one-line note the brief asks for. Short on purpose: it has to be
+          read, not skimmed past, and it must not pretend to be legal advice. */}
+      <p className="mt-3 text-[12.5px] text-text-muted">{CLASSIFICATION_NOTE}</p>
+
+      {readOnly && !isSelf && (
+        <p className="mt-2 text-[12.5px] text-text-muted">
+          Only the owner and staff with Financials &amp; payroll: full can change {first}&apos;s worker type.
+        </p>
+      )}
+      {err && (
+        <p className="mt-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-[13px] text-red-800">{err}</p>
+      )}
+
+      {workerType === "CONTRACTOR" && contractorId && (
+        <div className="mt-4">
+          <W9Card mode="owner" contractorId={contractorId} staffName={staffName || first} />
+        </div>
+      )}
+    </section>
   );
 }

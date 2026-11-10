@@ -86,6 +86,12 @@ export const GATED = [
   // cents make an exact check possible and a tolerance check would hide the
   // drift these tests exist to catch.
   ["scripts/gl-reports-tests.ts"],
+  // Phase 12.1 Part 1 (2026-10-27): server-renders every Books → Reports view.
+  // Four of the five crashed in production because the statement on screen and
+  // the payload in state were separate pieces of state, so a view could be
+  // handed another report's data for one render. RENDER tests, so it needs the
+  // react-jsx tsconfig override.
+  ["scripts/gl-reports-ui-tests.ts", RENDER],
   // accounting Phase 3 (2026-10-22): depreciation schedules that total exactly
   // cost less salvage over 600+ parameter combinations, a disposal that
   // balances at every combination of proceeds and accumulated depreciation,
@@ -98,6 +104,16 @@ export const GATED = [
   // encryption, so no TIN was stored, and this fails the build if one
   // appears without it.
   ["scripts/form1099-tests.ts"],
+  // Phase 12.1 Part 2 (2026-10-27): AES-256-GCM field encryption and the
+  // W-9. §1 proves there is NO plaintext path; §6 is the build guard that a
+  // tax-id field may only exist while the encryption protecting it exists,
+  // is the only way it is written, and is read in exactly one audited place.
+  ["scripts/field-crypto-tests.ts"],
+  // Phase 12.1 Part 4 (2026-10-27): staff documents and e-signatures. §6 is
+  // the SEPARATION GUARD — Document.audience defaults to MEMBER, so a missed
+  // filter on a member-facing read is invisible until a club creates its
+  // first staff document. It enumerates every one of those reads.
+  ["scripts/staff-documents-tests.ts"],
   // accounting Phase 3 (2026-10-22): the QuickBooks opening balance and the
   // read-only history archive. §6 greps the reports and posting modules to
   // prove the archive never feeds a report, a balance or a posting — the

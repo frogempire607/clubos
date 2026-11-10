@@ -82,7 +82,7 @@ export async function GET() {
     }),
     prisma.document.findMany({
       where: {
-        clubId,
+        audience: "MEMBER", clubId,
         deletedAt: null,
         required: true,
         OR: [{ publishAt: null }, { publishAt: { lte: now } }],

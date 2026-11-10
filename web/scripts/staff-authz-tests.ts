@@ -854,7 +854,29 @@ async function main() {
     const tree = scanTree();
     check("the real tree: zero handlers admit any staff", tree.anyStaff.length === 0, JSON.stringify(tree.anyStaff));
     check("the real tree: zero session-only mutating handlers outside the approved list", tree.noRoleCheck.length === 0, JSON.stringify(tree.noRoleCheck));
-    check("the approved-inline list is exactly the one documented exception", JSON.stringify(Object.keys(APPROVED_INLINE)) === JSON.stringify(["app/api/messages/dm/[userId]/route.ts#POST"]));
+    // This pins the EXACT set on purpose, so an exemption can never be added
+    // quietly. Two entries as of Phase 12.1:
+    //   · member→staff DM, session-only by design;
+    //   · the W-9 submission, which is SELF-ONLY — stricter than any
+    //     permission level and not expressible as one, because a W-9's
+    //     certification is made under penalties of perjury and only the person
+    //     it is for may sign it.
+    check(
+      "the approved-inline list is exactly the two documented exceptions",
+      JSON.stringify(Object.keys(APPROVED_INLINE).sort()) ===
+        JSON.stringify(
+          [
+            "app/api/contractors/[id]/w9/route.ts#POST",
+            "app/api/messages/dm/[userId]/route.ts#POST",
+          ].sort(),
+        ),
+      JSON.stringify(Object.keys(APPROVED_INLINE)),
+    );
+    // Every exemption must carry a REASON, not just a key.
+    check(
+      "every approved-inline exemption explains itself",
+      Object.values(APPROVED_INLINE).every((r) => r.length > 80),
+    );
     check("the guard looked at a real number of handlers", tree.handlers > 200, String(tree.handlers));
   }
 

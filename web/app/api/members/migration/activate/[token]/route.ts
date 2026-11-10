@@ -144,7 +144,7 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
   // are returned so the page can render and require each one.
   const onboardingDocs = await prisma.document.findMany({
     where: {
-      clubId: m.clubId,
+      audience: "MEMBER", clubId: m.clubId,
       deletedAt: null,
       AND: [
         requiredDocumentSurfaceWhere("ONBOARDING"),
@@ -406,7 +406,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   );
   const requiredOnboardingDocs = await prisma.document.findMany({
     where: {
-      clubId: club.id,
+      audience: "MEMBER", clubId: club.id,
       deletedAt: null,
       AND: [
         requiredDocumentSurfaceWhere("ONBOARDING"),
@@ -1011,7 +1011,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   // acknowledged document, attributed to the signer (guardian for a minor).
   if (docIdsToSign.length > 0) {
     const validDocs = await prisma.document.findMany({
-      where: { id: { in: docIdsToSign }, clubId: club.id, deletedAt: null },
+      where: { audience: "MEMBER", id: { in: docIdsToSign }, clubId: club.id, deletedAt: null },
       select: { id: true },
     });
     const ipHeader = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip");
@@ -1044,7 +1044,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     const guardianRequiredIds = new Set(
       (
         await prisma.document.findMany({
-          where: { id: { in: validDocs.map((d) => d.id) }, requiresGuardianSignature: true },
+          where: { audience: "MEMBER", id: { in: validDocs.map((d) => d.id) }, requiresGuardianSignature: true },
           select: { id: true },
         })
       ).map((d) => d.id),

@@ -38,7 +38,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
 
   const document = await prisma.document.findFirst({
-    where: { id: params.id, clubId: session.user.clubId, deletedAt: null },
+    where: { audience: "MEMBER", id: params.id, clubId: session.user.clubId, deletedAt: null },
   });
   if (!document) return NextResponse.json({ error: "Document not found" }, { status: 404 });
 

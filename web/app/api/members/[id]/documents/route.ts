@@ -45,7 +45,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   // are not chasing a signature for a document the member cannot see.
   const docs = await prisma.document.findMany({
     where: {
-      clubId: session.user.clubId,
+      audience: "MEMBER", clubId: session.user.clubId,
       deletedAt: null,
       AND: [
         { OR: [{ publishAt: null }, { publishAt: { lte: now } }] },

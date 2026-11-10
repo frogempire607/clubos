@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FileText, List, ListOrdered, Eraser } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import StaffDocumentsPanel from "@/components/staff/StaffDocumentsPanel";
 import EmptyState from "@/components/EmptyState";
 import { SkeletonList } from "@/components/LoadingSkeleton";
 
@@ -44,6 +45,9 @@ const DOC_REQUIRED_SURFACES: { key: string; label: string; hint: string }[] = [
 ];
 
 export default function DocumentsPage() {
+  // Phase 12.1 — member documents and staff documents are both Documents;
+  // `audience` separates them, and this picks which set is on screen.
+  const [audience, setAudience] = useState<"MEMBER" | "STAFF">("MEMBER");
   const [docs, setDocs] = useState<Doc[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -72,16 +76,38 @@ export default function DocumentsPage() {
         title="Documents"
         description="Waivers, policies, handbooks, and agreements for your club."
         actions={
-          <button
-            onClick={() => setShowAdd(true)}
-            className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover w-full sm:w-auto"
-          >
-            + New document
-          </button>
+          audience === "MEMBER" ? (
+            <button
+              onClick={() => setShowAdd(true)}
+              className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover w-full sm:w-auto"
+            >
+              + New document
+            </button>
+          ) : null
         }
       />
 
-      {loading ? (
+      {/* Two audiences, one page. Member documents gate signups, purchases and
+          events; staff documents are handbooks and agreements the team signs.
+          Keeping them apart is why Document.audience exists. */}
+      <div className="mb-4 flex flex-wrap gap-1 rounded-lg bg-app-bg p-1">
+        {(["MEMBER", "STAFF"] as const).map((a) => (
+          <button
+            key={a}
+            type="button"
+            onClick={() => setAudience(a)}
+            className={`rounded-md px-3 py-1.5 text-xs ${
+              audience === a ? "bg-surface shadow-sm font-medium text-text-primary" : "text-text-muted"
+            }`}
+          >
+            {a === "MEMBER" ? "Member documents" : "Staff documents"}
+          </button>
+        ))}
+      </div>
+
+      {audience === "STAFF" ? (
+        <StaffDocumentsPanel canEdit />
+      ) : loading ? (
         <div className="bg-white rounded-xl border border-app-border">
           <SkeletonList rows={4} />
         </div>

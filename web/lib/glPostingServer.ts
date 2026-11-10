@@ -192,6 +192,9 @@ const TX_SELECT = {
   // deposit comes out of that bank account rather than out of Undeposited
   // Funds — which is what stops 1020 going negative (Phase 3 decision).
   glDepositId: true,
+  // Phase 12.1: the refund's fee movement, written by the charge.refunded
+  // webhook. Phase 12 built the posting path and had nothing to fill it.
+  refundFeeAmount: true,
   member: { select: { firstName: true, lastName: true } },
 } as const;
 
@@ -224,9 +227,12 @@ function chargeFacts(t: TxRow, depositAccounts?: Map<string, string>) {
     paymentMethod: t.paymentMethod,
     status: t.status as string,
     depositedToAccountId: t.glDepositId ? (depositAccounts?.get(t.glDepositId) ?? null) : null,
-    // Not available: see the note on planRefund. Passed explicitly rather
-    // than left undefined so the one place it would be filled is obvious.
-    refundFeeDeltaCents: null,
+    // Phase 12.1 SWITCHED THIS ON. Positive = the club got fee money back,
+    // which is the same convention Transaction.refundFeeAmount stores. NULL
+    // still means "no fee movement known", which is how every refund behaved
+    // before this column existed and how a refund Stripe reports no fee for
+    // behaves now.
+    refundFeeDeltaCents: t.refundFeeAmount === null ? null : cents(t.refundFeeAmount),
   };
 }
 

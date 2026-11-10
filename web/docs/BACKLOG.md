@@ -76,6 +76,48 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## B — Claude Code sessions (priority order; start at the top unless blocked)
 
+- [ ] **B40 · Phase 12.1 — Books→Reports fix, encrypted TINs, staff W-9 + documents. Built 2026-10-27 on `claude/athletixos-phase-12-1`; MIGRATION NOT APPLIED, nothing shipped.**
+  Plan: **`docs/accounting/plan.md`** (the Phase 12.1 section). Migration
+  `20261027000000_staff_tax_forms_documents` — additive: 3 new tables
+  (`contractor_w9_submissions`, `staff_document_assignments`,
+  `staff_document_signatures`), nullable/defaulted columns on `contractors`,
+  `transactions`, `staff_profiles` and `documents`. **Apply BEFORE deploying.**
+  ⚠️ **`FIELD_ENCRYPTION_KEY` must be set before anyone submits a W-9.** Generate with
+  `openssl rand -base64 32`, set as `FIELD_ENCRYPTION_KEY="1:<that value>"` in `.env` and
+  Netlify, and **keep a copy in a password manager — a lost key means the stored tax IDs
+  can never be read again.** The app refuses to store a TIN without it and never falls
+  back to plaintext.
+  **Part 1, the production bug**: `statement` and `data` were separate React state, so
+  clicking a statement handed the new view the previous one's payload for one render and
+  `data as Gl` asserted a shape nobody had checked. The trial balance worked because it
+  is the default. Fixed by making them one discriminated union — every cast is gone and
+  the compiler now rejects the original mistake. The empty-club state was never the cause
+  and is covered anyway.
+  **Part 2**: AES-256-GCM in `lib/fieldCrypto.ts`, version-prefixed and built for
+  rotation; one audited owner-only decrypt route (audit written BEFORE the decrypt, and a
+  failed audit refuses the read); a CHECK constraint so the database refuses plaintext
+  too; a build guard that a tax-id field may only exist encrypted. Plus
+  `Contractor.address` and `Transaction.refundFeeAmount`, which switches on the
+  refund-fee posting Phase 12 built.
+  **Part 3**: `StaffProfile.workerType`, nullable with no default because classification
+  is the club's legal determination. Self-service W-9 with a generated PDF — an owner
+  CANNOT fill it in, because Part II is certified under penalties of perjury. The 1099
+  excludes employees and prefers the W-9's legal name.
+  **Part 4**: staff documents reusing `Document` + the existing e-sign mechanic, assigned
+  to everyone / a role / named people, versioned so a reworded document is re-signed
+  while old signatures are kept, with in-app + email reminders.
+  **The one deviation from the brief, deliberately**: Part 4's signature LINK table is
+  new rather than an extension of `DocumentSignature`, whose `memberId` is a required FK
+  to Member. Relaxing it would turn it nullable across the 20 files that read it —
+  member onboarding, migration activation, event-document gating, member deletion.
+  Reason recorded in the schema, the source and a test.
+  Tests: `test:gl-reports-ui` (30), `test:field-crypto` (129), `test:staff-documents`
+  (103), plus updates to form1099 (118) and gl-posting (270). Build gate 106/106. RLS
+  harness T12: 29 assertions, 199/200 overall (the standing T0.1 count, unchanged at 20
+  tables of 123).
+  **Follow-ups**: a key-rotation re-encrypt script (`needsReencryption` already marks the
+  rows); the 20 tables still without RLS; `Club.fiscalYearStartMonth`.
+
 - [ ] **B39 · Accounting Phase 3 — reports, close, onboarding (Phase 12). Built 2026-10-22 on `claude/athletixos-accounting-phase-3`; MIGRATION NOT APPLIED, nothing shipped.**
   Plan: **`docs/accounting/plan.md`** (the Phase 3 section is now the built state, not a spec). The last of the three.
   Migration `20261022000000_gl_reports_close_onboarding` — additive only: RLS for 6 finance/reports tables that had

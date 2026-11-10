@@ -76,7 +76,7 @@ export async function GET(req: Request) {
   const now = new Date();
   const docs = await prisma.document.findMany({
     where: {
-      clubId: session.user.clubId,
+      audience: "MEMBER", clubId: session.user.clubId,
       deletedAt: null,
       AND: [
         { OR: [{ publishAt: null }, { publishAt: { lte: now } }] },

@@ -75,7 +75,7 @@ export async function GET(req: Request) {
   const now = new Date();
   const documents = await prisma.document.findMany({
     where: {
-      clubId: club.id,
+      audience: "MEMBER", clubId: club.id,
       deletedAt: null,
       AND: [
         requiredDocumentSurfaceWhere("SIGNUP"),
@@ -116,7 +116,7 @@ export async function POST(req: Request) {
 
     const signupDocs = await prisma.document.findMany({
       where: {
-        clubId: club.id,
+        audience: "MEMBER", clubId: club.id,
         deletedAt: null,
         AND: [
           requiredDocumentSurfaceWhere("SIGNUP"),
