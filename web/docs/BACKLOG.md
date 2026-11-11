@@ -8,7 +8,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## Next up
 
-**Start with `docs/HANDOFF.md`** (written 2026-09-24) — the full state: shipped, on disk, Julian's to-do, next session's order.
+**2026-11-10: the current open list is `docs/OPEN-TASKS.md` (verified against production). Start there.** Older context: **`docs/HANDOFF.md`** (written 2026-09-24) — the full state: shipped, on disk, Julian's to-do, next session's order.
 
 - **Julian, do first:** ship `claude/events-signin-and-questions` (below), then ask Titus's mom to register again from
   the link (she'll be sent to sign in, then asked weight class + division). Then the production looks from HANDOFF.md
