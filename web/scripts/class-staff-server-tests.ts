@@ -400,9 +400,13 @@ async function main() {
     eq("calling it again adds nothing", [(await S.initClassStaffFromLegacy(db, "c3", { now: NOON_TUE })).created, fake.table("classStaffRule").filter((r) => r.classId === "c3").length], [0, 1]);
 
     // The existing series reconciler hands new days to the same sync.
-    const sync = await syncFutureSessions({ ...cls("c3"), recurrenceEndDate: d("2026-11-14") } as never);
+    // syncFutureSessions works from the REAL today (it takes no clock), so the
+    // end date and the "new day" are relative to now — a fixed Nov 7 started
+    // failing the build on Nov 10, 2026 once that Saturday was in the past.
+    const before = new Set(fake.table("classSession").filter((s) => s.classId === "c3").map((s) => s.id));
+    const sync = await syncFutureSessions({ ...cls("c3"), recurrenceEndDate: new Date(Date.now() + 28 * 86_400_000) } as never);
     eq("syncFutureSessions gives the days it creates their coaches", [sync.created > 0, sync.staffSync.switchedOn, on("c3_2026-10-17")], [true, true, ["sal"]]);
-    const newDay = fake.table("classSession").find((s) => s.classId === "c3" && ymd(s.date) === "2026-11-07");
+    const newDay = fake.table("classSession").find((s) => s.classId === "c3" && !before.has(s.id));
     check("…including a day that did not exist before", !!newDay && on(newDay.id).join() === "sal");
   }
 
