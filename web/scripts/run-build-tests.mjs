@@ -173,6 +173,7 @@ export const GATED = [
   ["scripts/retry-payment-tests.ts"],
   ["scripts/team-payer-tests.ts"],
   ["scripts/route-exports-tests.ts"],
+  ["scripts/event-remove-scheduled-tests.ts"],
   ["scripts/finance-entities-tests.ts"],
   ["scripts/permission-behaviour-tests.ts"],
   ["scripts/staff-authz-tests.ts"],

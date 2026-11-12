@@ -41,9 +41,12 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
       { status: 409 },
     );
   }
-  if (reg.status === "SCHEDULED") {
+  // A SCHEDULED card charge hasn't run yet; removing cancels it (the charge
+  // runner only charges SCHEDULED rows). Once a charge has STARTED (a
+  // PaymentIntent exists) it can't be pulled back from here — refused.
+  if (reg.status === "SCHEDULED" && reg.stripePaymentIntentId) {
     return NextResponse.json(
-      { error: "This registrant's card charge is authorized for the event date. Cancel the scheduled charge before removing them." },
+      { error: "This registrant's card charge is already being processed. Wait for it to finish, then refund and remove them." },
       { status: 409 },
     );
   }
@@ -59,10 +62,18 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
   // it expires (24h from creation) or is explicitly expired against the
   // connected account. Expiring it is a live Stripe write and is deliberately
   // NOT done here — see the operator runbook.
-  await prisma.eventRegistration.updateMany({
-    where: { id: reg.id, clubId, status: { not: "CANCELED" } },
-    data: { status: "CANCELED", amountDue: null, paymentUrl: null },
+  const done = await prisma.eventRegistration.updateMany({
+    // A scheduled charge that started between the read and now (PI id
+    // written) must not be cancelled out from under it.
+    where: { id: reg.id, clubId, status: { not: "CANCELED" }, ...(reg.status === "SCHEDULED" ? { stripePaymentIntentId: null } : {}) },
+    data: { status: "CANCELED", amountDue: null, paymentUrl: null, ...(reg.status === "SCHEDULED" ? { scheduledChargeAt: null } : {}) },
   });
+  if (reg.status === "SCHEDULED" && done.count === 0) {
+    return NextResponse.json(
+      { error: "This registrant's card charge started just now. Wait for it to finish, then refund and remove them." },
+      { status: 409 },
+    );
+  }
 
   // Keep the two lists in step — the attendee roster must lose them too.
   if (reg.memberId) {

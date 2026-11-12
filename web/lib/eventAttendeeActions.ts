@@ -228,8 +228,16 @@ export function removePlan(r: AttendeeRow, detail?: { transactionId?: string | n
     if (r.status === "PAID" || r.paid > 0) {
       return { kind: "blocked", reason: `${r.name} has already paid. Refund them first, then remove them — removing never deletes money that was received.` };
     }
+    // 2026-11-12: a SCHEDULED card charge hasn't happened yet — it runs on its
+    // date. Removing cancels it (the charge only ever runs on SCHEDULED rows).
+    // The old refusal pointed at a "cancel the scheduled charge" button that
+    // never existed. The server still refuses once a charge has started.
     if (r.status === "SCHEDULED") {
-      return { kind: "blocked", reason: `${r.name}'s card charge is authorized for the event date. Cancel the scheduled charge before removing them.` };
+      return {
+        kind: "registration",
+        registrationId: r.registrationId,
+        note: `The card charge${r.scheduledAmount ? ` of $${r.scheduledAmount.toFixed(2)}` : ""} scheduled for the event is cancelled — nothing has been charged.`,
+      };
     }
     if (detail?.transactionId || r.status === "AWAITING_CASH" || r.status === "AWAITING_CHECK") {
       return { kind: "blocked", reason: `An open cash/check record exists for ${r.name}. Void it in Financials first, then remove them.` };
