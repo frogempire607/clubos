@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { MEMBERSHIP_AUTOPAY_KIND } from "@/lib/approvals";
 import { previewAutopayChange } from "@/lib/autopay";
+import { canManageMember } from "@/lib/memberContext";
 
 // GET  /api/member/subscriptions/[id]/autopay — what would happen, in words.
 // POST /api/member/subscriptions/[id]/autopay — ask the club to make it happen.
@@ -26,7 +27,7 @@ const schema = z.object({
   reason: z.string().max(500).optional().nullable(),
 });
 
-/** Self, or a linked guardian. The guardian link is the proof of access. */
+/** Self, or a CONFIRMED guardian of a member of this club. */
 async function authorize(subscriptionId: string, clubId: string, userId: string) {
   const sub = await prisma.memberSubscription.findFirst({
     where: { id: subscriptionId, member: { clubId, deletedAt: null } },
@@ -37,12 +38,12 @@ async function authorize(subscriptionId: string, clubId: string, userId: string)
     },
   });
   if (!sub) return { error: NextResponse.json({ error: "Membership not found." }, { status: 404 }) };
-  if (sub.member.userId !== userId) {
-    const link = await prisma.memberGuardianUser.findUnique({
-      where: { userId_memberId: { userId, memberId: sub.memberId } },
-      select: { userId: true },
-    });
-    if (!link) return { error: NextResponse.json({ error: "You don't manage this membership." }, { status: 403 }) };
+  // The same check as /api/member/payment-method/setup (resolveFamilyContext):
+  // self, or a guardian whose link is CONFIRMED and scoped to this club. This
+  // used to look the link up bare, which also accepted a guardian request the
+  // club had not approved yet (2026-11 security follow-up).
+  if (!(await canManageMember(userId, clubId, sub.memberId))) {
+    return { error: NextResponse.json({ error: "You don't manage this membership." }, { status: 403 }) };
   }
   return { sub };
 }

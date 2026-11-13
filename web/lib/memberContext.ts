@@ -112,3 +112,21 @@ export async function resolveFamilyContext(
     bookerIsGuardian: contextKind === "child",
   };
 }
+
+/**
+ * May this portal user act on this member? The ONE yes/no form of
+ * resolveFamilyContext, for routes that start from a record (a subscription)
+ * rather than from a chosen profile.
+ *
+ * True for the member's own login, or a guardian whose link is CONFIRMED and
+ * whose child is a live member of THIS club. A bare
+ * `memberGuardianUser.findUnique({ userId, memberId })` is NOT this check: it
+ * also accepts a link that is still waiting for the club's approval, and it
+ * never looks at the club.
+ */
+export async function canManageMember(userId: string, clubId: string, memberId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  if (!user) return false;
+  const resolved = await resolveFamilyContext(userId, clubId, user.email, memberId);
+  return resolved !== "FORBIDDEN" && resolved.context?.id === memberId;
+}

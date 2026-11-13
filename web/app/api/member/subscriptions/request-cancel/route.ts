@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { MEMBERSHIP_CANCEL_KIND } from "@/lib/approvals";
+import { canManageMember } from "@/lib/memberContext";
 
 // POST /api/member/subscriptions/request-cancel
 //
@@ -48,16 +49,9 @@ export async function POST(req: Request) {
 
   // Authorization: requester must be the member themselves OR a linked guardian
   // of that member. A guardian link is the platform-wide proof of access.
-  const isSelf = sub.member.userId === session.user.id;
-  let isGuardian = false;
-  if (!isSelf) {
-    const link = await prisma.memberGuardianUser.findUnique({
-      where: { userId_memberId: { userId: session.user.id, memberId: sub.memberId } },
-      select: { userId: true },
-    });
-    isGuardian = !!link;
-  }
-  if (!isSelf && !isGuardian) {
+  // Same check as the rest of the portal (lib/memberContext.canManageMember):
+  // a guardian link only counts once the club has CONFIRMED it.
+  if (!(await canManageMember(session.user.id, session.user.clubId, sub.memberId))) {
     return NextResponse.json({ error: "You don't manage this membership." }, { status: 403 });
   }
 
