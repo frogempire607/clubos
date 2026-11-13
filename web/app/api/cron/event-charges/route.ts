@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { runDueEventCharges } from "@/lib/eventAutoCharge";
+import { closeStaleCheckouts } from "@/lib/staleCheckoutsServer";
 
 /** Constant-time compare so the secret can't be probed a byte at a time. */
 function secretMatches(provided: string | null, expected: string): boolean {
@@ -51,7 +52,17 @@ async function handle(req: Request) {
     acc[r.outcome] = (acc[r.outcome] ?? 0) + 1;
     return acc;
   }, {});
-  return NextResponse.json({ ok: true, due, tally, results });
+  // Housekeeping that rides the same hourly tick: close membership checkouts
+  // that were started and never finished (lib/staleCheckouts). It moves no
+  // money, and a failure here must never fail the charge run above.
+  let staleCheckouts: Awaited<ReturnType<typeof closeStaleCheckouts>> | { error: string };
+  try {
+    staleCheckouts = await closeStaleCheckouts({ limit: 25 });
+  } catch (e) {
+    console.error("[cron] stale checkout sweep failed", e);
+    staleCheckouts = { error: String(e) };
+  }
+  return NextResponse.json({ ok: true, due, tally, results, staleCheckouts });
 }
 
 export async function POST(req: Request) {

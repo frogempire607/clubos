@@ -18,6 +18,8 @@ import {
   receiptDiscountLine,
 } from "@/lib/email";
 import type Stripe from "stripe";
+import { settledOutsideStripe } from "@/lib/invoiceOutOfBand";
+import { closeOfflineRequestsPaidByCard } from "@/lib/offlineSupersedeServer";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
 import { resolveEventPolicy, eventScheduledChargeAt } from "@/lib/eventPayments";
@@ -322,6 +324,14 @@ export async function POST(req: Request) {
                 data: { stripeCustomerId: session.customer as string },
               });
             }
+
+            // The family paid by card — close any cash/check request still
+            // waiting for this same plan, so nobody later collects cash for
+            // a membership the card already covers. Never throws.
+            await closeOfflineRequestsPaidByCard({
+              clubId: memberSub.member.clubId, memberId: memberSub.memberId, membershipId: memberSub.membershipId,
+              paidSubscriptionId: memberSub.id, checkoutSessionId: session.id,
+            });
 
             // Activation. For a priced card subscription this only promotes
             // once invoice.paid has recorded the first payment — and
@@ -1125,6 +1135,26 @@ export async function POST(req: Request) {
         const invoice = event.data.object as Stripe.Invoice;
         const subscriptionId = invoiceSubscriptionId(invoice);
         if (!subscriptionId) break;
+        // Marked paid OUTSIDE Stripe ("They paid another way" on a past-due
+        // month): no card was charged, and the cash is already in the ledger
+        // as a CASH/CHECK row. Writing a Transaction here would count the
+        // money twice AND call it verified card revenue. Only bring the
+        // membership's dates and status back in step, then stop.
+        if (await settledOutsideStripe(invoice)) {
+          const oobSub = await prisma.memberSubscription.findFirst({
+            where: { stripeSubscriptionId: subscriptionId },
+            select: { id: true, memberId: true, status: true, canceledAt: true, member: { select: { clubId: true } } },
+          });
+          if (oobSub && oobSub.status !== "canceled" && oobSub.status !== "expired" && !oobSub.canceledAt) {
+            const periodEnd = invoicePeriodEnd(invoice);
+            await prisma.memberSubscription.update({
+              where: { id: oobSub.id },
+              data: { status: "active", stripeStatus: "active", ...(periodEnd ? { currentPeriodEnd: periodEnd, paidThroughDate: periodEnd } : {}) },
+            });
+            await recomputeMemberStatus(oobSub.memberId, oobSub.member.clubId);
+          }
+          break;
+        }
         // $0 invoices (trial starts) don't belong in the money ledger.
         if (!invoice.amount_paid || invoice.amount_paid <= 0) break;
 
