@@ -367,7 +367,7 @@ async function main() {
     section("2. The plan in words, conflicts as warnings");
     o = await call(PREVIEW, "POST", "mgr", { params: { id: "c1" }, body: tuesdays });
     check("preview → 200", is(o, 200), why(o));
-    eq("…in words", o.body?.plan?.text, "Tuesdays from Oct 20: adrian Test replaces sal Test. sal Test stays on Mondays and Thursdays. Class days already edited by hand keep their own coaches.");
+    eq("…in words", o.body?.plan?.text, "Tuesdays from Oct 20: adrian Test replaces sal Test as Coach. sal Test stays on Mondays and Thursdays. Class days already edited by hand keep their own coaches.");
     eq("…who comes on / goes off", [o.body?.added?.map((x: { userId: string }) => x.userId), o.body?.removed?.map((x: { userId: string }) => x.userId), o.body?.needsAcknowledge], [["adrian"], ["sal"], false]);
     check("…and it wrote NOTHING", fake.writes().length === 0, JSON.stringify(fake.writes().map((w) => `${w.model}.${w.method}`)));
     // The preview refuses what the save refuses: someone who is not current staff of this club.
@@ -380,10 +380,10 @@ async function main() {
     check("POST staffing (this weekday going forward) → 200", is(o, 200) && o.body.changed === true, why(o));
     eq("Tue Oct 20 + 27 are Julian and Adrian; Mon/Thu keep Sal", [on("c1_2026-10-20"), on("c1_2026-10-27"), on("c1_2026-10-26"), on(THU22)], [["adrian", "julian"], ["adrian", "julian"], ["julian", "sal"], ["julian", "sal"]]);
     eq("today's class (before the change date) is untouched", on(TUE), ["julian", "sal"]);
-    eq("the coach put on and the coach taken off are told in-app", [msgsTo("adrian"), msgsTo("sal")], [["mgr Test put you on Evening Group on Tuesdays from Oct 20."], ["mgr Test took you off Evening Group on Tuesdays from Oct 20."]]);
+    eq("the coach put on and the coach taken off are told in-app", [msgsTo("adrian"), msgsTo("sal")], [["mgr Test put you on Evening Group on Tuesdays from Oct 20."], ["mgr Test took you off Evening Group on Tuesdays from Oct 20 (still on Mondays and Thursdays)."]]);
     check("…and nobody else", fake.table("message").length === 2);
     eq("…with a Recent-activity line each", fake.table("staffActivity").filter((a) => a.kind === "ASSIGNMENT").map((a) => [a.staffUserId, a.summary, a.actorUserId]),
-      [["adrian", "Put on Evening Group on Tuesdays from Oct 20", "mgr"], ["sal", "Taken off Evening Group on Tuesdays from Oct 20", "mgr"]]);
+      [["adrian", "Put on Evening Group on Tuesdays from Oct 20", "mgr"], ["sal", "Taken off Evening Group on Tuesdays from Oct 20 (still on Mondays and Thursdays)", "mgr"]]);
     check("the answer carries the refreshed sheet", o.body.staffing?.day?.date === "2026-10-20" && o.body.staffing.day.rows.length === 2, JSON.stringify(o.body.staffing?.day));
     eq("RecurringClass.assignedStaffIds is FROZEN", JSON.stringify(fake.table("recurringClass").map((c) => [c.id, c.assignedStaffIds])), frozen);
 
@@ -394,7 +394,7 @@ async function main() {
     eq("…naming the clash", [o.body?.summary, o.body?.conflicts?.[0]?.userId, o.body?.hasOverlap], [["mia Test: Overlaps Morning Group on Wed, Oct 21, 9:00–10:00 AM"], "mia", true]);
     check("…and nothing was written", fake.writes().length === 0 && !on("c3_2026-10-21").includes("mia"));
     o = await call(PREVIEW, "POST", "mgr", { params: { id: "c3" }, body: clash });
-    check("the preview shows the same warning", is(o, 200) && o.body.needsAcknowledge === true && o.body.summary.length === 1 && o.body.plan.text === "Wed Oct 21 only: mia Test is added. The recurring schedule is not changed.", why(o));
+    check("the preview shows the same warning", is(o, 200) && o.body.needsAcknowledge === true && o.body.summary.length === 1 && o.body.plan.text === "Wed Oct 21 only: mia Test is added as Assistant Coach. The recurring schedule is not changed.", why(o));
     o = await call(STAFFING, "POST", "mgr", { params: { id: "c3" }, body: { ...clash, acknowledgeConflicts: true } });
     check("…acknowledged → 200, with the role", is(o, 200) && JSON.stringify(on("c3_2026-10-21")) === JSON.stringify(["julian", "mia", "owner"]) && rowOf("c3_2026-10-21", "mia")?.roleName === "Assistant Coach", why(o));
     o = await call(CONFLICTS, "POST", "mgr", { body: { userId: "mia", classId: "c3", fromDate: "2026-10-14" } });
@@ -742,8 +742,8 @@ async function main() {
     const nameOf = (id: string) => id[0].toUpperCase() + id.slice(1);
     const words = (scope: "OCCURRENCE" | "WEEKDAY_FORWARD" | "ALL_FUTURE", desired: { userId: string; roleName?: string | null }[]) =>
       pure.describeScopeChange({ scope, classDays: [1, 2, 4], date: "2026-10-20", currentRules: [rule("r1", "sal"), rule("r2", "julian")], currentDayStaff: [], desired, nameOf }).text;
-    eq("weekday: replace", words("WEEKDAY_FORWARD", [{ userId: "julian" }, { userId: "adrian" }]), "Tuesdays from Oct 20: Adrian replaces Sal. Sal stays on Mondays and Thursdays. Class days already edited by hand keep their own coaches.");
-    eq("all future: add with a role", words("ALL_FUTURE", [{ userId: "sal" }, { userId: "julian" }, { userId: "mia", roleName: "Volunteer" }]), "Every class day from Oct 20: Mia is added. Class days already edited by hand keep their own coaches.");
+    eq("weekday: replace", words("WEEKDAY_FORWARD", [{ userId: "julian" }, { userId: "adrian" }]), "Tuesdays from Oct 20: Adrian replaces Sal as Coach. Sal stays on Mondays and Thursdays. Class days already edited by hand keep their own coaches.");
+    eq("all future: add with a role", words("ALL_FUTURE", [{ userId: "sal" }, { userId: "julian" }, { userId: "mia", roleName: "Volunteer" }]), "Every class day from Oct 20: Mia is added as Volunteer. Class days already edited by hand keep their own coaches.");
     eq("all future: a role change", words("ALL_FUTURE", [{ userId: "sal", roleName: "Lead Coach" }, { userId: "julian" }]), "Every class day from Oct 20: Sal becomes Lead Coach. Class days already edited by hand keep their own coaches.");
     eq("nothing to do", words("WEEKDAY_FORWARD", [{ userId: "sal" }, { userId: "julian" }]), "Tuesdays from Oct 20: no change.");
     // A change already planned for LATER is cut by an edit dated EARLIER ("from that day on, exactly these
@@ -759,7 +759,7 @@ async function main() {
       "Tuesdays from Oct 13: Adrian, who was due to start Oct 20, will not be added. Sal, who was due to come off Oct 20, stays on. Class days already edited by hand keep their own coaches.");
     check("…it is reported as a change, with the planned rule in the ops", untouched.changed === true && untouched.ruleOps.some((op) => op.op === "delete" && op.ruleId === "p4"));
     eq("…and when someone is added as well, both are said", early("WEEKDAY_FORWARD", [{ userId: "sal" }, { userId: "julian" }, { userId: "mia" }]).text,
-      "Tuesdays from Oct 13: Mia is added. Adrian, who was due to start Oct 20, will not be added. Sal, who was due to come off Oct 20, stays on. Class days already edited by hand keep their own coaches.");
+      "Tuesdays from Oct 13: Mia is added as Coach. Adrian, who was due to start Oct 20, will not be added. Sal, who was due to come off Oct 20, stays on. Class days already edited by hand keep their own coaches.");
     eq("a true tidy-up (same coaches every day, fewer rules) still reads as one",
       pure.describeScopeChange({ scope: "ALL_FUTURE", classDays: [1, 2, 4], date: "2026-10-20", currentRules: [rule("t1", "sal", { dayOfWeek: 1 }), rule("t2", "sal", { dayOfWeek: 2 }), rule("t3", "sal", { dayOfWeek: 4 })], currentDayStaff: [], desired: [{ userId: "sal" }], nameOf }).text,
       "Every class day from Oct 20: The recurring schedule is tidied; the coaches on each day stay the same. Class days already edited by hand keep their own coaches.");

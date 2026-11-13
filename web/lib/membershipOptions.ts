@@ -666,3 +666,21 @@ export function optionFacts(option: MembershipOption, plan: PlanDefaults = {}): 
   }
   return facts;
 }
+
+/**
+ * A minimum term may never outlive the membership it belongs to.
+ *
+ * §8.8.1: the floor is "you can't leave before this date" — on a row that ENDS
+ * before that date it is a promise nobody can keep, and every screen that reads
+ * it (commitment line, cancel requests, auto-renew) then shows a commitment
+ * running past the end. Colton Waite: 3 contract months from Sep 23 = Dec 23,
+ * on a row that ends Dec 10.
+ *
+ * Every path that writes BOTH dates goes through here. No end date ⇒ the term
+ * stands as it is; no term ⇒ null.
+ */
+export function capTermAtEnd(term: Date | null | undefined, end: Date | null | undefined): Date | null {
+  if (!term) return null;
+  if (!end) return term;
+  return term.getTime() > end.getTime() ? end : term;
+}

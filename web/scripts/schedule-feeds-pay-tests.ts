@@ -507,7 +507,8 @@ async function main() {
     check("private lessons link to the existing lesson screen (nothing copied)", page.includes("/dashboard/privates?booking=") && tab.includes("/dashboard/privates?booking="));
     const member = read("app/api/member/schedule/route.ts");
     check("a cancelled class day stays on the member schedule, not bookable", !/canceled:\s*false,\s*\n\s*endsAt/.test(member) && member.includes('statusText: isCanceled ? "Canceled"') && member.includes("canBook: !isCanceled"));
-    check("…and its reason shows only when families were told", member.includes('cancelNotifyAudience !== "NONE"'));
+    // The rule moved to lib/memberClassCancel.ts (shared with the bookings list) — the route must use it.
+    check("…and its reason shows only when families were told", member.includes("sharedCancelReason(sessionItem)") && read("lib/memberClassCancel.ts").includes('s.cancelNotifyAudience === "NONE"'));
     const comp = { baseType: "PER_CLASS", baseAmount: 25, assignments: [], bonuses: [
       { id: "b1", bonusType: "ATTENDANCE", amount: 4, minThreshold: null, maxThreshold: null, countPer: "CLASS_DAY", assignments: [] },
       { id: "b2", bonusType: "SIGNUP", amount: 5, minThreshold: 8, maxThreshold: 30, countPer: "PERIOD", assignments: [] },

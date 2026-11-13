@@ -4,6 +4,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { canManageMember } from "@/lib/memberContext";
 import { prisma } from "@/lib/prisma";
 import { MEMBERSHIP_CHANGE_KIND } from "@/lib/approvals";
 import { parseOptions } from "@/lib/membershipOptions";
@@ -55,12 +56,9 @@ export async function POST(req: Request) {
     select: { id: true, userId: true, firstName: true, lastName: true },
   });
   if (!member) return NextResponse.json({ error: "Athlete not found." }, { status: 404 });
-  if (member.userId !== session.user.id) {
-    const link = await prisma.memberGuardianUser.findUnique({
-      where: { userId_memberId: { userId: session.user.id, memberId: member.id } },
-      select: { userId: true },
-    });
-    if (!link) return NextResponse.json({ error: "You don't manage this athlete." }, { status: 403 });
+  // lib/memberContext.canManageMember — a guardian link counts only once CONFIRMED.
+  if (!(await canManageMember(session.user.id, clubId, member.id))) {
+    return NextResponse.json({ error: "You don't manage this athlete." }, { status: 403 });
   }
 
   // The requested plan must be one the club is actually selling.

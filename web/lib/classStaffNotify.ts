@@ -37,10 +37,14 @@ import {
   fmtMonthDay,
   fmtStampTime,
   isSwitchedOn,
+  maxYmd,
   relativeDayLabel,
+  ruleRemovalWhen,
+  ruleRemovals,
   scheduleDayHref,
   toYmd,
   type CancelAudience,
+  type StaffRule,
 } from "@/lib/classStaff";
 import {
   cancelAudienceMembers,
@@ -381,6 +385,54 @@ export async function notifyAssignmentChange(input: {
     return { notified: a.userIds.length + r.userIds.length, addedNotified: a.userIds, removedNotified: r.userIds };
   } catch (err) {
     console.error("[classStaffNotify] assignment notice failed", err);
+    return out;
+  }
+}
+
+/**
+ * A recurring-rule change ("exactly this list", a coach list saved from the
+ * class editor, a rule ended) took coaches off FUTURE class days: tell each
+ * one, ONCE, with the days summarised — "Julian took you off Evening Group on
+ * Tuesdays from Oct 20 (still on Mondays)." — not once per class day.
+ *
+ * It is the same notice as every other assignment change
+ * (notifyAssignmentChange: in-app + a Recent-activity line, never to the
+ * person who made the change, never email). Days before today on the club's
+ * calendar are never reported: a rule that only changed the past tells nobody.
+ *
+ * Pass the class's rules as they were and as they are now
+ * (applyScopeChange / applySeriesListChange / endUserRules return both).
+ */
+export async function notifyRuleRemovals(input: {
+  clubId: string; classId: string; actorId: string; actorName?: string | null;
+  /** YYYY-MM-DD the change applies from. */
+  date: string;
+  rulesBefore: readonly StaffRule[]; rulesAfter: readonly StaffRule[];
+  now?: Date;
+}): Promise<{ notified: number; removedIds: string[]; removedNotified: string[] }> {
+  const out = { notified: 0, removedIds: [] as string[], removedNotified: [] as string[] };
+  if (input.rulesBefore.length === 0) return out;
+  try {
+    const [club, cls] = await Promise.all([
+      clubInfo(input.clubId),
+      prisma.recurringClass.findFirst({ where: { id: input.classId, clubId: input.clubId }, select: { name: true, daysOfWeek: true } }),
+    ]);
+    if (!cls) return out;
+    const from = maxYmd(input.date, clubTodayYmd(club.timezone, input.now ?? new Date()));
+    const classDays = Array.isArray(cls.daysOfWeek) ? (cls.daysOfWeek as unknown[]).map(Number) : [];
+    const removals = ruleRemovals(input.rulesBefore, input.rulesAfter, from, classDays);
+    out.removedIds = removals.map((r) => r.userId);
+    for (const r of removals) {
+      const res = await notifyAssignmentChange({
+        clubId: input.clubId, actorId: input.actorId, actorName: input.actorName,
+        className: cls.name, when: ruleRemovalWhen(r), addedIds: [], removedIds: [r.userId],
+      });
+      out.notified += res.notified;
+      out.removedNotified.push(...res.removedNotified);
+    }
+    return out;
+  } catch (err) {
+    console.error("[classStaffNotify] rule-removal notice failed", err);
     return out;
   }
 }

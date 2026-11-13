@@ -16,6 +16,7 @@ import { ensureMembershipProduct } from "@/lib/stripeCatalog";
 import { recurringUnitWithFee, feePolicyFor } from "@/lib/fees";
 import { resolveChargeablePaymentMethodId } from "@/lib/memberCard";
 import { addBillingPeriod } from "@/lib/billingAdmin";
+import { capTermAtEnd } from "@/lib/membershipOptions";
 import type { DiscountFields } from "@/lib/membershipAssignQuote";
 
 export type CardActivationInput = {
@@ -177,10 +178,7 @@ export async function createSavedCardSubscription(input: CardActivationInput): P
         // A minimum term that outlives the subscription's end is the one shape
         // §8.8.1 says a floor must never take (Colton Waite: 3 contract months
         // from Sep 23 = Dec 23, on a row that ends Dec 10). Cap it at the end.
-        minimumTermEndsAt:
-          input.minimumTermEndsAt && cancelAtUnix && input.minimumTermEndsAt.getTime() > cancelAtUnix * 1000
-            ? new Date(cancelAtUnix * 1000)
-            : input.minimumTermEndsAt,
+        minimumTermEndsAt: capTermAtEnd(input.minimumTermEndsAt, cancelAtUnix ? new Date(cancelAtUnix * 1000) : null),
         optionLabel: input.optionLabel,
         price,
         billingPeriod: period,

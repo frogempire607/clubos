@@ -11,10 +11,10 @@ import { datesEditable } from "@/lib/membershipPanel";
 import { siblingLinesForMember } from "@/lib/membershipSiblingServer";
 import { siblingOn, membershipSiblingSummary } from "@/lib/membershipSiblingDiscount";
 import { recurringUnitWithFee, feePolicyFor, passesAnyFee } from "@/lib/fees";
-import { liveStripeFacts, type LiveFacts } from "@/lib/membershipMoneyServer";
+import { liveStripeFacts, chargeMethodsFor, type LiveFacts } from "@/lib/membershipMoneyServer";
 import {
   commitmentView, howTheyPay, nextPayment, autoRenewPlan, renewsNow, paymentMethodLabel, refundable, moneyEventSentence,
-  stripeEndsAt, periodWord, fmtDate, type MoneyRow,
+  stripeEndsAt, periodWord, fmtDate, isPastDue, paymentRowMethod, type MoneyRow, type PmFacts,
 } from "@/lib/membershipMoney";
 
 // B13 — GET /api/members/[id]/membership-panel
@@ -203,7 +203,6 @@ type SubRow = { id: string; stripeSubscriptionId: string | null; membershipId: s
 type PlanRow = { id: string; name: string; options: unknown; contractMonths: number | null; autoRenewDefault: boolean };
 
 const MEMBERSHIP_TX_TYPES = ["MEMBERSHIP", "SUBSCRIPTION"];
-const SOURCE_WORD: Record<string, string> = { STRIPE: "Stripe", CASH: "Cash", CHECK: "Check", COMP: "Waived / comp", EXTERNAL_READER: "Card reader", MANUAL_ADJUSTMENT: "Manual" };
 const MONEY_KINDS = ["PAYMENT_RECORDED", "PAYMENT_WAIVED", "PAYMENT_REFUNDED", "RENEWAL_CHANGED", "PLAN_CHANGED", "CHARGE_DATE_MOVED"];
 
 function renewsText(m: MoneyRow, renews: boolean): string {
@@ -274,10 +273,19 @@ async function buildMoney(
     .map((e) => ({ id: e.id, at: e.at, text: moneyEventSentence({ kind: e.kind, at: e.at, detail: (e.detail ?? null) as Record<string, unknown> | null, actorName: e.actorUserId ? nameOf.get(e.actorUserId) ?? null : null }) }))
     .filter((e): e is { id: string; at: Date; text: string } => !!e.text);
 
+  // What each listed payment was actually paid with — read from the charge
+  // (never the card on file today). Bounded; a slow Stripe just means "Card".
+  const shown = txs.slice(0, 6);
+  const isStripeTx = (t: (typeof txs)[number]) => (t.paymentSource ?? (t.manual ? t.paymentMethod : "STRIPE") ?? "").toUpperCase() === "STRIPE";
+  const chargePms: Map<string, PmFacts> = member.club.stripeAccountId
+    ? await chargeMethodsFor(shown.filter(isStripeTx), member.club.stripeAccountId)
+    : new Map();
+
   return {
     subscriptionId: row.id,
     hasStripe: cur.hasStripe,
     liveRead: cur.hasStripe ? !!live : null,
+    pastDue: cur.hasStripe && isPastDue(m),
     pmLabel,
     howTheyPay: howTheyPay(m, { pmLabel, offlineMethod }),
     next,
@@ -295,12 +303,12 @@ async function buildMoney(
         ? { endsAt: live.nextInvoiceAt, amount: charge }
         : null,
     autoRenew: { on: renews, nowText: renewsText(m, renews), toggle: toggle.ok ? { endsAt: toggle.endsAt, sentence: toggle.sentence } : { endsAt: null, sentence: toggle.error, blocked: true } },
-    payments: txs.slice(0, 6).map((t) => {
+    payments: shown.map((t) => {
       const src = (t.paymentSource ?? (t.manual ? t.paymentMethod : "STRIPE") ?? "").toUpperCase();
       const left = refundable({ amount: Number(t.amount), refundedAmount: t.refundedAmount != null ? Number(t.refundedAmount) : null, status: t.status });
       const refunded = t.refundedAmount != null ? Number(t.refundedAmount) : 0;
       return {
-        id: t.id, at: when(t), amount: Number(t.amount), method: SOURCE_WORD[src] ?? (src ? src.charAt(0) + src.slice(1).toLowerCase() : "—"),
+        id: t.id, at: when(t), amount: Number(t.amount), method: src ? paymentRowMethod({ source: src, pm: chargePms.get(t.id) ?? null }) : "—",
         status: t.status === "REFUNDED" ? "Refunded" : refunded > 0 ? `Refunded $${refunded.toFixed(2)}` : t.status === "FAILED" ? "Failed" : t.status === "PENDING" ? "Awaiting payment" : Number(t.amount) === 0 ? "No charge" : "Paid",
         tone: t.status === "FAILED" ? "bad" : t.status === "REFUNDED" || refunded > 0 ? "warn" : t.status === "PENDING" ? "pend" : "ok",
         description: t.description, covers: t.coversStart && t.coversEnd ? { start: t.coversStart, end: t.coversEnd } : null,

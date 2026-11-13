@@ -42,7 +42,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, UserCheck, X } from "lucide-react";
-import type { AttendeeFilter, AttendeeRow } from "@/lib/eventAttendees";
+import { PRIVATE_LINK_BADGE, type AttendeeFilter, type AttendeeRow } from "@/lib/eventAttendees";
 import {
   attendeeTiles,
   cashRecordable,
@@ -112,9 +112,19 @@ function StatusPill({ r }: { r: AttendeeRow }) {
 
 function SourceChip({ r }: { r: AttendeeRow }) {
   return (
-    <span className="text-[12px] font-semibold px-1.5 py-px rounded-full bg-chip-surface text-chip-text">
-      {r.source === "MEMBER" ? "Member" : "Public"}
-    </span>
+    <>
+      <span className="text-[12px] font-semibold px-1.5 py-px rounded-full bg-chip-surface text-chip-text">
+        {r.source === "MEMBER" ? "Member" : "Public"}
+      </span>
+      {r.viaPrivateLink && (
+        <span
+          className="text-[12px] font-semibold px-1.5 py-px rounded-full bg-info-surface text-brand border border-info-border whitespace-nowrap"
+          title="Signed up through this event's private link"
+        >
+          {PRIVATE_LINK_BADGE}
+        </span>
+      )}
+    </>
   );
 }
 

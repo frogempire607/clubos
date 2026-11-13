@@ -26,6 +26,10 @@ import {
   registrationWaitingOn,
   type RegistrationWaitingOn,
 } from "@/lib/eventPayments";
+import { cameViaPrivateLink } from "@/lib/eventShareLink";
+
+/** The badge staff see on a signup that came in by the event's private link. */
+export const PRIVATE_LINK_BADGE = "Private link";
 
 export type AttendeeSource = "MEMBER" | "PUBLIC";
 
@@ -113,6 +117,10 @@ export type AttendeeRow = {
   registrationId: string | null;
   bookingId: string | null;
   source: AttendeeSource;
+  /** Came in by the event's private share link (/e/s-<token>) — the stamp the
+   *  register route writes into formResponses (lib/eventShareLink.VIA_KEY).
+   *  Independent of `source`: a private-link signup can match a member. */
+  viaPrivateLink: boolean;
   memberId: string | null;
   name: string;
   /** The address a bill would actually go to (family-resolved), or null. */
@@ -265,6 +273,7 @@ export function buildAttendeeLedger(
       registrationId: r.id,
       bookingId: booking?.id ?? null,
       source: r.memberId ? "MEMBER" : "PUBLIC",
+      viaPrivateLink: cameViaPrivateLink(r.formResponses),
       memberId: r.memberId,
       name: r.name || (booking ? `${booking.member.firstName} ${booking.member.lastName}` : "—"),
       email: r.recipientEmail ?? r.email ?? null,
@@ -297,6 +306,7 @@ export function buildAttendeeLedger(
       registrationId: null,
       bookingId: b.id,
       source: "MEMBER",
+      viaPrivateLink: false,
       memberId: b.memberId,
       name: `${b.member.firstName} ${b.member.lastName}`.trim(),
       email: b.member.guardianEmail ?? b.member.email ?? null,

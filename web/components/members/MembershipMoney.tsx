@@ -24,6 +24,8 @@ export type MoneyPayload = {
   subscriptionId: string;
   hasStripe: boolean;
   liveRead: boolean | null;
+  /** The last card payment failed and Stripe is still owed for that month. */
+  pastDue?: boolean;
   pmLabel: string | null;
   howTheyPay: string;
   next: { at: string | null; amount: number | null; text: string; overdue: boolean };
@@ -123,7 +125,9 @@ export function MoneyActions({ m, onOpen, disabled }: { m: MoneyPayload; onOpen:
   const next = m.next.at ? fmtS(m.next.at) : null;
   const items: { key: MoneySheet; label: string; sub: string }[] = m.hasStripe
     ? [
-        { key: "paid", label: "They paid another way this time", sub: `Record cash or check${next ? ` and skip the ${next} charge` : ""} so they aren't charged twice.` },
+        m.pastDue
+          ? { key: "paid", label: "They paid another way this time", sub: "Record cash or check for the past-due payment so the card isn't charged for it." }
+          : { key: "paid", label: "They paid another way this time", sub: `Record cash or check${next ? ` and skip the ${next} charge` : ""} so they aren't charged twice.` },
         { key: "waive", label: "Waive a payment", sub: `Give ${next ? `the ${next} payment` : "one payment"} free — e.g. for volunteer help.` },
         { key: "chargeDate", label: "Change charge date", sub: next ? `Next charge ${next} — move it to another day. Renews on the new day after that.` : "Move the next charge to another day." },
         { key: "switch", label: "Switch how they pay", sub: "Stop automatic charges and collect cash or check from now on." },
@@ -264,10 +268,12 @@ export function PaidSheet({ memberId, first, headline, m, price, onClose, onDone
   const url = `/api/members/${memberId}/membership/paid-another-way`;
   const p = usePreview(url, { subscriptionId: m.subscriptionId, method, amount: amt > 0 ? amt : null }, amt > 0);
   const skipAt = (p.facts.skipAt as string | null | undefined) ?? null;
-  const cta = m.hasStripe && skipAt ? `Record ${money2(amt || 0)} & skip ${fmtS(skipAt)} charge` : `Record ${money2(amt || 0)} ${method === "CHECK" ? "check" : "cash"}`;
+  // Past due: the cash settles the failed month's invoice instead of skipping the next charge.
+  const settleInvoiceId = (p.facts.settleInvoiceId as string | null | undefined) ?? null;
+  const cta = settleInvoiceId ? `Record ${money2(amt || 0)} for the past-due payment` : m.hasStripe && skipAt ? `Record ${money2(amt || 0)} & skip ${fmtS(skipAt)} charge` : `Record ${money2(amt || 0)} ${method === "CHECK" ? "check" : "cash"}`;
   return (
     <AppSheet open onClose={onClose} title={m.hasStripe ? "They paid another way this time" : "Record a payment"} description={`${first} · ${headline}`}
-      footer={<><button type="button" className={btn} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className={btnP} disabled={busy || p.loading || !!p.error || !(amt > 0)} onClick={() => commit(url, { subscriptionId: m.subscriptionId, method, amount: amt, reference: reference || null, expectedSkipAt: skipAt }, setBusy, setErr, onDone)}>{busy ? "Working…" : cta}</button></>}>
+      footer={<><button type="button" className={btn} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className={btnP} disabled={busy || p.loading || !!p.error || !(amt > 0)} onClick={() => commit(url, { subscriptionId: m.subscriptionId, method, amount: amt, reference: reference || null, expectedSkipAt: skipAt, expectedInvoiceId: settleInvoiceId }, setBusy, setErr, onDone)}>{busy ? "Working…" : cta}</button></>}>
       <Label>How they paid</Label>
       <div className="flex gap-2">
         {(["CASH", "CHECK"] as const).map((k) => <button key={k} type="button" className={chip(method === k)} onClick={() => setMethod(k)}>{k === "CASH" ? "Cash" : "Check"}</button>)}
@@ -369,7 +375,7 @@ export function RefundSheet({ memberId, first, m, payment, onClose, onDone }: Sh
   const url = `/api/members/${memberId}/membership/refund`;
   const p = usePreview(url, { transactionId: payment.id, subscriptionId: m.subscriptionId, amount: amt > 0 ? amt : null, reason: reason || "—" }, amt > 0);
   return (
-    <AppSheet open onClose={onClose} title="Refund a payment" description={`${first} · ${money2(payment.amount)} ${payment.method.toLowerCase()} on ${fmt(payment.at)}`}
+    <AppSheet open onClose={onClose} title="Refund a payment" description={`${first} · ${money2(payment.amount)} ${payment.method} on ${fmt(payment.at)}`}
       footer={<><button type="button" className={btn} onClick={onClose} disabled={busy}>Cancel</button><button type="button" className={btnD} disabled={busy || p.loading || !!p.error || !reason.trim() || !(amt > 0)} onClick={() => commit(url, { transactionId: payment.id, subscriptionId: m.subscriptionId, amount: amt, reason }, setBusy, setErr, onDone)}>{busy ? "Refunding…" : `Refund ${money2(amt || 0)}`}</button></>}>
       <Label>How much</Label>
       <div className="flex gap-2">

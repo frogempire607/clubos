@@ -9,6 +9,7 @@ import { ASSIGNMENT_DENY_MESSAGE } from "@/lib/staffSelf";
 import { currentRuleStaffIds } from "@/lib/classStaff";
 import { applySeriesListChange, loadClassRules, seriesChangeDate } from "@/lib/classStaffServer";
 import { STAFF_TX, classStaffErrorResponse } from "@/lib/classStaffApi";
+import { notifyRuleRemovals } from "@/lib/classStaffNotify";
 
 const schema = z.object({ userId: z.string().min(1) });
 
@@ -35,12 +36,15 @@ async function loadClass(id: string, clubId: string) {
 }
 
 /** Switched-on club: a series add/remove becomes rule changes, in ONE transaction. */
-async function writeRules(clubId: string, classId: string, from: string, before: string[], after: string[], byUserId: string) {
+async function writeRules(clubId: string, classId: string, from: string, before: string[], after: string[], byUserId: string, byName?: string | null) {
   try {
-    await prisma.$transaction(
+    const res = await prisma.$transaction(
       (tx) => applySeriesListChange(tx, { clubId, classId, date: from, before, after, byUserId }),
       STAFF_TX,
     );
+    // After the commit, best-effort: a coach taken off the recurring list is
+    // told once (never the person who did it — a coach removing themself).
+    await notifyRuleRemovals({ clubId, classId, actorId: byUserId, actorName: byName, date: from, rulesBefore: res.rulesBefore, rulesAfter: res.rulesAfter });
     return null;
   } catch (err) {
     const res = classStaffErrorResponse(err);
@@ -128,7 +132,7 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
   if (cls.switchFrom) {
     // Their recurring rules end from today (every weekday). Class days someone
     // edited by hand keep their own list.
-    const failed = await writeRules(session.user.clubId, cls.id, cls.switchFrom, [userId], [], session.user.id);
+    const failed = await writeRules(session.user.clubId, cls.id, cls.switchFrom, [userId], [], session.user.id, session.user.name);
     if (failed) return failed;
   } else {
     await prisma.recurringClass.update({

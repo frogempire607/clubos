@@ -20,6 +20,7 @@ import {
   uncancelOccurrence,
 } from "@/lib/classStaffServer";
 import { STAFF_TX, classStaffErrorResponse } from "@/lib/classStaffApi";
+import { notifyRuleRemovals } from "@/lib/classStaffNotify";
 
 const TIME = /^\d{2}:\d{2}$/;
 
@@ -312,7 +313,8 @@ async function switchedOnEdit(args: {
     else await uncancelOccurrence(tx, { clubId: cls.clubId, sessionId, byUserId: me });
   };
 
-  let out: { updatedClass?: Parameters<typeof syncFutureSessions>[0]; sessionId?: string; updated?: number; nothing?: boolean };
+  type RuleChange = Awaited<ReturnType<typeof applySeriesListChange>>;
+  let out: { updatedClass?: Parameters<typeof syncFutureSessions>[0]; sessionId?: string; updated?: number; nothing?: boolean; ruleChange?: RuleChange | null; ruleFrom?: string };
   try {
     out = await prisma.$transaction(async (tx) => {
       if (body.scope === "series") {
@@ -321,12 +323,12 @@ async function switchedOnEdit(args: {
         if (body.endTime) data.endTime = body.endTime;
         if (Object.keys(data).length === 0 && (staffIds === undefined || staffIds === null)) return { nothing: true };
         const updatedClass = Object.keys(data).length > 0 ? await tx.recurringClass.update({ where: { id: cls.id }, data }) : undefined;
-        if (desired) await applySeriesListChange(tx, { clubId: cls.clubId, classId: cls.id, date: seriesFrom, before, after: desired, byUserId: me });
-        return { updatedClass };
+        const ruleChange = desired ? await applySeriesListChange(tx, { clubId: cls.clubId, classId: cls.id, date: seriesFrom, before, after: desired, byUserId: me }) : null;
+        return { updatedClass, ruleChange, ruleFrom: seriesFrom };
       }
 
       if (body.scope === "following") {
-        if (desired) await applySeriesListChange(tx, { clubId: cls.clubId, classId: cls.id, date: body.date, before, after: desired, byUserId: me });
+        const ruleChange = desired ? await applySeriesListChange(tx, { clubId: cls.clubId, classId: cls.id, date: body.date, before, after: desired, byUserId: me }) : null;
         const targets = await tx.classSession.findMany({
           where: { classId: cls.id, date: { gte: dayWindow(body.date).start } },
           select: { id: true, date: true },
@@ -349,7 +351,7 @@ async function switchedOnEdit(args: {
             await setDayStaff(tx, { clubId: cls.clubId, sessionId: dayRow.id, staff: desired.map((userId) => ({ userId })), byUserId: me });
           }
         }
-        return { updated: targets.length };
+        return { updated: targets.length, ruleChange, ruleFrom: body.date };
       }
 
       // occurrence
@@ -373,6 +375,16 @@ async function switchedOnEdit(args: {
   // Moving the series time reconciles future class days by date (bookings
   // carried along) — the existing sync, after the commit as before.
   const sessionSync = out.updatedClass ? await syncFutureSessions(out.updatedClass) : null;
+
+  // "Every week" / "this and following" coach lists are rule changes: a coach
+  // left off comes off future class days and is told once (after the commit,
+  // best-effort; never the person who made the change).
+  if (out.ruleChange && out.ruleFrom) {
+    await notifyRuleRemovals({
+      clubId: cls.clubId, classId: cls.id, actorId: me, actorName: session.user.name,
+      date: out.ruleFrom, rulesBefore: out.ruleChange.rulesBefore, rulesAfter: out.ruleChange.rulesAfter,
+    });
+  }
 
   if (selfRemoved) {
     await notifySelfRemoval({

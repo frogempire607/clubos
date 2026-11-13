@@ -17,7 +17,7 @@ import {
   viewerFor,
 } from "@/lib/classStaffApi";
 import { loadStaffingContext, staffingBodySchema, staffingWhen } from "@/lib/classStaffingRequest";
-import { notifyAssignmentChange } from "@/lib/classStaffNotify";
+import { notifyAssignmentChange, notifyRuleRemovals } from "@/lib/classStaffNotify";
 
 // GET /api/classes/[id]/staffing?date=YYYY-MM-DD
 //
@@ -110,10 +110,20 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const after = result.day ? result.day.coachingAfter : result.recurringAfter.map((r) => r.userId);
   const addedIds = after.filter((x) => !before.includes(x));
   const removedIds = before.filter((x) => !after.includes(x));
+  // A one-day change tells the coaches taken off that day. A RULE change tells
+  // every coach it takes off future class days — on any weekday, and coaches
+  // whose assignment had not started yet, not only those on the first class
+  // day — once each, with their days summarised (notifyRuleRemovals).
   const notice = await notifyAssignmentChange({
     clubId, actorId: session.user.id, actorName: session.user.name,
-    className: ctx.cls.name, when: staffingWhen(ctx), addedIds, removedIds,
+    className: ctx.cls.name, when: staffingWhen(ctx), addedIds, removedIds: result.day ? removedIds : [],
   });
+  const dropped = result.day
+    ? null
+    : await notifyRuleRemovals({
+        clubId, classId: id, actorId: session.user.id, actorName: session.user.name,
+        date: ctx.date, rulesBefore: result.rulesBefore, rulesAfter: result.rulesAfter,
+      });
 
   const viewer = await viewerFor(session);
   const view = await loadStaffingView(clubId, id, ctx.date, viewer);
@@ -124,7 +134,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     changed: result.ruleOps.length > 0 || result.dayOps.length > 0,
     added: addedIds,
     removed: removedIds,
-    notified: notice.notified,
+    notified: notice.notified + (dropped?.notified ?? 0),
     sessionId: result.day?.sessionId ?? view?.view.day.sessionId ?? null,
     /** Rule scopes: how many class days were regenerated. */
     sync: result.sync ? { sessionsChecked: result.sync.sessionsChecked, created: result.sync.created, updated: result.sync.updated, deleted: result.sync.deleted } : null,

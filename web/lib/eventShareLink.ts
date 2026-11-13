@@ -107,12 +107,34 @@ export type LinkAccess =
 
 const at = (d: Date | string | null | undefined): number | null => (d == null ? null : new Date(d).getTime());
 
+/** The one answer for "there is nothing at this address" — a slug that never
+ *  existed, a deleted event, and an event whose public link is off all give
+ *  exactly this, so none of them can be told apart from outside. */
+export const EVENT_NOT_FOUND = "Event not found";
+
+/**
+ * Is the event's PUBLIC link (/e/<slug>) switched on? Slice 2: signupAccess is
+ * the answer; STAFF_ONLY closes the public link even on a hosted tournament,
+ * PUBLIC_LINK opens it. The legacy flag is kept in sync by every write.
+ */
+export function publicLinkOn(event: Pick<LinkAccessEvent, "signupAccess" | "publicRegistration" | "tournamentMode">): boolean {
+  return (
+    event.signupAccess !== "STAFF_ONLY" &&
+    (event.signupAccess === "PUBLIC_LINK" || !!event.publicRegistration || event.tournamentMode === "HOST")
+  );
+}
+
 /**
  * May this address show the event, and may it take a signup? The one decision
  * the page API, the register route and the discount check all share.
  */
 export function linkAccess(via: LinkVia, event: LinkAccessEvent | null | undefined, now: Date = new Date()): LinkAccess {
-  if (!event || event.deletedAt) return { ok: false, status: 404, error: "Event not found" };
+  if (!event || event.deletedAt) return { ok: false, status: 404, error: EVENT_NOT_FOUND };
+  // An event whose public link is off does not exist at /e/<slug>: the same
+  // answer as a slug nobody ever used, decided BEFORE the dates below so a
+  // private event never answers "registration has closed" either. (It used to
+  // render the whole event with "Registration is closed" at its old address.)
+  if (via === "slug" && !publicLinkOn(event)) return { ok: false, status: 404, error: EVENT_NOT_FOUND };
   const t = now.getTime();
   const publishAt = at(event.publishAt);
   if (via === "slug" && publishAt != null && publishAt > t) {
@@ -126,14 +148,9 @@ export function linkAccess(via: LinkVia, event: LinkAccessEvent | null | undefin
   if (via === "token") return { ok: true, canRegister: true };
   // An event for some athletes only (memberships, ages…) is registered for from
   // the member app, where we know who the athlete is — never the public link.
+  // The page still shows (the link is on) and points members at the app.
   if (normalizeAudience(event.audience)) return { ok: true, canRegister: false };
-  // Slice 2: signupAccess is the answer; STAFF_ONLY closes the public link even
-  // on a hosted tournament, PUBLIC_LINK opens it. The legacy flag is kept in
-  // sync by every write.
-  const canRegister =
-    event.signupAccess !== "STAFF_ONLY" &&
-    (event.signupAccess === "PUBLIC_LINK" || !!event.publicRegistration || event.tournamentMode === "HOST");
-  return { ok: true, canRegister };
+  return { ok: true, canRegister: true };
 }
 
 // ── Where a registrant is sent afterwards ───────────────────────────────────
