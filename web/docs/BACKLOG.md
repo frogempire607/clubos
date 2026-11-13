@@ -76,7 +76,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
 
 ## B — Claude Code sessions (priority order; start at the top unless blocked)
 
-- [ ] **B40 · Phase 12.1 — Books→Reports fix, encrypted TINs, staff W-9 + documents. Built 2026-10-27 on `claude/athletixos-phase-12-1`; MIGRATION NOT APPLIED, nothing shipped.**
+- [x] **B40 · SHIPPED (verified 2026-11-13: `claude/athletixos-phase-12-1` is merged into `main` — ad6c4fc (merge) — and its migrations are applied, per OPEN-TASKS 2026-11-10). Phase 12.1 — Books→Reports fix, encrypted TINs, staff W-9 + documents. Built 2026-10-27 on `claude/athletixos-phase-12-1`.**
   Plan: **`docs/accounting/plan.md`** (the Phase 12.1 section). Migration
   `20261027000000_staff_tax_forms_documents` — additive: 3 new tables
   (`contractor_w9_submissions`, `staff_document_assignments`,
@@ -118,7 +118,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   **Follow-ups**: a key-rotation re-encrypt script (`needsReencryption` already marks the
   rows); the 20 tables still without RLS; `Club.fiscalYearStartMonth`.
 
-- [ ] **B39 · Accounting Phase 3 — reports, close, onboarding (Phase 12). Built 2026-10-22 on `claude/athletixos-accounting-phase-3`; MIGRATION NOT APPLIED, nothing shipped.**
+- [x] **B39 · SHIPPED (verified 2026-11-13: `claude/athletixos-accounting-phase-3` is merged into `main` — 963d52b — and its migrations are applied, per OPEN-TASKS 2026-11-10). Accounting Phase 3 — reports, close, onboarding (Phase 12). Built 2026-10-22 on `claude/athletixos-accounting-phase-3`.**
   Plan: **`docs/accounting/plan.md`** (the Phase 3 section is now the built state, not a spec). The last of the three.
   Migration `20261022000000_gl_reports_close_onboarding` — additive only: RLS for 6 finance/reports tables that had
   none, 5 new tables (`gl_fixed_assets`, `gl_month_closes`, `gl_opening_imports`, `qbo_history_files`,
@@ -162,7 +162,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   a `Transaction.refundFeeAmount` filled by the `charge.refunded` webhook so the refund-fee path can be switched on;
   `Contractor.address` for the 1099; and the 20 remaining tables with no RLS.
 
-- [ ] **B38 · Accounting Phase 2 — automatic posting + reconciliation (Phase 11). Built 2026-10-21 on `claude/athletixos-accounting-phase-2`; MIGRATION NOT APPLIED, nothing shipped.**
+- [x] **B38 · SHIPPED (verified 2026-11-13: `claude/athletixos-accounting-phase-2` is merged into `main` — 88a4944 — and its migrations are applied, per OPEN-TASKS 2026-11-10). Accounting Phase 2 — automatic posting + reconciliation (Phase 11). Built 2026-10-21 on `claude/athletixos-accounting-phase-2`.**
   Plan: **`docs/accounting/plan.md`** (the Phase 2 section is now the built state, not a spec). Phase 11 — Phase 10 was the ledger core.
   Migration `20261021000000_gl_auto_posting_reconcile` — additive only: 2 new tables (`gl_reconciliations`, `gl_deposits`),
   6 nullable columns (`clubs.booksStartDate`, `bank_accounts.glAccountId`, `expenses.program`, `receipts.glEntryId`,
@@ -211,7 +211,7 @@ item that needs it comes up. The only two dated items are A1 (overdue) and A2 (O
   `TZ=America/New_York` — so a regression fails the build instead of waiting to be noticed on a laptop. Verified green in
   UTC, New York, Chicago, Los Angeles, Tokyo and Kiritimati. Asserted by `scripts/gl-posting-tests.ts` §11.37-11.38.
 
-- [ ] **B36 · Accounting Phase 1 — ledger core (double-entry GL). Built 2026-10-20 on `claude/athletixos-accounting-phase-1-94d11d`; MIGRATION NOT APPLIED, nothing shipped.**
+- [x] **B36 · SHIPPED (verified 2026-11-13: `claude/athletixos-accounting-phase-1-94d11d` is merged into `main` — b1a97cd — and its migrations are applied, per OPEN-TASKS 2026-11-10). Accounting Phase 1 — ledger core (double-entry GL). Built 2026-10-20 on `claude/athletixos-accounting-phase-1-94d11d`.**
   The first slice of replacing QuickBooks. Full three-phase plan: **`docs/accounting/plan.md`** — read it before touching this.
   **This is Phase 10** (phases 1–9 are allocated in `docs/improvement/plan.md`; 7 = family model, 8 = membership structure, 9 = family discounts).
   Migration `20261020000000_gl_ledger_core` — additive only, six new tables, all `gl_`-prefixed because `ledger` is
