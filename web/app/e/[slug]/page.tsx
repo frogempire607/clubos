@@ -118,6 +118,11 @@ export default function PublicEventPage() {
   // so an edited name can never keep an old answer on screen.
   const [quote, setQuote] = useState<null | { key: string; tier: "MEMBER" | "NON_MEMBER"; price: number }>(null);
   const [quoteNotice, setQuoteNotice] = useState("");
+  // 404 from the page API: show the neutral "isn't available" page.
+  const [unavailable, setUnavailable] = useState(false);
+  // "This child is already registered" (409 ALREADY_REGISTERED) — a calm
+  // notice, not an error: nothing went wrong and nothing was charged.
+  const [duplicateNotice, setDuplicateNotice] = useState("");
 
   const justRegistered = searchParams.get("registered") === "true";
   const justPaid = searchParams.get("paid") === "true";
@@ -127,6 +132,14 @@ export default function PublicEventPage() {
     fetch(`/api/public/events/${slug}`)
       .then(async (r) => {
         if (!r.ok) {
+          // Nothing at this address — a link that never existed, or an event
+          // that is no longer public. The API answers both the same way, and
+          // so does this page: nothing about the event is shown.
+          if (r.status === 404) {
+            setUnavailable(true);
+            setLoading(false);
+            return null;
+          }
           const d = await r.json().catch(() => ({}));
           setError(d.error || "Event not found");
           setLoading(false);
@@ -279,6 +292,7 @@ export default function PublicEventPage() {
       }
     }
     setQuoteNotice("");
+    setDuplicateNotice("");
     setSubmitting(true);
     setError("");
     const res = await fetch(`/api/public/events/${slug}/register`, {
@@ -300,6 +314,10 @@ export default function PublicEventPage() {
     const d = await res.json().catch(() => ({}));
     setSubmitting(false);
     if (!res.ok) {
+      if (d.code === "ALREADY_REGISTERED" || d.error === "ALREADY_REGISTERED") {
+        setDuplicateNotice(typeof d.message === "string" ? d.message : "This athlete is already registered for this event.");
+        return;
+      }
       setError(
         d.error === "ACCOUNT_REQUIRED" && typeof d.message === "string"
           ? d.message
@@ -349,6 +367,17 @@ export default function PublicEventPage() {
 
   if (loading) {
     return <div className="min-h-screen bg-stone-50 flex items-center justify-center text-stone-400 text-sm">Loading…</div>;
+  }
+
+  if (unavailable) {
+    return (
+      <div className="min-h-screen bg-stone-50 flex items-center justify-center p-6">
+        <div className="bg-white rounded-xl border border-stone-200 p-8 max-w-md text-center">
+          <h1 className="text-lg font-semibold text-stone-900 mb-1">This event isn&apos;t available</h1>
+          <p className="text-sm text-stone-500">Check the link, or ask the club for a new one.</p>
+        </div>
+      </div>
+    );
   }
 
   if (error && !event) {
@@ -906,6 +935,14 @@ export default function PublicEventPage() {
 
             {quoteNotice && (
               <div className="text-sm text-stone-900 bg-stone-100 border border-stone-300 rounded-lg px-3 py-2" role="status">{quoteNotice}</div>
+            )}
+            {duplicateNotice && (
+              <div className="text-sm text-stone-900 bg-stone-100 border border-stone-300 rounded-lg px-3 py-2" role="status">
+                <p className="font-semibold">{duplicateNotice}</p>
+                <p className="mt-0.5 text-stone-600">
+                  Nothing was charged and no second spot was taken. Check your email for the confirmation, or contact the club if something needs to change.
+                </p>
+              </div>
             )}
             {error && (
               <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>

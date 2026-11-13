@@ -33,6 +33,7 @@ import { resolveEventLink, shareTokenFingerprint } from "@/lib/eventShareLinkSer
 import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
 import { createEventOfflinePendingTx } from "@/lib/eventOfflinePayments";
 import { documentsForEvent } from "@/lib/eventDocuments";
+import { birthdateFromForm, findDuplicateChild } from "@/lib/eventDuplicateChild";
 
 const schema = z.object({
   name: z.string().min(1),
@@ -149,6 +150,45 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
         where: { eventId: event.id, ...capacityWhere(now, { holdSpotDuringReview: true }) },
       })) + event._count.bookings;
   }
+  // ── The same child, twice ───────────────────────────────────────────────
+  // Before the capacity check, so a parent who submits again on the last spot
+  // is told "already registered", not "full". Who counts as the same child and
+  // which existing rows still count is decided in lib/eventDuplicateChild
+  // (pure): the same matched member, or the same name with the same birthdate
+  // (when the form asks for one) or the same email — never the email alone,
+  // so siblings on one parent's address both register. An unfinished card
+  // checkout never blocks: it holds nothing, and a failed payment must be
+  // retryable.
+  const allFields = eventFormFields(event.registrationForm);
+  const matchedMemberId = await findMemberForPublicSignup({ clubId: event.clubId, email: body.email, name: body.name });
+  const [otherRegistrations, memberBooking] = await Promise.all([
+    prisma.eventRegistration.findMany({
+      where: { eventId: event.id, status: { not: "CANCELED" } },
+      select: { id: true, memberId: true, name: true, email: true, status: true, approvalStatus: true, formResponses: true },
+      orderBy: { createdAt: "desc" },
+      take: 5000,
+    }),
+    matchedMemberId
+      ? prisma.booking.findFirst({
+          where: { eventId: event.id, memberId: matchedMemberId, status: { not: "CANCELED" } },
+          select: { id: true },
+        })
+      : Promise.resolve(null),
+  ]);
+  const duplicate = findDuplicateChild({
+    candidate: {
+      memberId: matchedMemberId,
+      name: body.name,
+      email: body.email,
+      birthdate: birthdateFromForm(allFields, body.formResponses),
+    },
+    existing: otherRegistrations.map((r) => ({ ...r, birthdate: birthdateFromForm(allFields, r.formResponses) })),
+    memberHasBooking: !!memberBooking,
+  });
+  if (duplicate.duplicate) {
+    return NextResponse.json({ error: duplicate.code, code: duplicate.code, message: duplicate.message }, { status: 409 });
+  }
+
   if (event.capacity != null && spotsTaken >= event.capacity) {
     return NextResponse.json({ error: "This event is full" }, { status: 409 });
   }
@@ -156,7 +196,6 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // The event's questions — the one validator the portal uses too
   // (lib/eventForm): required answered, select answers from the list, and
   // only the event's own keys kept.
-  const allFields = eventFormFields(event.registrationForm);
   const formCheck = validateFormResponses(allFields.filter((f) => !f.perEntry), body.formResponses);
   if (!formCheck.ok) {
     return NextResponse.json({ error: formCheck.message }, { status: 400 });
@@ -210,7 +249,8 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
   // registered by one parent on the same member record (2026-10). Exactly one
   // name match links; anything else stays unlinked for staff to link from
   // Attendees → "Link to member" (lib/registrationLink).
-  const matchedMemberId = await findMemberForPublicSignup({ clubId: event.clubId, email: body.email, name: body.name });
+  // (The match itself runs above, before the capacity check — the duplicate
+  // guard needs it.)
   const member = matchedMemberId ? { id: matchedMemberId } : null;
 
   // Variable-cost events (any mode) do NOT charge at registration. The

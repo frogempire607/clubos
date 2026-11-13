@@ -17,7 +17,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import Sheet from "@/components/Sheet";
-import type { AttendeeRow } from "@/lib/eventAttendees";
+import { PRIVATE_LINK_BADGE, type AttendeeRow } from "@/lib/eventAttendees";
 import {
   checkInCounts,
   checkInRows,
@@ -187,7 +187,7 @@ export default function CheckInView({
                 <div className="flex-1 min-w-0">
                   <div className="text-[16px] font-semibold text-text-primary truncate">{r.name}</div>
                   <div className="text-[13px] text-text-muted truncate">
-                    {[r.categoryValue, r.source === "PUBLIC" ? "Public signup" : null, r.label].filter(Boolean).join(" · ")}
+                    {[r.categoryValue, r.source === "PUBLIC" ? "Public signup" : null, r.viaPrivateLink ? PRIVATE_LINK_BADGE : null, r.label].filter(Boolean).join(" · ")}
                   </div>
                   {s.kind === "in" && s.record.checkedInAt && (
                     <div className="text-[13px] font-semibold text-success-text">Checked in {time(s.record.checkedInAt)}</div>

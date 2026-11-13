@@ -90,12 +90,15 @@ const staffOnly = { signupAccess: "STAFF_ONLY", publicRegistration: false, visib
 
 eq("slug · public event → view + register", open(pub, "slug"), { ok: true, canRegister: true });
 eq("token · public event → view + register", open(pub, "token"), { ok: true, canRegister: true });
-eq("slug · members-only → viewable, cannot register", open(membersOnly, "slug"), { ok: true, canRegister: false });
+// 2026-11: a slug whose public link is off answers exactly like a slug that
+// never existed (scripts/event-unavailable-tests.ts) — it used to render the
+// event with "Registration is closed".
+eq("slug · members-only → not found", open(membersOnly, "slug"), { ok: false, status: 404, error: "Event not found" });
 eq("token · members-only → register", open(membersOnly, "token"), { ok: true, canRegister: true });
-eq("slug · staff-only → cannot register", open(staffOnly, "slug"), { ok: true, canRegister: false });
+eq("slug · staff-only → not found", open(staffOnly, "slug"), { ok: false, status: 404, error: "Event not found" });
 eq("token · staff-only (hidden) → register", open(staffOnly, "token"), { ok: true, canRegister: true });
-eq("slug · STAFF_ONLY beats the legacy flag", open({ signupAccess: "STAFF_ONLY", publicRegistration: true }, "slug"), { ok: true, canRegister: false });
-eq("slug · STAFF_ONLY beats a hosted tournament", open({ signupAccess: "STAFF_ONLY", tournamentMode: "HOST" }, "slug"), { ok: true, canRegister: false });
+eq("slug · STAFF_ONLY beats the legacy flag", open({ signupAccess: "STAFF_ONLY", publicRegistration: true }, "slug"), { ok: false, status: 404, error: "Event not found" });
+eq("slug · STAFF_ONLY beats a hosted tournament", open({ signupAccess: "STAFF_ONLY", tournamentMode: "HOST" }, "slug"), { ok: false, status: 404, error: "Event not found" });
 eq("slug · hosted tournament opens the public link", open({ signupAccess: "MEMBERS", tournamentMode: "HOST" }, "slug"), { ok: true, canRegister: true });
 eq("slug · legacy publicRegistration flag opens it", open({ signupAccess: "MEMBERS", publicRegistration: true }, "slug"), { ok: true, canRegister: true });
 eq("token · publicRegistration false → register", open({ publicRegistration: false }, "token"), { ok: true, canRegister: true });
