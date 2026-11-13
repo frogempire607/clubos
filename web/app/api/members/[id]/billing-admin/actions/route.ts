@@ -336,6 +336,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // Assign: the membership (and its commitment) run from "Starts", not from
     // the moment someone pressed the button.
     const rowStart = assignStart ?? new Date();
+    // The floor as the option sells it. It is CAPPED at the membership's end
+    // date by the row writer (createSavedCardSubscription → capTermAtEnd),
+    // against the end Stripe actually accepted — a commitment can never run
+    // past the day the membership itself stops. Not capped here: the only end
+    // this route knows is the imported one, which may be stale or already past.
     const termEnd = minimumTermEndForOptionId(rowStart, options, option.id, { contractMonths: plan.contractMonths }, addUTCMonths);
 
     const activation = await createSavedCardSubscription({
