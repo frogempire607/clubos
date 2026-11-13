@@ -18,6 +18,7 @@ import { parseOptions } from "@/lib/membershipOptions";
 import { resolveSessionCoverage, type CoverageSubscription } from "@/lib/entitlements";
 import { dropInFrom, sessionWeekday } from "@/lib/coverageQuery";
 import { acceptedPlansFrom } from "@/lib/acceptedPlans";
+import { canceledDayOffer, sharedCancelReason } from "@/lib/memberClassCancel";
 
 type PricingOption =
   | { type: "member" | "nonmember" | "dropin"; price: number }
@@ -576,8 +577,7 @@ export async function GET(req: Request) {
       const isCanceled = !!sessionItem.canceled;
       // The reason is shown only when the cancellation was announced to families
       // (audience other than NONE) — otherwise it stays a staff-side note.
-      const reasonShared = !!sessionItem.cancelNotifyAudience && sessionItem.cancelNotifyAudience !== "NONE";
-      const cancelNote = reasonShared && typeof sessionItem.cancelReason === "string" && sessionItem.cancelReason.trim() ? sessionItem.cancelReason.trim() : null;
+      const cancelNote = sharedCancelReason(sessionItem);
       if (isCanceled) {
         // Nobody can book it, whatever their membership says.
         for (const a of athletes) {
@@ -588,7 +588,7 @@ export async function GET(req: Request) {
         }
       }
       const rawEval = ctxState ? evalFor(ctxState) : null;
-      const ctxEval = rawEval && isCanceled ? { ...rawEval, canBook: false, statusText: "Canceled", price: null, bookingLabel: null } : rawEval;
+      const ctxEval = rawEval ? canceledDayOffer(rawEval, isCanceled) : null;
       const price = ctxEval?.price ?? null;
       const coachNames = staffNames(
         staffOn.forSession(sessionItem, sessionItem.recurringClass.assignedStaffIds).staffIds,

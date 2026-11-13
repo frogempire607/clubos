@@ -869,6 +869,13 @@ export type ScopeChangeResult = {
   /** Recurring coaches for `date` before / after (rule scopes; [] for OCCURRENCE). */
   recurringBefore: RuleStaff[];
   recurringAfter: RuleStaff[];
+  /**
+   * Rule scopes: every rule of the class before / after the write ([] for
+   * OCCURRENCE). lib/classStaffNotify.notifyRuleRemovals diffs these to tell
+   * each coach the change takes off future class days.
+   */
+  rulesBefore: StaffRule[];
+  rulesAfter: StaffRule[];
   /** OCCURRENCE: the day's before/after. */
   day: DayOpResult | null;
   /** Rule scopes: what materialization then did. */
@@ -911,7 +918,7 @@ export async function applyScopeChange(
     const { session } = await ensureSession(args.classId, args.date, db);
     const day = await setDayStaff(db, { clubId: args.clubId, sessionId: session.id, staff: args.desired, byUserId: args.byUserId });
     const { dayOps, ...rest } = day;
-    return { scope: args.scope, classId: args.classId, date: args.date, ruleOps: [], dayOps, recurringBefore: [], recurringAfter: [], day: rest, sync: null };
+    return { scope: args.scope, classId: args.classId, date: args.date, ruleOps: [], dayOps, recurringBefore: [], recurringAfter: [], rulesBefore: [], rulesAfter: [], day: rest, sync: null };
   }
   const dow = args.scope === "WEEKDAY_FORWARD" ? (args.dayOfWeek ?? dowOfYmd(args.date)) : undefined;
   const rules = await loadClassRules(db, args.classId);
@@ -929,7 +936,7 @@ export async function applyScopeChange(
   const showDay = dow === undefined ? args.date : addDaysYmd(args.date, (dow - dowOfYmd(args.date) + 7) % 7);
   return {
     scope: args.scope, classId: args.classId, date: args.date, ruleOps: plan.ruleOps, dayOps: [],
-    recurringBefore: rulesForDay(rules, showDay), recurringAfter: rulesForDay(after, showDay), day: null, sync,
+    recurringBefore: rulesForDay(rules, showDay), recurringAfter: rulesForDay(after, showDay), rulesBefore: rules, rulesAfter: after, day: null, sync,
   };
 }
 
@@ -943,7 +950,7 @@ export async function applyScopeChange(
 export async function endUserRules(
   db: Db,
   args: { clubId: string; classId: string; userId: string; date: string; byUserId: string | null; now?: Date },
-): Promise<{ ruleOps: RuleOp[]; recurringBefore: RuleStaff[]; recurringAfter: RuleStaff[]; sync: StaffSyncResult }> {
+): Promise<{ ruleOps: RuleOp[]; recurringBefore: RuleStaff[]; recurringAfter: RuleStaff[]; rulesBefore: StaffRule[]; rulesAfter: StaffRule[]; sync: StaffSyncResult }> {
   if (!isYmd(args.date)) throw new ClassStaffError("BAD_INPUT", "date must be YYYY-MM-DD");
   const cls = await db.recurringClass.findFirst({ where: { id: args.classId, clubId: args.clubId }, select: { id: true } });
   if (!cls) throw new ClassStaffError("NOT_FOUND", "Class not found");
@@ -956,7 +963,7 @@ export async function endUserRules(
   await applyRuleOpsDb(db, args.clubId, args.classId, ruleOps, args.byUserId);
   const after = ruleOps.length > 0 ? await loadClassRules(db, args.classId) : rules;
   const sync = await syncSessionStaff(db, args.classId, args.date, { now: args.now });
-  return { ruleOps, recurringBefore: rulesForDay(rules, args.date), recurringAfter: rulesForDay(after, args.date), sync };
+  return { ruleOps, recurringBefore: rulesForDay(rules, args.date), recurringAfter: rulesForDay(after, args.date), rulesBefore: rules, rulesAfter: after, sync };
 }
 
 export type ReleaseStaffResult = {
@@ -1047,7 +1054,7 @@ export async function releaseRemovedStaff(
 export async function applySeriesListChange(
   db: Db,
   args: { clubId: string; classId: string; date: string; before: readonly string[]; after: readonly string[]; byUserId: string | null; now?: Date },
-): Promise<{ ruleOps: RuleOp[]; added: string[]; removed: string[]; recurringBefore: RuleStaff[]; recurringAfter: RuleStaff[]; sync: StaffSyncResult }> {
+): Promise<{ ruleOps: RuleOp[]; added: string[]; removed: string[]; recurringBefore: RuleStaff[]; recurringAfter: RuleStaff[]; rulesBefore: StaffRule[]; rulesAfter: StaffRule[]; sync: StaffSyncResult }> {
   if (!isYmd(args.date)) throw new ClassStaffError("BAD_INPUT", "date must be YYYY-MM-DD");
   const cls = await db.recurringClass.findFirst({ where: { id: args.classId, clubId: args.clubId }, select: { id: true } });
   if (!cls) throw new ClassStaffError("NOT_FOUND", "Class not found");
@@ -1074,7 +1081,7 @@ export async function applySeriesListChange(
   await applyRuleOpsDb(db, args.clubId, args.classId, ruleOps, args.byUserId);
   const afterRules = ruleOps.length > 0 ? await loadClassRules(db, args.classId) : rules;
   const sync = await syncSessionStaff(db, args.classId, args.date, { now: args.now });
-  return { ruleOps, added, removed, recurringBefore: rulesForDay(rules, args.date), recurringAfter: rulesForDay(afterRules, args.date), sync };
+  return { ruleOps, added, removed, recurringBefore: rulesForDay(rules, args.date), recurringAfter: rulesForDay(afterRules, args.date), rulesBefore: rules, rulesAfter: afterRules, sync };
 }
 
 /** Put ONE coach on a class's recurring list (every class day) from `date`, leaving everyone else alone. */

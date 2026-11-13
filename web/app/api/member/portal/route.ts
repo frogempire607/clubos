@@ -9,6 +9,7 @@ import { wallClockNowUTC } from "@/lib/datetime";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 import { portalMembershipStatusFor, type PortalMembershipStatus } from "@/lib/memberTracks";
 import { loadSessionStaffResolver } from "@/lib/classStaffServer";
+import { scrubCancelAudit } from "@/lib/memberClassCancel";
 
 async function fetchUser(userId: string, clubTimezone: string | null) {
   // Class registrations live in AttendanceRecord, not Booking, so we pull
@@ -20,7 +21,11 @@ async function fetchUser(userId: string, clubTimezone: string | null) {
   const classWhere = {
     classSessionId: { not: null },
     status: { in: ["PRESENT", "LATE", "DROP_IN", "TRIAL"] },
-    classSession: { startsAt: { gte: wallClockNowUTC(clubTimezone) }, canceled: false },
+    // A class day the club CANCELLED stays in the list — the bookings page
+    // marks it "Canceled" (no check-in, no actions) instead of the booking
+    // silently vanishing. Same rows as before otherwise: the family's own
+    // bookings only.
+    classSession: { startsAt: { gte: wallClockNowUTC(clubTimezone) } },
   };
   const classInclude = {
     classSession: {
@@ -204,6 +209,9 @@ export async function GET() {
     ]
       .map((r) => r.classSession)
       .filter((cs): cs is NonNullable<typeof cs> => !!cs);
+    // The staff-side cancellation audit (who, pay, the unshared reason) never
+    // goes to a family's browser.
+    for (const cs of booked) if (cs.canceled) scrubCancelAudit(cs);
     if (booked.length > 0) {
       const staffOn = await loadSessionStaffResolver(session.user.clubId, booked);
       for (const cs of booked) {

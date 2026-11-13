@@ -21,6 +21,7 @@ import SegmentedControl from "@/components/member/SegmentedControl";
 import { EmptyState, AccentButton } from "@/components/member/ui";
 import { kindIsWallClockUTC, wallClockUTCToInstant } from "@/lib/datetime";
 import { effectiveClassStaff, staffNames } from "@/lib/staffAssignments";
+import { CANCELED_LABEL, bookingIsActionable, classBookingState, isPastBooking, isUpcomingBooking } from "@/lib/memberClassCancel";
 
 // Classes store the owner's wall clock pinned to UTC; events/privates are true
 // instants. Render each in the right frame so My Bookings matches the schedule
@@ -52,6 +53,9 @@ type Booking = {
   // Self check-in target: classSession id for classes, event id for events.
   checkinId?: string | null;
   checkedInAt?: string | null;
+  /** The CLUB cancelled this class day: it stays listed, marked Canceled, with no actions. */
+  dayCanceled?: boolean;
+  cancelReason?: string | null;
   event: {
     id: string;
     name: string;
@@ -80,6 +84,9 @@ type RawAttendanceRecord = {
     startsAt: string;
     endsAt: string;
     staffOverride?: unknown;
+    canceled?: boolean;
+    cancelReason?: string | null;
+    cancelNotifyAudience?: string | null;
     recurringClass: {
       id: string;
       name: string;
@@ -168,10 +175,14 @@ function classAttendanceToBookings(
       const staffIds = effectiveClassStaff(rc.assignedStaffIds, cs.staffOverride).staffIds;
       const coach = staffNames(staffIds, staffById).join(", ") || null;
       // Status semantics differ: AttendanceRecord uses PRESENT/LATE/DROP_IN/TRIAL
-      // ahead of time as "booked" markers. Show all as Confirmed in the list.
+      // ahead of time as "booked" markers. Show all as Confirmed in the list —
+      // unless the club cancelled the class day, which reads "Canceled".
+      const state = classBookingState(cs);
       return {
         id: `class:${r.id}`,
-        status: "CONFIRMED",
+        status: state.status,
+        dayCanceled: state.dayCanceled,
+        cancelReason: state.cancelReason,
         kind: "class" as const,
         coach,
         checkinId: cs.id,
@@ -215,6 +226,8 @@ const statusBadge: Record<string, { bg: string; fg: string; label: string }> = {
 };
 
 function getEventColor(b: Booking) {
+  // A cancelled class day is greyed out wherever its colour chip appears (same grey as the schedule).
+  if (b.dayCanceled) return { bg: "#E7E5E4", fg: "#78716C" };
   if (b.event.customEventType) {
     return { bg: b.event.customEventType.color, fg: b.event.customEventType.textColor };
   }
@@ -474,13 +487,14 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
   const now = new Date();
   // Terminal statuses never appear in "upcoming" regardless of time, since
   // they're no longer actionable. DECLINED/COMPLETED come from privates;
-  // CANCELED applies to events and classes.
-  const TERMINAL = new Set(["CANCELED", "DECLINED", "COMPLETED"]);
+  // CANCELED applies to events and classes (TERMINAL_BOOKING_STATUSES).
+  // A class day the CLUB cancelled is the exception: it stays under Upcoming,
+  // marked Canceled, until its time passes (lib/memberClassCancel).
   const filtered = scoped
     .filter((b) => {
-      const start = new Date(b.event.startsAt);
-      if (filter === "upcoming") return start >= now && !TERMINAL.has(b.status);
-      if (filter === "past") return start < now || TERMINAL.has(b.status);
+      const at = { status: b.status, dayCanceled: b.dayCanceled, startMs: new Date(b.event.startsAt).getTime() };
+      if (filter === "upcoming") return isUpcomingBooking(at, now.getTime());
+      if (filter === "past") return isPastBooking(at, now.getTime());
       return true;
     })
     .sort((a, b) => new Date(a.event.startsAt).getTime() - new Date(b.event.startsAt).getTime());
@@ -544,7 +558,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
 
   // Row action cluster, shared by the table + cards.
   function actionsFor(b: Booking) {
-    if (TERMINAL.has(b.status)) return null;
+    if (!bookingIsActionable(b)) return null;
     if (b.kind === "private") {
       return (
         <button
@@ -687,11 +701,14 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                         </td>
                       )}
                       <td className="px-4 py-3">
-                        <div className="text-[13px] font-semibold text-stone-900">{b.event.name}</div>
+                        <div className={`text-[13px] font-semibold ${b.dayCanceled ? "text-stone-500 line-through" : "text-stone-900"}`}>{b.event.name}</div>
                         <div className="text-[12px] text-stone-500">
                           {new Date(b.event.startsAt).toLocaleTimeString("en-US", timeOpts(b.kind))}
                           {b.coach ? ` · ${b.coach}` : ""}
                         </div>
+                        {b.dayCanceled && (
+                          <div className="text-[12px] text-red-700">{b.cancelReason ? `${CANCELED_LABEL}: ${b.cancelReason}` : "The club canceled this class day."}</div>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span className="text-[12px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap" style={{ background: c.bg, color: c.fg }}>
@@ -740,7 +757,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                             {b.memberFirstName}
                           </span>
                         )}
-                        <h3 className="text-sm font-semibold text-stone-900">{b.event.name}</h3>
+                        <h3 className={`text-sm font-semibold ${b.dayCanceled ? "text-stone-500 line-through" : "text-stone-900"}`}>{b.event.name}</h3>
                         <span
                           className="text-[12px] px-1.5 py-0.5 rounded font-medium"
                           style={{ background: c.bg, color: c.fg }}
@@ -764,9 +781,12 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                         {new Date(b.event.endsAt).toLocaleTimeString("en-US", timeOpts(b.kind))}
                         {b.coach ? ` · Coach ${b.coach}` : ""}
                       </p>
+                      {b.dayCanceled && (
+                        <p className="text-xs text-red-700 mt-0.5">{b.cancelReason ? `${CANCELED_LABEL}: ${b.cancelReason}` : "The club canceled this class day."}</p>
+                      )}
                     </div>
                   </div>
-                  {!TERMINAL.has(b.status) && (
+                  {bookingIsActionable(b) && (
                     <div className="mt-3 pt-3 border-t border-stone-100 flex flex-wrap justify-end gap-2">
                       {actionsFor(b)}
                     </div>

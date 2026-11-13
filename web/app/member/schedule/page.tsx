@@ -779,7 +779,8 @@ function ScheduleInner() {
                       {bookedUpcoming.map((item) => (
                         <div key={item.id}>
                           <ItemCard item={item} family={family} contextFirstName={data?.contextMember?.firstName ?? null} onClick={() => setSelected(item)} />
-                          {withinCheckinWindow(item) && (
+                          {/* A cancelled class day has no check-in. */}
+                          {!item.canceled && withinCheckinWindow(item) && (
                             <div className="mt-1.5 flex justify-end">
                               {checkedIn.has(item.id) ? (
                                 <span className="text-xs px-3 py-1.5 rounded-md bg-green-50 text-green-700 font-medium">
@@ -967,7 +968,7 @@ function ScheduleInner() {
                               {!booked && a.price ? ` — $${a.price}` : ""}
                             </p>
                           </div>
-                          {booked ? (
+                          {selected.canceled ? null /* cancelled: the line above already reads "Canceled" — no Booked chip, no Book button */ : booked ? (
                             <span className="text-xs px-3 py-1.5 rounded-md bg-green-50 text-green-700 font-semibold whitespace-nowrap">
                               {a.bookingStatus === "WAITLISTED" ? "Waitlisted" : "Booked"}
                             </span>
@@ -998,7 +999,8 @@ function ScheduleInner() {
                     })}
                   </div>
                 ) : (
-                (selected.bookingStatus ? null : (
+                // The cancelled banner above says it all: no booking status, price or how-to-book text.
+                (selected.bookingStatus || selected.canceled ? null : (
                 <div className="rounded-xl bg-stone-50 border border-stone-200 p-4">
                   <p className="text-base font-semibold text-stone-900">{selected.statusText}</p>
                   {selected.kind === "class" && selected.bookingLabel && (
@@ -1061,7 +1063,7 @@ function ScheduleInner() {
                       {busy === `${selected.id}:${data.contextMember.id}` ? "Registering..." : selected.canBook ? "Register" : selected.statusText}
                     </button>
                   )}
-                  {!family && selected.kind === "class" && data?.contextMember && (
+                  {!family && selected.kind === "class" && data?.contextMember && !selected.canceled && (
                     <button
                       type="button"
                       disabled={!selected.canBook || busy === `${selected.id}:${data.contextMember.id}`}

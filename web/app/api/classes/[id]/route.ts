@@ -10,6 +10,7 @@ import { z } from "zod";
 import { syncFutureSessions } from "@/lib/classSessionSync";
 import { currentRuleStaffIds } from "@/lib/classStaff";
 import { applySeriesListChange, loadClassRules, seriesChangeDate } from "@/lib/classStaffServer";
+import { notifyRuleRemovals } from "@/lib/classStaffNotify";
 import { STAFF_TX, classStaffErrorResponse, seriesStaffPayload } from "@/lib/classStaffApi";
 
 const TIME_REGEX = /^\d{2}:\d{2}$/;
@@ -131,6 +132,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     ...(recurrenceEndDate !== undefined ? { recurrenceEndDate: recurrenceEndDate ? new Date(recurrenceEndDate) : null } : {}),
   };
   let updated: Awaited<ReturnType<typeof prisma.recurringClass.update>>;
+  let ruleChange: Awaited<ReturnType<typeof applySeriesListChange>> | null = null;
   if (rulesFrom && staffWrite !== undefined) {
     // Switched on: the coach change becomes rule changes from today (people no
     // longer listed come off, new people go on every class day, everyone else
@@ -141,7 +143,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     try {
       updated = await prisma.$transaction(async (tx) => {
         const row = await tx.recurringClass.update({ where: { id: params.id }, data: classData });
-        await applySeriesListChange(tx, { clubId: session.user.clubId, classId: params.id, date: from, before: staffBefore, after, byUserId: session.user.id });
+        ruleChange = await applySeriesListChange(tx, { clubId: session.user.clubId, classId: params.id, date: from, before: staffBefore, after, byUserId: session.user.id });
         return row;
       }, STAFF_TX);
     } catch (err) {
@@ -171,6 +173,16 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     recurrenceEndDate !== undefined;
 
   const sessionSync = scheduleChanged ? await syncFutureSessions(updated) : null;
+
+  // A coach left off the saved list comes off future class days: tell them,
+  // once each (after the commit, best-effort; never the person who saved it).
+  const changed = ruleChange as Awaited<ReturnType<typeof applySeriesListChange>> | null;
+  if (changed && rulesFrom) {
+    await notifyRuleRemovals({
+      clubId: session.user.clubId, classId: params.id, actorId: session.user.id, actorName: session.user.name,
+      date: rulesFrom, rulesBefore: changed.rulesBefore, rulesAfter: changed.rulesAfter,
+    });
+  }
 
   if (selfRemoved && staffWrite) {
     await notifySelfRemoval({

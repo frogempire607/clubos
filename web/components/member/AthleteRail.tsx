@@ -42,7 +42,8 @@ function ageFrom(dob: string | null | undefined): number | null {
 function toProfile(member: any, kind: "self" | "child"): AthleteProfile {
   const upcoming =
     (member?.bookings?.length ?? 0) +
-    (member?.attendanceRecords?.length ?? 0) +
+    // A class day the club cancelled is listed (marked Canceled) but is not "upcoming".
+    (member?.attendanceRecords?.filter((r: { classSession?: { canceled?: boolean } | null }) => !r.classSession?.canceled).length ?? 0) +
     (member?.privateBookings?.filter((b: { status: string }) => b.status === "CONFIRMED").length ?? 0);
   return {
     id: member.id,

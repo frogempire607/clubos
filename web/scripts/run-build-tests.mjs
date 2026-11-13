@@ -177,6 +177,24 @@ export const GATED = [
   ["scripts/finance-entities-tests.ts"],
   ["scripts/permission-behaviour-tests.ts"],
   ["scripts/staff-authz-tests.ts"],
+  // 2026-11 follow-ups (docs/OPEN-TASKS.md §5) — one file per fix.
+  // billing
+  ["scripts/paid-another-way-past-due-tests.ts"],
+  ["scripts/offline-supersede-tests.ts"],
+  ["scripts/stale-checkouts-tests.ts"],
+  ["scripts/payment-method-label-tests.ts"],
+  ["scripts/term-cap-tests.ts"],
+  ["scripts/guardian-check-tests.ts"],
+  ["scripts/paid-with-tests.ts"],
+  // events
+  ["scripts/event-duplicate-child-tests.ts"],
+  ["scripts/event-private-link-badge-tests.ts"],
+  ["scripts/event-unavailable-tests.ts"],
+  // schedule
+  ["scripts/schedule-cancelled-day-tests.ts"],
+  ["scripts/late-callout-format-tests.ts"],
+  ["scripts/coach-removed-notice-tests.ts"],
+  ["scripts/staff-review-role-tests.ts"],
   // communication, reports, nav, platform
   ["scripts/email-drafts-tests.ts"],
   ["scripts/email-recipients-tests.ts"],

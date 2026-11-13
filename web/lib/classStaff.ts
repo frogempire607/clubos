@@ -43,6 +43,7 @@
 //
 // Stage 2 (API): describeScopeChange (the plan in words), calloutNotice /
 //   lateCalloutBanner, coverageActionItems, richStaffRows, scheduleDayHref
+//   ruleRemovals, ruleRemovalWhen         who a recurring-rule change takes off future days
 //
 // Coverage
 //   isLateCallout(startInstant, now)      < 2h before the real start instant
@@ -1291,10 +1292,17 @@ export function describeScopeChange(args: {
   let removed: string[] = [];
   let heading: string;
 
+  // The role each ADDED coach comes on with — the Review step names it
+  // ("Sam is added as Assistant coach."), so nobody saves a coach in the wrong role.
+  const addedRole = new Map<string, string | null>();
   const swapLines = (roleChanges: string[]) => {
-    if (added.length === 1 && removed.length === 1) lines.push(`${name(added[0])} replaces ${name(removed[0])}.`);
+    const as = (id: string) => roleLabel(addedRole.get(id));
+    if (added.length === 1 && removed.length === 1) lines.push(`${name(added[0])} replaces ${name(removed[0])} as ${as(added[0])}.`);
     else {
-      if (added.length > 0) lines.push(`${joinAnd(added.map(name))} ${added.length === 1 ? "is" : "are"} added.`);
+      // One sentence per role, in the order the coaches were added.
+      const byRole = new Map<string, string[]>();
+      for (const id of added) byRole.set(as(id), [...(byRole.get(as(id)) ?? []), id]);
+      for (const [role, ids] of byRole) lines.push(`${joinAnd(ids.map(name))} ${ids.length === 1 ? "is added as" : "are added, each as"} ${role}.`);
       if (removed.length > 0) lines.push(`${joinAnd(removed.map(name))} ${removed.length === 1 ? "comes" : "come"} off.`);
     }
     lines.push(...roleChanges);
@@ -1305,7 +1313,7 @@ export function describeScopeChange(args: {
     const roles: string[] = [];
     const reopened: string[] = [];
     for (const op of plan.dayOps) {
-      if (op.op === "create" || op.op === "restore") added.push(op.userId);
+      if (op.op === "create" || op.op === "restore") { added.push(op.userId); addedRole.set(op.userId, op.roleName); }
       else if (op.op === "remove") removed.push(op.userId);
       else if (op.op === "role") roles.push(`${name(op.userId)} becomes ${roleLabel(op.roleName)}.`);
       else reopened.push(op.userId);
@@ -1328,6 +1336,7 @@ export function describeScopeChange(args: {
     }
     added = Array.from(afterSet.keys()).filter((id) => !beforeSet.has(id));
     removed = Array.from(beforeSet.keys()).filter((id) => !afterSet.has(id));
+    for (const id of added) addedRole.set(id, afterSet.get(id) ?? null);
     const roles: string[] = [];
     for (const [id, role] of afterSet) {
       if (beforeSet.has(id) && beforeSet.get(id) !== role) roles.push(`${name(id)} becomes ${roleLabel(role)}.`);
@@ -1371,9 +1380,76 @@ export function describeScopeChange(args: {
   return { heading, lines: changed ? lines : ["No change."], text, changed, added, removed, ruleOps: plan.ruleOps, dayOps: plan.dayOps };
 }
 
-/** 80 minutes → "1h 20m"; 45 → "45m"; 120 → "2h". */
+export type RuleRemoval = {
+  userId: string;
+  /** Class weekdays (0–6, ascending) this coach no longer coaches from `firstDay`. */
+  weekdays: number[];
+  /** Class weekdays they are still on after the change. */
+  staysOn: number[];
+  /** YYYY-MM-DD — the first class day they would have coached and now will not. Never before `fromYmd`. */
+  firstDay: string;
+  /** true = they lost every weekday the class runs on. */
+  everyDay: boolean;
+};
+
+/**
+ * Who a recurring-rule change takes OFF future class days — the diff between
+ * the rules before and after, from `fromYmd` on (pass today or the change
+ * date, whichever is later: a day before `fromYmd` is never reported).
+ *
+ * It looks at every weekday the class runs on and at every later date the
+ * rules change on, not just the first class day — so it also finds a
+ * Tuesday-only coach dropped by an "every class day, exactly this list" save
+ * made on a Monday, and a coach whose assignment had been made but had not
+ * started yet. One entry per coach, however many weekdays or days they lose.
+ */
+export function ruleRemovals(before: readonly StaffRule[], after: readonly StaffRule[], fromYmd: string, classDays: readonly number[]): RuleRemoval[] {
+  const from = fromYmd.slice(0, 10);
+  const valid = Array.from(new Set(classDays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))).sort((a, b) => a - b);
+  const days = valid.length ? valid : [0, 1, 2, 3, 4, 5, 6];
+  const points = Array.from(
+    new Set([from, ...[...before, ...after].flatMap((r) => [r.effectiveFrom, r.effectiveTo ? addDaysYmd(r.effectiveTo, 1) : ""]).filter((x) => x && x > from)]),
+  ).sort();
+  const lost = new Map<string, Map<number, string>>();
+  const kept = new Map<string, Set<number>>();
+  for (const d of days) {
+    for (const point of points) {
+      const day = addDaysYmd(point, (d - dowOfYmd(point) + 7) % 7);
+      const will = new Set(rulesForDay(after, day, d).map((r) => r.userId));
+      for (const id of will) kept.set(id, (kept.get(id) ?? new Set<number>()).add(d));
+      for (const r of rulesForDay(before, day, d)) {
+        if (will.has(r.userId)) continue;
+        const mine = lost.get(r.userId) ?? new Map<number, string>();
+        if (!mine.has(d) || day < mine.get(d)!) mine.set(d, day);
+        lost.set(r.userId, mine);
+      }
+    }
+  }
+  return Array.from(lost, ([userId, mine]) => {
+    const weekdays = Array.from(mine.keys()).sort((a, b) => a - b);
+    const staysOn = Array.from(kept.get(userId) ?? []).filter((d) => !mine.has(d)).sort((a, b) => a - b);
+    return { userId, weekdays, staysOn, firstDay: Array.from(mine.values()).sort()[0], everyDay: staysOn.length === 0 && weekdays.length === days.length };
+  });
+}
+
+/**
+ * A RuleRemoval as the words that follow the class name in a notice:
+ * "every class day from Oct 20" / "on Tuesdays from Oct 20 (still on Mondays and Thursdays)".
+ */
+export function ruleRemovalWhen(r: RuleRemoval): string {
+  const from = `from ${fmtMonthDay(r.firstDay)}`;
+  if (r.everyDay) return `every class day ${from}`;
+  const still = r.staysOn.length > 0 ? ` (still on ${joinAnd(r.staysOn.map((d) => WEEKDAY_PLURAL[d]))})` : "";
+  return `on ${joinAnd(r.weekdays.map((d) => WEEKDAY_PLURAL[d]))} ${from}${still}`;
+}
+
+/**
+ * 80 minutes → "1h 20m"; 45 → "45m"; 120 → "2h". Whole minutes are counted
+ * DOWN, never rounded: 1h 59m 30s is "1h 59m", not "2h" — a call-out inside the
+ * 2-hour late window must never read as "starts in 2h".
+ */
 export function fmtCountdown(ms: number): string {
-  const mins = Math.max(0, Math.round(Math.abs(ms) / 60000));
+  const mins = Math.max(0, Math.floor(Math.abs(ms) / 60000));
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   if (h === 0) return `${m}m`;
@@ -1407,6 +1483,8 @@ export type CalloutNoticeInput = {
 /** The banner line a LATE call-out carries: "LATE CALL-OUT — class starts in 1h 20m". */
 export function lateCalloutBanner(startInstant: Date, now: Date): string {
   const diff = startInstant.getTime() - now.getTime();
+  // Under a minute either way there is no whole minute to show.
+  if (Math.abs(diff) < 60000) return diff > 0 ? "LATE CALL-OUT — class starts in under 1m" : "LATE CALL-OUT — class has just started";
   return diff > 0 ? `LATE CALL-OUT — class starts in ${fmtCountdown(diff)}` : `LATE CALL-OUT — class started ${fmtCountdown(diff)} ago`;
 }
 
