@@ -20,10 +20,11 @@ import { recordSubscriptionEvent, SUBSCRIPTION_EVENT_KIND, SUBSCRIPTION_EVENT_SO
 import { chargeDateMovePlan, type MoveRow } from "@/lib/chargeDate";
 import { resolveDatesEdit } from "@/lib/membershipPanel";
 import { syncOneSubscription } from "@/lib/stripeSync";
+import { SETTLED_INVOICE_MARK } from "@/lib/invoiceOutOfBand";
 import {
-  type MoneyRow, type PmFacts,
+  type MoneyRow, type PmFacts, type PastDueInvoice, isPastDue,
   paidAnotherWayPlan, waivePlan, refundable, checkRefund, switchToCashPlan, switchToCardPlan, autoRenewPlan,
-  paymentMethodLabel, fmtDate, fmtShort, money2,
+  paymentMethodLabel, chargePmFacts, fmtDate, fmtShort, money2,
 } from "@/lib/membershipMoney";
 
 export type ActionResult =
@@ -34,6 +35,11 @@ export type ActionResult =
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 const sameDay = (a: Date | null | undefined, b: string | null | undefined) => !!a && !!b && Math.abs(a.getTime() - new Date(b).getTime()) < 86_400_000;
 const stamp = () => new Date().toISOString().slice(0, 10);
+
+/** The marker a cash row carries when it settled a Stripe invoice out-of-band.
+ *  The invoice.paid webhook looks for it so that money is never written twice
+ *  (and never as card revenue). Keep the wording and the reader in step. */
+export const settledNote = (invoiceId: string) => `${SETTLED_INVOICE_MARK} ${invoiceId} outside Stripe (marked paid, no card charge).`;
 
 // ── Loading ──────────────────────────────────────────────────────────────────
 
@@ -146,6 +152,42 @@ export async function liveStripeFacts(stripeSubscriptionId: string, stripeAccoun
   }
 }
 
+// ── What each past payment was paid with (read-only) ─────────────────────────
+
+/**
+ * The card / wallet behind each Stripe payment in a list, keyed by OUR
+ * transaction id. Read from the CHARGE itself — the immutable record of that
+ * payment — not from the card on file, which may have been replaced since and
+ * may belong to a different payer. Never throws; a payment Stripe doesn't
+ * answer for in time is simply absent (the list then says "Card").
+ */
+export async function chargeMethodsFor(
+  txs: { id: string; stripeChargeId: string | null; stripePaymentIntentId: string | null }[],
+  stripeAccount: string,
+  timeoutMs = 2500,
+): Promise<Map<string, PmFacts>> {
+  const out = new Map<string, PmFacts>();
+  const one = async (t: (typeof txs)[number]) => {
+    try {
+      let charge: Stripe.Charge | null = null;
+      if (t.stripeChargeId) {
+        charge = await stripe.charges.retrieve(t.stripeChargeId, {}, { stripeAccount });
+      } else if (t.stripePaymentIntentId) {
+        const pi = await stripe.paymentIntents.retrieve(t.stripePaymentIntentId, { expand: ["latest_charge"] }, { stripeAccount });
+        const lc = (pi as unknown as { latest_charge?: unknown }).latest_charge;
+        charge = lc && typeof lc === "object" ? (lc as Stripe.Charge) : null;
+      }
+      const facts = chargePmFacts(charge?.payment_method_details);
+      if (facts) out.set(t.id, facts);
+    } catch (e) {
+      console.error("[membershipMoney] charge method read failed", t.id, e);
+    }
+  };
+  const work = Promise.all(txs.filter((t) => t.stripeChargeId || t.stripePaymentIntentId).slice(0, 8).map(one));
+  await Promise.race([work, new Promise<void>((r) => setTimeout(r, timeoutMs))]);
+  return out;
+}
+
 // ── Skipping exactly one invoice ─────────────────────────────────────────────
 //
 // WHY A ONE-TIME 100% COUPON, NOT pause_collection:
@@ -198,11 +240,27 @@ async function removeSkipDiscount(subId: string, acct: string, discountIds: stri
   }
 }
 
+// ── The unpaid invoice behind a past-due membership ──────────────────────────
+
+/** The newest OPEN invoice on the subscription, with the service period its
+ *  line bought. Throws when Stripe can't be reached — the caller refuses
+ *  rather than guessing which month is owed. */
+async function openPastDueInvoice(subId: string, acct: string): Promise<PastDueInvoice | null> {
+  const open = await stripe.invoices.list({ subscription: subId, status: "open", limit: 10 }, { stripeAccount: acct });
+  const inv = open.data.sort((a, b) => (b.created ?? 0) - (a.created ?? 0))[0];
+  if (!inv?.id) return null;
+  const line = inv.lines?.data?.find((l) => l?.period?.end) ?? null;
+  const d = (secs: number | null | undefined) => (secs && Number.isFinite(secs) ? new Date(secs * 1000) : null);
+  return { id: inv.id, amountDue: (inv.amount_due ?? 0) / 100, periodStart: d(line?.period?.start), periodEnd: d(line?.period?.end) };
+}
+
 // ── 1. They paid another way this time / Record a payment ────────────────────
 
 export async function paidAnotherWay(input: {
   clubId: string; memberId: string; subscriptionId: string; actorUserId: string | null;
   method: "CASH" | "CHECK"; amount: number | null; reference: string | null; preview: boolean; expectedSkipAt: string | null;
+  /** Past-due only: the invoice id the preview showed. A different unpaid invoice now = refuse. */
+  expectedInvoiceId?: string | null;
 }): Promise<ActionResult> {
   const row = await loadRow(input.clubId, input.memberId, input.subscriptionId);
   if (!row) return { ok: false, status: 404, code: "NOT_FOUND", error: "No live membership found." };
@@ -212,9 +270,21 @@ export async function paidAnotherWay(input: {
   const m = toMoneyRow(row, live);
   const amount = input.amount ?? m.price;
   const pmLabel = paymentMethodLabel(live?.pm);
-  const plan = paidAnotherWayPlan(m, { method: input.method, amount, pmLabel, nextInvoiceAt: live?.nextInvoiceAt ?? null, alreadySkippedAt: live?.skipAt ?? null, now: new Date() });
+  // Past due → the cash settles the FAILED month's invoice (see paidAnotherWayPlan).
+  let pastDueInvoice: PastDueInvoice | null = null;
+  if (row.stripeSubscriptionId && isPastDue(m)) {
+    try {
+      pastDueInvoice = await openPastDueInvoice(row.stripeSubscriptionId, club!.stripeAccountId!);
+    } catch (e) {
+      return { ok: false, status: 502, code: "STRIPE_UNREACHABLE", error: `Stripe couldn't be reached to check what's unpaid. Nothing was recorded — try again in a minute: ${String(e)}` };
+    }
+  }
+  const plan = paidAnotherWayPlan(m, { method: input.method, amount, pmLabel, nextInvoiceAt: live?.nextInvoiceAt ?? null, alreadySkippedAt: live?.skipAt ?? null, now: new Date(), pastDueInvoice });
   if (!plan.ok) return { ok: false, status: 409, code: plan.code, error: plan.error };
-  if (input.preview) return { ok: true, preview: true, sentence: plan.sentence, consequence: plan.consequence, facts: { skipAt: iso(plan.skipAt), coversStart: iso(plan.coversStart), coversEnd: iso(plan.coversEnd), amount } };
+  if (input.preview) return { ok: true, preview: true, sentence: plan.sentence, consequence: plan.consequence, facts: { skipAt: iso(plan.skipAt), coversStart: iso(plan.coversStart), coversEnd: iso(plan.coversEnd), amount, settleInvoiceId: plan.settleInvoiceId, pastDueAmount: pastDueInvoice?.amountDue ?? null } };
+  if (plan.settleInvoiceId && plan.settleInvoiceId !== (input.expectedInvoiceId ?? null)) {
+    return { ok: false, status: 409, code: "STALE", error: "The unpaid payment changed while this sheet was open — review it again." };
+  }
   if (plan.skipAt && !sameDay(plan.skipAt, input.expectedSkipAt)) {
     return { ok: false, status: 409, code: "STALE", error: `The next charge is now ${fmtDate(plan.skipAt)} — review the sheet again.` };
   }
@@ -241,12 +311,24 @@ export async function paidAnotherWay(input: {
         paymentSource: input.method, paymentMethod: input.method, reconciliationStatus: "OFFLINE", manual: true, txDate: new Date(),
         recordedByUserId: input.actorUserId,
         description: `${planName} — ${row.optionLabel} — paid by ${m2} (${fmtShort(plan.coversStart)} – ${fmtShort(plan.coversEnd)})`,
-        notes: `Covers ${plan.coversStart.toISOString().slice(0, 10)} – ${plan.coversEnd.toISOString().slice(0, 10)}.${input.reference ? ` Ref: ${input.reference}.` : ""}${plan.skipAt ? ` The ${plan.skipAt.toISOString().slice(0, 10)} card charge was skipped so they aren't charged twice (Stripe coupon ${couponId}).` : ""}`,
+        notes: `Covers ${plan.coversStart.toISOString().slice(0, 10)} – ${plan.coversEnd.toISOString().slice(0, 10)}.${input.reference ? ` Ref: ${input.reference}.` : ""}${plan.skipAt ? ` The ${plan.skipAt.toISOString().slice(0, 10)} card charge was skipped so they aren't charged twice (Stripe coupon ${couponId}).` : ""}${plan.settleInvoiceId ? ` ${settledNote(plan.settleInvoiceId)}` : ""}`,
         coversPeriods: 1, coversStart: plan.coversStart, coversEnd: plan.coversEnd,
       },
       select: { id: true },
     });
     txId = tx.id;
+    // Past due: close the failed invoice in Stripe AFTER the cash row exists
+    // (the invoice.paid webhook recognises an out-of-band payment and must
+    // find this row, not write card revenue). If Stripe refuses, the cash row
+    // is taken back out — it is a manual row seconds old, nothing else saw it.
+    if (plan.settleInvoiceId) {
+      try {
+        await stripe.invoices.pay(plan.settleInvoiceId, { paid_out_of_band: true }, { stripeAccount: club!.stripeAccountId!, idempotencyKey: `aox-oob-${plan.settleInvoiceId}` });
+      } catch (e) {
+        await prisma.transaction.delete({ where: { id: txId } }).catch((d) => console.error("[membershipMoney] could not remove the cash row after Stripe refused", txId, d));
+        return { ok: false, status: 502, code: "STRIPE_FAILED", error: `Stripe didn't accept marking the unpaid payment as paid — nothing was recorded: ${(e as { message?: string })?.message ?? String(e)}` };
+      }
+    }
     // How far the money reaches. On a Stripe row this is the ONE hand-written
     // paid-through: the period the cash bought is otherwise invisible (the $0
     // invoice never reaches invoice.paid), and the next real charge overwrites it.
@@ -254,6 +336,9 @@ export async function paidAnotherWay(input: {
       where: { id: row.id },
       data: {
         paidThroughDate: plan.paidThroughAfter,
+        // Settled past-due month: the row is live again now; the webhook that
+        // follows writes the same values (idempotent).
+        ...(plan.settleInvoiceId ? { status: "active", stripeStatus: "active" } : {}),
         ...(!row.stripeSubscriptionId && (row.currentPeriodEnd == null || row.currentPeriodEnd < new Date()) ? { currentPeriodEnd: plan.coversEnd } : {}),
       },
     });
@@ -265,18 +350,22 @@ export async function paidAnotherWay(input: {
   await recordSubscriptionEvent({
     clubId: input.clubId, memberSubscriptionId: row.id, memberId: input.memberId, kind: SUBSCRIPTION_EVENT_KIND.PAYMENT_RECORDED,
     toPlan: row.optionLabel, toAmount: amount, actorUserId: input.actorUserId, source: SUBSCRIPTION_EVENT_SOURCE.OWNER_ACTION,
-    detail: { route: "membership/paid-another-way", method: input.method, amount, transactionId: txId, coversStart: iso(plan.coversStart), coversEnd: iso(plan.coversEnd), skippedChargeAt: iso(plan.skipAt), stripeCouponId: couponId },
+    detail: { route: "membership/paid-another-way", method: input.method, amount, transactionId: txId, coversStart: iso(plan.coversStart), coversEnd: iso(plan.coversEnd), skippedChargeAt: iso(plan.skipAt), stripeCouponId: couponId, settledInvoiceId: plan.settleInvoiceId },
   });
   await writeBillingAudit({
-    clubId: input.clubId, memberId: input.memberId, actorUserId: input.actorUserId, action: plan.skipAt ? "PAID_ANOTHER_WAY_CHARGE_SKIPPED" : "OFFLINE_PAYMENT_RECORDED",
-    before: { paidThroughDate: row.paidThroughDate }, after: { paidThroughDate: plan.paidThroughAfter, transactionId: txId, amount, method: input.method, skippedChargeAt: iso(plan.skipAt), stripeCouponId: couponId },
-    note: plan.skipAt
+    clubId: input.clubId, memberId: input.memberId, actorUserId: input.actorUserId, action: plan.settleInvoiceId ? "PAID_ANOTHER_WAY_PAST_DUE_SETTLED" : plan.skipAt ? "PAID_ANOTHER_WAY_CHARGE_SKIPPED" : "OFFLINE_PAYMENT_RECORDED",
+    before: { paidThroughDate: row.paidThroughDate, status: row.status }, after: { paidThroughDate: plan.paidThroughAfter, transactionId: txId, amount, method: input.method, skippedChargeAt: iso(plan.skipAt), stripeCouponId: couponId, settledInvoiceId: plan.settleInvoiceId },
+    note: plan.settleInvoiceId
+      ? `${money2(amount)} ${m2} recorded for the past-due ${fmtShort(plan.coversStart)} – ${fmtShort(plan.coversEnd)} payment; Stripe invoice ${plan.settleInvoiceId} (${money2(pastDueInvoice?.amountDue ?? 0)}) marked paid outside Stripe — no card charge.`
+      : plan.skipAt
       ? `${money2(amount)} ${m2} recorded for ${fmtShort(plan.coversStart)} – ${fmtShort(plan.coversEnd)}; the ${fmtShort(plan.skipAt)} Stripe charge is skipped (one-time 100% coupon ${couponId}).`
       : `${money2(amount)} ${m2} recorded for ${fmtShort(plan.coversStart)} – ${fmtShort(plan.coversEnd)}; paid through ${fmtDate(plan.paidThroughAfter)}.`,
   });
   return {
     ok: true,
-    message: plan.skipAt
+    message: plan.settleInvoiceId
+      ? `${money2(amount)} ${m2} recorded for the past-due payment. The card won't be charged for it, and the membership is active again.`
+      : plan.skipAt
       ? `${money2(amount)} ${m2} recorded. The ${fmtShort(plan.skipAt)} charge is skipped — ${row.member.firstName} won't be charged for that month.`
       : `${money2(amount)} ${m2} recorded — ${row.member.firstName} is paid through ${fmtDate(plan.paidThroughAfter)}.`,
   };

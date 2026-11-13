@@ -14,6 +14,11 @@ import { paidAnotherWay } from "@/lib/membershipMoneyServer";
 // charged twice (lib/membershipMoneyServer — one-time 100% coupon). Plan,
 // price, commitment and billing date are untouched.
 //
+// PAST DUE: the cash is for the month whose card charge failed. That unpaid
+// Stripe invoice is marked paid outside Stripe (no charge, retries stop) and
+// the next charge is left alone. The real call must send back the
+// `expectedInvoiceId` the preview showed.
+//
 // `preview: true` returns the sentences and changes nothing. A real call must
 // send back the `expectedSkipAt` the preview showed; a moved charge date is
 // refused rather than skipping a different invoice than the one confirmed.
@@ -25,6 +30,8 @@ const schema = z.object({
   reference: z.string().max(120).optional().nullable(),
   preview: z.boolean().optional().default(false),
   expectedSkipAt: z.string().optional().nullable(),
+  // Past-due memberships: the unpaid invoice the preview showed.
+  expectedInvoiceId: z.string().max(120).optional().nullable(),
   confirm: z.boolean().optional(),
 });
 
@@ -44,7 +51,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!data.preview && data.confirm !== true) return NextResponse.json({ error: "This action requires explicit confirmation." }, { status: 400 });
   const r = await paidAnotherWay({
     clubId: session.user.clubId, memberId: id, subscriptionId: data.subscriptionId, actorUserId: session.user.id ?? null,
-    method: data.method, amount: data.amount ?? null, reference: data.reference ?? null, preview: data.preview, expectedSkipAt: data.expectedSkipAt ?? null,
+    method: data.method, amount: data.amount ?? null, reference: data.reference ?? null, preview: data.preview, expectedSkipAt: data.expectedSkipAt ?? null, expectedInvoiceId: data.expectedInvoiceId ?? null,
   });
   if (!r.ok) return NextResponse.json({ error: r.error, code: r.code }, { status: r.status });
   return NextResponse.json(r);

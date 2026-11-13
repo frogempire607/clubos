@@ -111,6 +111,61 @@ export function paymentMethodLabel(pm: PmFacts | null | undefined): string | nul
   return pm.last4 ? `${word} •••• ${pm.last4}` : word;
 }
 
+/** The compact form a payments list uses: "Visa ·4242", "Cash App Pay", "Apple Pay (Visa ·4242)", "Bank account ·6789". */
+export function paymentMethodShort(pm: PmFacts | null | undefined): string | null {
+  const l = paymentMethodLabel(pm);
+  return l ? l.replace(/ •••• /g, " ·") : null;
+}
+
+const OFFLINE_METHOD_WORD: Record<string, string> = {
+  CASH: "Cash", CHECK: "Check", COMP: "Waived / comp", EXTERNAL_READER: "Card reader", MANUAL_ADJUSTMENT: "Manual", INVOICE: "Invoice",
+};
+/** "Cash", "Check", "Card reader"… for money that never went through Stripe. */
+export function offlineMethodWord(source: string | null | undefined): string | null {
+  const k = (source ?? "").toUpperCase();
+  if (!k || k === "STRIPE") return null;
+  return OFFLINE_METHOD_WORD[k] ?? k.charAt(0) + k.slice(1).toLowerCase().replace(/_/g, " ");
+}
+
+/**
+ * What ONE payment in a list was paid with. A Stripe payment names the actual
+ * card or wallet when Stripe told us ("Visa ·4242"); when it didn't answer it
+ * says "Card" — never another payment's card, and never the card on file today
+ * (that one may have been replaced since).
+ */
+export function paymentRowMethod(p: { source: string | null | undefined; pm?: PmFacts | null }): string {
+  return offlineMethodWord(p.source) ?? paymentMethodShort(p.pm) ?? "Card";
+}
+
+/** A charge's payment_method_details → the facts paymentMethodLabel reads. */
+export function chargePmFacts(d: unknown): PmFacts | null {
+  const det = d as { type?: string | null; card?: { brand?: string | null; last4?: string | null; wallet?: { type?: string | null } | null } | null; us_bank_account?: { last4?: string | null } | null } | null | undefined;
+  if (!det?.type) return null;
+  return { type: det.type, brand: det.card?.brand ?? null, last4: det.card?.last4 ?? det.us_bank_account?.last4 ?? null, wallet: det.card?.wallet?.type ?? null };
+}
+
+export type PaidWith = { text: string; yours: boolean; last4: string | null };
+
+/**
+ * Parent portal: the card that ACTUALLY pays a membership — the subscription's
+ * own payment method — which is not always the athlete's card on file. Jason
+ * Reynolds pays for eight athletes from one card; each of them used to show
+ * whatever card happened to be saved on their own profile, or none.
+ *
+ * Cards belong to people (lib/payerWallet). The digits are shown only to the
+ * person who pays; anyone else looking after the athlete sees WHO pays, not
+ * their card number.
+ */
+export function paidWithLine(input: { pm: PmFacts | null; payerUserId: string | null; payerName: string | null; viewerUserId: string }): PaidWith | null {
+  const short = paymentMethodShort(input.pm);
+  const someoneElse = !!input.payerUserId && input.payerUserId !== input.viewerUserId;
+  if (someoneElse) {
+    return { text: input.payerName ? `${input.payerName}'s card` : "Another person's card", yours: false, last4: null };
+  }
+  if (!short) return null;
+  return { text: input.payerUserId ? `${short} · your card` : short, yours: true, last4: input.pm?.last4 ?? null };
+}
+
 /** "Cash App Pay (via Stripe) · charged automatically on the 27th" / "Cash — you collect it". */
 export function howTheyPay(row: MoneyRow, opts: { pmLabel: string | null; offlineMethod?: "CASH" | "CHECK" | null }): string {
   if (row.price <= 0) return row.deliberateFree ? "Free — nothing to collect" : "$0 — nothing to collect";
@@ -224,28 +279,59 @@ export function skipPlan(
 
 // ── "They paid another way" / "Record a payment" ─────────────────────────────
 
+/** The unpaid Stripe invoice behind a past-due membership (read live, never guessed). */
+export type PastDueInvoice = { id: string; amountDue: number; periodStart: Date | null; periodEnd: Date | null };
+
+export const isPastDue = (row: Pick<MoneyRow, "status" | "stripeStatus">) =>
+  row.status === "past_due" || row.stripeStatus === "past_due" || row.stripeStatus === "unpaid";
+
 export type PaidAnotherWayPlan =
-  | { ok: true; mode: "SKIP_CARD_CHARGE" | "OFFLINE"; coversStart: Date; coversEnd: Date; paidThroughAfter: Date; skipAt: Date | null; sentence: string; consequence: string }
+  | {
+      ok: true; mode: "SKIP_CARD_CHARGE" | "OFFLINE" | "SETTLE_PAST_DUE"; coversStart: Date; coversEnd: Date; paidThroughAfter: Date; skipAt: Date | null;
+      /** SETTLE_PAST_DUE only: the unpaid invoice that gets marked paid outside Stripe. */
+      settleInvoiceId: string | null;
+      sentence: string; consequence: string;
+    }
   | { ok: false; code: string; error: string };
 
 export function paidAnotherWayPlan(
   row: MoneyRow,
-  opts: { method: "CASH" | "CHECK"; amount: number; pmLabel: string | null; nextInvoiceAt: Date | null; alreadySkippedAt: Date | null; now: Date },
+  opts: { method: "CASH" | "CHECK"; amount: number; pmLabel: string | null; nextInvoiceAt: Date | null; alreadySkippedAt: Date | null; now: Date; pastDueInvoice?: PastDueInvoice | null },
 ): PaidAnotherWayPlan {
   if (!(opts.amount > 0)) return { ok: false, code: "AMOUNT", error: "Enter the amount they handed over." };
   const m = opts.method === "CHECK" ? "check" : "cash";
+  // PAST DUE (2026-11): the month they are paying for is the one whose card
+  // charge FAILED, not the upcoming one. Skipping the next charge would leave
+  // Stripe retrying the failed invoice — the family would hand over cash and
+  // still be charged. So the cash settles THAT invoice: it is marked paid
+  // outside Stripe, the retries stop, and the next charge is left alone.
+  if (row.hasStripe && isPastDue(row) && !row.pausedAt && row.price > 0) {
+    const inv = opts.pastDueInvoice ?? null;
+    if (!inv) {
+      return { ok: false, code: "PAST_DUE", error: "The last card payment failed, but Stripe shows no unpaid invoice to settle. Use Sync from Stripe, then try again." };
+    }
+    const coversEnd = inv.periodEnd ?? row.currentPeriodEnd ?? null;
+    if (!coversEnd) return { ok: false, code: "NO_PERIOD", error: "Stripe didn't say which month the unpaid invoice is for. Use Sync from Stripe, then try again." };
+    const coversStart = inv.periodStart && inv.periodStart.getTime() < coversEnd.getTime() ? inv.periodStart : periodBoundary(coversEnd, row.billingPeriod, -1);
+    const short = opts.amount + 0.005 < inv.amountDue;
+    return {
+      ok: true, mode: "SETTLE_PAST_DUE", coversStart, coversEnd, paidThroughAfter: coversEnd, skipAt: null, settleInvoiceId: inv.id,
+      sentence: `Records ${money(opts.amount)} ${m} for the past-due ${fmtShort(coversStart)} – ${fmtDate(coversEnd)} payment and marks it paid, so ${opts.pmLabel ?? "the saved payment method"} is not charged for it.${short ? ` Stripe was owed ${money2(inv.amountDue)} — the whole payment is closed, not just ${money(opts.amount)} of it.` : ""}`,
+      consequence: `the unpaid ${money2(inv.amountDue)} invoice is marked paid outside Stripe — nothing is charged and the retries stop. The membership goes back to active. The next card charge is not skipped: it runs on ${fmtDate(coversEnd)} as usual.`,
+    };
+  }
   if (row.hasStripe) {
     const s = skipPlan(row, { nextInvoiceAt: opts.nextInvoiceAt, alreadySkippedAt: opts.alreadySkippedAt, now: opts.now });
     if (!s.ok) return s;
     return {
-      ok: true, mode: "SKIP_CARD_CHARGE", coversStart: s.coversStart, coversEnd: s.coversEnd, paidThroughAfter: s.coversEnd, skipAt: s.at,
+      ok: true, mode: "SKIP_CARD_CHARGE", coversStart: s.coversStart, coversEnd: s.coversEnd, paidThroughAfter: s.coversEnd, skipAt: s.at, settleInvoiceId: null,
       sentence: `Records ${money(opts.amount)} ${m} for ${fmtShort(s.coversStart)} – ${fmtDate(s.coversEnd)}, and skips the ${fmtShort(s.at)} charge on ${opts.pmLabel ?? "their saved payment method"} so they are not charged twice.`,
       consequence: `the ${fmtShort(s.at)} invoice is $0 (a one-time 100% discount) — nothing is charged. Card billing picks up again on ${fmtDate(s.resumesAt)}. Plan, price, commitment and billing date don't change.`,
     };
   }
   const c = resolveCoverage({ paidThroughDate: row.paidThroughDate, currentPeriodEnd: row.currentPeriodEnd, startDate: row.startDate, billingPeriod: row.billingPeriod, periods: 1, now: opts.now });
   return {
-    ok: true, mode: "OFFLINE", coversStart: c.start, coversEnd: c.end, paidThroughAfter: c.end, skipAt: null,
+    ok: true, mode: "OFFLINE", coversStart: c.start, coversEnd: c.end, paidThroughAfter: c.end, skipAt: null, settleInvoiceId: null,
     sentence: `Records ${money(opts.amount)} ${m} for ${fmtShort(c.start)} – ${fmtDate(c.end)}. Paid through moves ${row.paidThroughDate ? `from ${fmtShort(row.paidThroughDate)} ` : ""}to ${fmtDate(c.end)}.`,
     consequence: "nothing — billed offline. The payment shows in Financials and Reports as cash received.",
   };

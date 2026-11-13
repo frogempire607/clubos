@@ -4,6 +4,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveCardSnapshot, type CardSnapshot } from "@/lib/memberCard";
+import { liveStripeFacts } from "@/lib/membershipMoneyServer";
+import { paidWithLine, type PaidWith } from "@/lib/membershipMoney";
 import { feeBreakdown, feePolicyFor, passesAnyFee } from "@/lib/fees";
 import { displayStripeStatus } from "@/lib/chargeDate";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
@@ -36,6 +38,9 @@ const memberSelect = Prisma.validator<Prisma.MemberSelect>()({
   status: true,
   stripeCustomerId: true,
   stripeSetupCustomerId: true,
+  // Fallback for "who pays" on memberships created before the subscription
+  // itself recorded its payer. Used only to decide whose card digits to hide.
+  responsiblePayerUserId: true,
   subscriptions: {
     where: { status: { in: ["active", "past_due", "pending"] } },
     select: {
@@ -45,6 +50,7 @@ const memberSelect = Prisma.validator<Prisma.MemberSelect>()({
       billingPeriod: true,
       billingType: true,
       stripeSubscriptionId: true,
+      payerUserId: true,
       paidThroughDate: true,
       billingAnchorDate: true,
       endDate: true,
@@ -181,9 +187,33 @@ export async function GET() {
       return p ? `${p.m.firstName} ${p.m.lastName}`.trim() : "another athlete";
     })();
 
+  // Who pays each membership (the subscription's own payer), by name.
+  const subPayerIds = Array.from(new Set(
+    persons.map(({ m }) => pickActive(m.subscriptions)?.payerUserId ?? m.responsiblePayerUserId).filter((x): x is string => !!x),
+  ));
+  const subPayerNames = new Map(
+    (subPayerIds.length
+      ? await prisma.user.findMany({ where: { id: { in: subPayerIds }, clubId }, select: { id: true, firstName: true, lastName: true } })
+      : []
+    ).map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]),
+  );
+
   const people = await Promise.all(
     persons.map(async ({ m, isSelf }) => {
       const active = pickActive(m.subscriptions);
+      // The card that actually pays THIS membership: read from the Stripe
+      // subscription itself, not from the athlete's card on file (which can be
+      // a different card, a different person's, or missing altogether).
+      let paidWith: PaidWith | null = null;
+      if (active?.stripeSubscriptionId && stripeAccountId) {
+        const live = await liveStripeFacts(active.stripeSubscriptionId, stripeAccountId, 3000);
+        const payerUserId = active.payerUserId ?? m.responsiblePayerUserId ?? null;
+        paidWith = paidWithLine({
+          pm: live?.pm ?? null, payerUserId,
+          payerName: payerUserId ? subPayerNames.get(payerUserId) ?? null : null,
+          viewerUserId: session.user.id,
+        });
+      }
       const customerId = m.stripeSetupCustomerId || m.stripeCustomerId || null;
       let card: CardSnapshot | null = null;
       if (customerId && stripeAccountId) {
@@ -296,6 +326,7 @@ export async function GET() {
         subscriptionId: active?.id ?? null,
         hasCard: !!customerId,
         card,
+        paidWith,
       };
     }),
   );

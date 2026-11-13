@@ -167,6 +167,9 @@ type PersonBilling = {
   // `label` / `type` arrive once lib/memberCard names the method ("Cash App
   // Pay", "Link"); brand ···· last4 is the fallback.
   card: { brand: string; last4: string; cardholder: string | null; label?: string | null; type?: string | null } | null;
+  // The card that actually pays this membership (the subscription's own
+  // payment method). Digits only when it's the viewer's card.
+  paidWith?: { text: string; yours: boolean; last4: string | null } | null;
 };
 type BillingResponse = {
   people: PersonBilling[];
@@ -1016,6 +1019,11 @@ export default function MemberAccountPage() {
                       const cardLine = p.card
                         ? `${p.card.label || `${prettyBrand(p.card.brand)} ···· ${p.card.last4}`}${p.card.cardholder ? ` · ${p.card.cardholder}` : ""}`
                         : "Cash / check at club";
+                      // The membership's own card wins the headline: it is what
+                      // gets charged. The card on file moves to its own row when
+                      // it is a different card.
+                      const headline = p.paidWith ? `Membership paid with ${p.paidWith.text}` : cardLine;
+                      const onFileDiffers = !!p.paidWith && !!p.card && (!p.paidWith.yours || p.paidWith.last4 !== p.card.last4);
                       // A transfer must open this gate on its own. The athlete
                       // who transferred a membership AWAY has no plan, no price
                       // and no next billing — every other term here is false —
@@ -1028,6 +1036,7 @@ export default function MemberAccountPage() {
                         (showPrice && p.price != null) ||
                         (showNextBilling && (!!p.nextBilling || p.billingMode === "OFFLINE")) ||
                         (showInvoices && !!p.lastPayment) ||
+                        onFileDiffers ||
                         hasTransfers;
                       return (
                         <div key={p.memberId} className="py-3 border-t border-stone-100 first:border-t-0 first:pt-2">
@@ -1037,7 +1046,7 @@ export default function MemberAccountPage() {
                               <p className="text-[12.5px] font-semibold text-stone-900 truncate">
                                 {p.isSelf ? "You" : p.fullName}
                               </p>
-                              <p className="text-[11.5px] text-stone-500 truncate">{cardLine}</p>
+                              <p className="text-[12px] text-stone-500 truncate">{headline}</p>
                             </div>
                             {p.hasCard ? (
                               showInvoices ? (
@@ -1066,6 +1075,7 @@ export default function MemberAccountPage() {
                           {showDetails && (
                             <dl className="mt-2 ml-[38px] space-y-1">
                               {showPlan && p.plan && <ProfileRow label="Plan" value={p.plan} />}
+                              {onFileDiffers && <ProfileRow label="Card on file" value={`${cardLine} — used for other purchases`} />}
                               {showPlan && p.statusLabel && (
                                 <ProfileRow
                                   label="Status"
