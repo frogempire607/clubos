@@ -301,7 +301,7 @@ function DocViewer({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[92dvh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between sticky top-0 bg-white z-10">
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-base font-semibold text-stone-900">{doc.title}</h2>

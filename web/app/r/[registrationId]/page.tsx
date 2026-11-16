@@ -18,7 +18,7 @@ export default async function RegistrationConfirmationFallbackPage({
   if (!loaded) notFound();
 
   return (
-    <div className="min-h-screen bg-stone-50 py-8 px-4">
+    <div className="min-h-dvh bg-stone-50 py-8 px-4">
       <RegistrationCard ctx={loaded.ctx} timeZone={loaded.timeZone} />
     </div>
   );

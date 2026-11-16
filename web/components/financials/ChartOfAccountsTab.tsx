@@ -404,7 +404,7 @@ function AccountModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
           <h3 className="text-sm font-medium text-text-primary">
             {mode === "create" ? `Add an account` : `Edit ${account!.number} ${account!.name}`}

@@ -125,7 +125,7 @@ function MemberDmThreadInner() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-12rem)] md:h-[calc(100vh-9rem)]">
+    <div className="flex flex-col h-[calc(100dvh-12rem)] md:h-[calc(100dvh-9rem)]">
       <div className="flex items-center gap-3 mb-3 flex-shrink-0">
         <Link href="/member/messages" aria-label="Back to messages" className="text-stone-500 hover:text-stone-900 inline-flex items-center">
           <ArrowLeft className="h-5 w-5" strokeWidth={2} />

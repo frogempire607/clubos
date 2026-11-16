@@ -340,7 +340,7 @@ function EngagementModal({
 }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[90dvh] overflow-y-auto shadow-xl">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <div>
             <h2 className="text-lg font-semibold text-text-primary">Announcement engagement</h2>
@@ -502,7 +502,7 @@ function AnnouncementModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90dvh] overflow-y-auto shadow-xl">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <h2 className="text-lg font-semibold text-text-primary">
             {isEdit ? "Edit announcement" : "New announcement"}

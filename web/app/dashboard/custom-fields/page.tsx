@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ListChecks, ArrowLeft } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
@@ -49,9 +50,9 @@ export default function CustomFieldsPage() {
   return (
     <div className="p-8 max-w-3xl">
       <div className="mb-6">
-        <a href="/dashboard/members" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary">
+        <Link href="/dashboard/members" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary">
           <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} /> Back to members
-        </a>
+        </Link>
       </div>
 
       <PageHeader

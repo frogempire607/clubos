@@ -123,7 +123,7 @@ function AnnouncementViewer({ announcement, onClose }: { announcement: Announcem
   }
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl w-full max-w-xl max-h-[90dvh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-stone-200 flex items-start justify-between sticky top-0 bg-white">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-stone-900">{announcement.title}</h2>

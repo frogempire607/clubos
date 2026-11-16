@@ -877,7 +877,7 @@ function PaymentChoiceModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md border border-stone-200 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md border border-stone-200 max-h-[90dvh] overflow-y-auto">
         <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-stone-900">
@@ -1084,7 +1084,7 @@ function EventFormModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <form onSubmit={submit} className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md border border-stone-200 max-h-[90vh] overflow-y-auto">
+      <form onSubmit={submit} className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md border border-stone-200 max-h-[90dvh] overflow-y-auto">
         <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-stone-900">Register for {eventName}</h2>

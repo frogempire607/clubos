@@ -318,7 +318,7 @@ export default function MemberSignupPage() {
   // Minor signup completed — the guardian must confirm consent before use.
   if (consentSent) {
     return (
-      <div className="min-h-screen bg-stone-50 flex items-center justify-center px-4 py-12">
+      <div className="min-h-dvh bg-stone-50 flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-md bg-white rounded-2xl border border-stone-200 p-8 text-center">
           <h1 className="text-xl font-semibold text-stone-900">Almost there</h1>
           <p className="mt-3 text-stone-600 leading-relaxed">
@@ -332,7 +332,7 @@ export default function MemberSignupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-50 flex flex-col items-center justify-center px-4 py-12">
+    <div className="min-h-dvh bg-stone-50 flex flex-col items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-semibold text-stone-900 mb-1">Join your club</h1>

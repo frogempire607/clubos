@@ -265,7 +265,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   const railRoute = RAIL_ROUTES.some((r) => pathname.startsWith(r));
 
   return (
-    <div className="min-h-screen bg-stone-50 native-shell-root member-portal" style={brandedStyle}>
+    <div className="min-h-dvh bg-stone-50 native-shell-root member-portal" style={brandedStyle}>
       {/* Preview-mode banner. Only visible to owner/staff sessions that
           activated preview from the dashboard; members never see this. */}
       {previewMode && (
@@ -500,7 +500,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
         >
           <div className="absolute inset-0 bg-black/40" aria-hidden />
           <div
-            className="relative w-full bg-white rounded-t-2xl shadow-2xl safe-area-bottom md:max-w-3xl md:rounded-2xl max-h-[85vh] overflow-y-auto"
+            className="relative w-full bg-white rounded-t-2xl shadow-2xl safe-area-bottom md:max-w-3xl md:rounded-2xl max-h-[85dvh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"

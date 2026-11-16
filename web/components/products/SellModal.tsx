@@ -84,7 +84,7 @@ export default function SellModal({ product, onClose, onSold }: { product: Sella
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
-      <div className={`bg-surface rounded-t-2xl sm:rounded-2xl w-full ${hasVariants ? "sm:max-w-3xl" : "sm:max-w-md"} max-h-[92vh] flex flex-col`} onClick={(e) => e.stopPropagation()}>
+      <div className={`bg-surface rounded-t-2xl sm:rounded-2xl w-full ${hasVariants ? "sm:max-w-3xl" : "sm:max-w-md"} max-h-[92dvh] flex flex-col`} onClick={(e) => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-app-border flex items-center justify-between">
           <div>
             <h2 className="text-base font-semibold text-text-primary">Sell — {product.name}</h2>

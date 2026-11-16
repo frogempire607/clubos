@@ -199,7 +199,7 @@ export default function MemberMessagesPage() {
         <div className="bg-white rounded-xl border border-stone-200 p-8 text-center">
           <p className="text-sm font-semibold text-stone-900 mb-1">Your club shares updates in News</p>
           <p className="text-xs text-stone-500 mb-4">This club doesn&apos;t use in-app messaging. Announcements and updates arrive in News and by email.</p>
-          <a href="/member/announcements" className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-stone-900 text-white text-sm font-medium">Open News</a>
+          <Link href="/member/announcements" className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-stone-900 text-white text-sm font-medium">Open News</Link>
         </div>
       ) : messagingDisabled ? (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">

@@ -97,7 +97,7 @@ export default function JoinPage() {
   const trialDays = data?.membership?.trialEnabled ? data.membership.trialDays ?? 0 : 0;
 
   return (
-    <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4">
+    <div className="min-h-dvh bg-stone-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {loading ? (
           <div className="bg-white rounded-2xl border border-stone-200 p-8 text-center">

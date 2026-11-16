@@ -287,7 +287,7 @@ function AudienceEditor({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-6">
-      <div className="bg-app-bg rounded-t-2xl sm:rounded-2xl w-full max-w-4xl max-h-[92vh] overflow-y-auto">
+      <div className="bg-app-bg rounded-t-2xl sm:rounded-2xl w-full max-w-4xl max-h-[92dvh] overflow-y-auto">
         <div className="sticky top-0 z-10 bg-surface border-b border-app-border px-4 py-3 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-text-primary truncate">

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import SiblingDiscountCard from "@/components/settings/SiblingDiscountCard";
 import GroupRatesCard from "@/components/settings/GroupRatesCard";
@@ -147,9 +148,9 @@ export default function BillingSettingsPage() {
       {/* The AthletixOS plan (what your club pays us) lives in Settings → AthletixOS plan (B20). */}
       <div className="mt-8 rounded-xl border border-app-border bg-surface p-4 text-sm text-text-muted">
         This page is what your members pay you. What your club pays for AthletixOS is under{" "}
-        <a href="/dashboard/settings?section=plan" className="text-brand hover:underline">Settings → AthletixOS plan</a>
+        <Link href="/dashboard/settings?section=plan" className="text-brand hover:underline">Settings → AthletixOS plan</Link>
         {" · "}
-        <a href="/dashboard/settings/diagnostics" className="text-brand hover:underline">Stripe diagnostics</a>
+        <Link href="/dashboard/settings/diagnostics" className="text-brand hover:underline">Stripe diagnostics</Link>
       </div>
     </div>
   );
@@ -254,7 +255,7 @@ function FeeSplitCard() {
             <p className="text-xs text-text-muted mt-1">
               Your plan: <strong className="text-text-primary">{s.tierName}</strong> · platform fee{" "}
               <strong className="text-text-primary">{s.platformFeeDescription}</strong> per card payment ·{" "}
-              <a href="/dashboard/settings?section=plan" className="text-brand hover:underline">Change plan</a>
+              <Link href="/dashboard/settings?section=plan" className="text-brand hover:underline">Change plan</Link>
             </p>
           </div>
         </div>

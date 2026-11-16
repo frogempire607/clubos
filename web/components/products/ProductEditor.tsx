@@ -257,7 +257,7 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
-      <div className="w-full sm:max-w-[940px] max-h-[92vh] flex flex-col rounded-t-2xl sm:rounded-2xl shadow-2xl" style={{ background: "var(--color-bg)" }} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={isEdit ? "Edit product" : "Add product"}>
+      <div className="w-full sm:max-w-[940px] max-h-[92dvh] flex flex-col rounded-t-2xl sm:rounded-2xl shadow-2xl" style={{ background: "var(--color-bg)" }} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={isEdit ? "Edit product" : "Add product"}>
         <div className="px-4 sm:px-5 py-3 flex items-center justify-between gap-3 border-b border-app-border bg-surface rounded-t-2xl">
           <div className="min-w-0">
             <h2 className="text-[16px] sm:text-[20px] font-semibold text-text-primary leading-tight">{isEdit ? "Edit product" : "Add product"}</h2>

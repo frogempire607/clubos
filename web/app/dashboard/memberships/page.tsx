@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Ticket } from "lucide-react";
 import BulkPriceChangeModal from "@/components/BulkPriceChangeModal";
@@ -306,13 +307,13 @@ export default function MembershipsPage() {
                       rows it counted — the number and the roster it opens now
                       answer the same question. */}
                   {(m.activeMemberCount ?? 0) > 0 ? (
-                    <a
+                    <Link
                       href={`/dashboard/members?plan=${m.id}`}
                       className="text-xs text-brand hover:underline"
                       title={`Show the ${m.activeMemberCount} member${m.activeMemberCount === 1 ? "" : "s"} on ${m.name}`}
                     >
                       {m.activeMemberCount} member{m.activeMemberCount === 1 ? "" : "s"}
-                    </a>
+                    </Link>
                   ) : (
                     <span className="text-xs text-text-muted">No members</span>
                   )}
@@ -616,7 +617,7 @@ function MembershipModal({ membership, trialConfig, onSyncTrial, onClose, onSave
   return (
     <>
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-xl max-h-[90dvh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit membership" : "Create membership"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -1031,7 +1032,7 @@ function FreeTrialModal({ info, memberships, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[90dvh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <h2 className="text-lg font-semibold text-text-primary">Free trial</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>

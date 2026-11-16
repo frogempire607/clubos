@@ -1120,7 +1120,7 @@ function ReactivationModal({ data, memberId, onClose, onChanged }: { data: Data;
         {preview ? (
           <div>
             <p className="text-xs text-text-muted mb-2">To: <strong className="text-text-primary">{preview.to}</strong> · Subject: <strong className="text-text-primary">{preview.subject}</strong></p>
-            <div className="border border-app-border rounded-lg overflow-hidden mb-3 max-h-[50vh] overflow-y-auto bg-white">
+            <div className="border border-app-border rounded-lg overflow-hidden mb-3 max-h-[50dvh] overflow-y-auto bg-white">
               <div dangerouslySetInnerHTML={{ __html: preview.html }} />
             </div>
             {err && <p className="text-xs text-red-600 mb-2">{err}</p>}

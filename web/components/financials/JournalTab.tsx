@@ -627,7 +627,7 @@ function EntryForm({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[92dvh] overflow-y-auto">
         <div className="flex items-center justify-between px-4 py-3 border-b border-app-border sticky top-0 bg-surface z-10">
           <h3 className="text-sm font-medium text-text-primary">New journal entry</h3>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary" aria-label="Close">
@@ -959,7 +959,7 @@ function EntryDetail({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[92dvh] overflow-y-auto">
         <div className="flex items-center justify-between px-4 py-3 border-b border-app-border sticky top-0 bg-surface z-10">
           <div className="min-w-0">
             <h3 className="text-sm font-medium text-text-primary truncate">{entry?.memo || "Journal entry"}</h3>

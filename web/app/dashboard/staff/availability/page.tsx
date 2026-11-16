@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { range12h, to12h } from "@/lib/time12";
@@ -176,7 +177,7 @@ export default function StaffAvailabilityPage() {
         <div className="bg-surface border border-app-border rounded-xl p-12 text-center">
           <p className="text-base font-medium text-text-primary mb-1">No staff yet</p>
           <p className="text-sm text-text-muted">
-            Invite staff first on the <a href="/dashboard/staff" className="underline">Directory</a> page.
+            Invite staff first on the <Link href="/dashboard/staff" className="underline">Directory</Link> page.
           </p>
         </div>
       ) : (

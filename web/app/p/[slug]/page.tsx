@@ -167,7 +167,7 @@ export default function PublicProductPage() {
 
 function Shell({ accent, children }: { accent: string; children: React.ReactNode }) {
   return (
-    <div className="member-portal min-h-screen" style={{ background: "#FAFAF9", ["--club-accent" as string]: accent, ["--club-accent-contrast" as string]: "#FFFFFF" } as React.CSSProperties}>
+    <div className="member-portal min-h-dvh" style={{ background: "#FAFAF9", ["--club-accent" as string]: accent, ["--club-accent-contrast" as string]: "#FFFFFF" } as React.CSSProperties}>
       <div className="max-w-4xl mx-auto px-4 py-6">{children}</div>
     </div>
   );

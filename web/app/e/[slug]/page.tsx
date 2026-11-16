@@ -366,12 +366,12 @@ export default function PublicEventPage() {
     : null;
 
   if (loading) {
-    return <div className="min-h-screen bg-stone-50 flex items-center justify-center text-stone-400 text-sm">Loading…</div>;
+    return <div className="min-h-dvh bg-stone-50 flex items-center justify-center text-stone-400 text-sm">Loading…</div>;
   }
 
   if (unavailable) {
     return (
-      <div className="min-h-screen bg-stone-50 flex items-center justify-center p-6">
+      <div className="min-h-dvh bg-stone-50 flex items-center justify-center p-6">
         <div className="bg-white rounded-xl border border-stone-200 p-8 max-w-md text-center">
           <h1 className="text-lg font-semibold text-stone-900 mb-1">This event isn&apos;t available</h1>
           <p className="text-sm text-stone-500">Check the link, or ask the club for a new one.</p>
@@ -382,7 +382,7 @@ export default function PublicEventPage() {
 
   if (error && !event) {
     return (
-      <div className="min-h-screen bg-stone-50 flex items-center justify-center p-6">
+      <div className="min-h-dvh bg-stone-50 flex items-center justify-center p-6">
         <div className="bg-white rounded-xl border border-stone-200 p-8 max-w-md text-center">
           <AlertOctagon className="h-10 w-10 mx-auto mb-2 text-stone-400" strokeWidth={1.5} />
           <h1 className="text-lg font-semibold text-stone-900 mb-1">Can&apos;t open this event</h1>
@@ -395,7 +395,7 @@ export default function PublicEventPage() {
   if (!event) return null;
 
   return (
-    <div className="min-h-screen bg-stone-50">
+    <div className="min-h-dvh bg-stone-50">
       {/* Header */}
       <header className="bg-white border-b border-stone-200">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-2">

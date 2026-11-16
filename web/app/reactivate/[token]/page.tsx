@@ -7,6 +7,7 @@
 // payment method exists, a secure Stripe setup page collects one — card
 // details never touch AthletixOS.
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 
@@ -150,9 +151,9 @@ export default function ReactivatePage() {
                     : "You're all set — a confirmation email is on its way."
               : `This membership was already confirmed${data.confirmedAt ? ` on ${longDate(data.confirmedAt)}` : ""}. You're all set.`}
           </p>
-          <a href="/member" className="inline-block mt-5 text-sm font-medium text-white rounded-xl px-6 py-3" style={{ background: brand }}>
+          <Link href="/member" className="inline-block mt-5 text-sm font-medium text-white rounded-xl px-6 py-3" style={{ background: brand }}>
             Go to your member portal
-          </a>
+          </Link>
         </div>
       </Shell>
     );
@@ -476,7 +477,7 @@ function Item({ label, value, highlight = false }: { label: string; value: strin
 
 function Shell({ brand, club, children }: { brand: string; club?: Payload["club"]; children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-stone-100 py-6 px-4">
+    <div className="min-h-dvh bg-stone-100 py-6 px-4">
       <div className="max-w-md mx-auto">
         <div className="rounded-2xl overflow-hidden border border-stone-200 bg-white shadow-sm">
           <div className="px-5 py-5 text-center" style={{ background: brand }}>

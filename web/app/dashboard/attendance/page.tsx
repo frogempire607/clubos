@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense } from "react";
 import { ArrowLeft, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import ExportMenu from "@/components/ExportMenu";
@@ -2130,6 +2130,7 @@ function QrGlyph() {
 // ─── Main Page (inner, needs useSearchParams) ─────────────────────────────────
 
 function AttendancePageInner() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialDate = searchParams.get("date") ?? todayStr();
   const initialSession = searchParams.get("session") ?? null;
@@ -2292,7 +2293,7 @@ function AttendancePageInner() {
                     type="event"
                     active={false}
                     onClick={() => {
-                      window.location.href = `/dashboard/events?event=${ev.id}`;
+                      router.push(`/dashboard/events?event=${ev.id}`);
                     }}
                   />
                 </div>

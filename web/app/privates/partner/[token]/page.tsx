@@ -202,7 +202,7 @@ export default function PartnerInvitePage() {
 
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-stone-100 px-4 py-10 flex items-start justify-center">
+    <div className="min-h-dvh bg-stone-100 px-4 py-10 flex items-start justify-center">
       <div className="w-full max-w-md bg-white rounded-xl border border-stone-200 p-6">{children}</div>
     </div>
   );

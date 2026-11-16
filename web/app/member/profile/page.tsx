@@ -1382,12 +1382,12 @@ function PendingApprovalsCard() {
                 may need fresh consent for a price delta. Send them to the one
                 page that owns that decision. */}
             {r.kind === "EVENT_PROPOSAL_RESPONSE" ? (
-              <a
+              <Link
                 href={`/member/bookings/${r.payload?.registrationId ?? ""}/proposal`}
                 className="text-xs px-3 py-1.5 rounded-lg bg-amber-900 text-amber-50 hover:bg-amber-800 flex-shrink-0"
               >
                 Review
-              </a>
+              </Link>
             ) : (
             <div className="flex gap-1 flex-shrink-0">
               <button

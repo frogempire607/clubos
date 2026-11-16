@@ -940,12 +940,12 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
               Two ways to put {club.name} in your members&apos; pockets — start with one, do both over time.
             </p>
           </div>
-          <a
+          <Link
             href="/dashboard/settings/branded-app"
             className="text-xs px-3 py-2 rounded-lg bg-brand text-white font-medium hover:bg-brand-hover whitespace-nowrap flex-shrink-0"
           >
             Open the Mobile app editor →
-          </a>
+          </Link>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="border border-app-border rounded-lg p-4 bg-app-bg">
@@ -1156,7 +1156,7 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
               body: (
                 <>
                   Set your icon, splash screen, colors, and screens in the{" "}
-                  <a href="/dashboard/settings/branded-app" className="text-brand hover:underline">Mobile app editor</a>.
+                  <Link href="/dashboard/settings/branded-app" className="text-brand hover:underline">Mobile app editor</Link>.
                   This is what members see when they open the app.
                 </>
               ),
@@ -1236,12 +1236,12 @@ function BrandedAppSection({ club, onSaved }: { club: Club; onSaved: () => void 
           >
             Request my app launch
           </a>
-          <a
+          <Link
             href="/dashboard/settings/branded-app"
             className="px-4 py-2 border border-app-border text-text-primary rounded-lg text-sm hover:bg-app-bg text-center"
           >
             Design my app first
-          </a>
+          </Link>
         </div>
         {!isPro && (
           <p className="mt-3 text-xs text-text-muted border-t border-app-border pt-3">

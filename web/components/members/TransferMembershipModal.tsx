@@ -104,7 +104,7 @@ export default function TransferMembershipModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-surface w-full sm:max-w-lg rounded-t-2xl sm:rounded-xl max-h-[92vh] overflow-y-auto">
+      <div className="bg-surface w-full sm:max-w-lg rounded-t-2xl sm:rounded-xl max-h-[92dvh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-app-border sticky top-0 bg-surface">
           <h2 className="text-sm font-semibold text-text-primary">Move this membership</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary">

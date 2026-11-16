@@ -45,7 +45,7 @@ export default function OnboardingPage() {
 
   if (status === "loading") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-50">
+      <div className="min-h-dvh flex items-center justify-center bg-stone-50">
         <div className="text-sm text-stone-500">Loading…</div>
       </div>
     );
@@ -106,7 +106,7 @@ export default function OnboardingPage() {
     step === 3;
 
   return (
-    <div className="min-h-screen bg-stone-50 py-10 px-4">
+    <div className="min-h-dvh bg-stone-50 py-10 px-4">
       <div className="max-w-2xl mx-auto">
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-2">

@@ -300,7 +300,7 @@ function LessonTypeModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
           <h2 className="font-semibold text-text-primary">{lt ? "Edit lesson type" : "New lesson type"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
@@ -547,7 +547,7 @@ function PackageModal({
       {/* max-h + overflow on the OUTER card so the modal stays inside the
           viewport and the Save button at the bottom is always reachable
           on laptop screens. */}
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-app-border sticky top-0 bg-white z-10">
           <h2 className="font-semibold text-text-primary">{pkg ? "Edit package" : "New package"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
@@ -799,7 +799,7 @@ function BookingModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
           <h2 className="font-semibold text-text-primary">Booking — {booking.member.firstName} {booking.member.lastName}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
@@ -1280,7 +1280,7 @@ function NewBookingModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-app-border">
           <h2 className="font-semibold text-text-primary">New booking</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
@@ -1473,7 +1473,7 @@ function AssignPackageModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-app-border sticky top-0 bg-white z-10">
           <h2 className="font-semibold text-text-primary">Assign lesson package</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>

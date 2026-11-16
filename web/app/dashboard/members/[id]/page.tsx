@@ -1717,7 +1717,7 @@ function SendReaderModal({ id, onClose }: { id: string; onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-6">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[90dvh] flex flex-col">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between shrink-0">
           <h2 className="text-base font-semibold text-text-primary truncate">
             {loading ? "Loading…" : row?.subject || "(no subject)"}

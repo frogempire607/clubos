@@ -39,14 +39,14 @@ export default function KioskPage({ params }: { params: { id: string } }) {
 
   if (notFound) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-50 text-stone-500 text-sm">
+      <div className="min-h-dvh flex items-center justify-center bg-stone-50 text-stone-500 text-sm">
         This check-in screen is no longer available.
       </div>
     );
   }
   if (!d) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-50 text-stone-400 text-sm">
+      <div className="min-h-dvh flex items-center justify-center bg-stone-50 text-stone-400 text-sm">
         Loading…
       </div>
     );
@@ -55,7 +55,7 @@ export default function KioskPage({ params }: { params: { id: string } }) {
   const accent = d.club.primaryColor || "#1C1917";
 
   return (
-    <div className="min-h-screen bg-stone-50 flex flex-col items-center justify-center px-6 py-10 print:bg-white">
+    <div className="min-h-dvh bg-stone-50 flex flex-col items-center justify-center px-6 py-10 print:bg-white">
       <div className="w-full max-w-xl bg-white rounded-3xl border border-stone-200 shadow-sm overflow-hidden text-center print:shadow-none">
         {/* Brand header */}
         <div className="px-10 pt-10 pb-6 flex flex-col items-center">

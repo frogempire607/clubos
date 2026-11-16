@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { BarChart3, Bell, Download } from "lucide-react";
@@ -238,7 +239,7 @@ export default function ReportsPage() {
       {membershipOnly && (
         <div className="mb-4 rounded-xl border border-app-border bg-surface px-4 py-3 text-sm text-text-muted">
           Your Starter plan includes the Membership report. Snapshot, Revenue, Costs, Profit &amp; Loss, Unit economics, Cash flow and imports are included on Pro.{" "}
-          <a href="/dashboard/settings?section=plan" className="text-brand hover:underline">See plans</a>
+          <Link href="/dashboard/settings?section=plan" className="text-brand hover:underline">See plans</Link>
         </div>
       )}
 

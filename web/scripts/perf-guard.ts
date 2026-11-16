@@ -14,7 +14,7 @@
  * the time was going on doing things one after another, on asking twice, and
  * on Stripe.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = join(__dirname, "..");
@@ -134,6 +134,46 @@ for (const rel of ["app/dashboard/loading.tsx", "app/member/loading.tsx", "app/d
   check("dashboard frame is drawn while the session loads (no blank 'Loading…' page)", !/>Loading…</.test(layout) && /aria-busy="true"/.test(layout));
   check("dashboard menu falls back to the signed-in role, never to 'unknown = owner'", /me \?\? \{ role: sessionUser\.role/.test(layout) && /me=\{viewer\}/.test(layout) && /role=\{viewer\.role\}/.test(layout));
   check("dashboard frame uses the phone's real visible height", !/100vh/.test(layout) && /100dvh/.test(layout));
+}
+
+console.log("\n§6 moving between screens never reloads the app, and screens fit a phone");
+{
+  const walk = (dir: string): string[] =>
+    readdirSync(join(ROOT, dir)).flatMap((e) => {
+      const rel = `${dir}/${e}`;
+      if (e === "node_modules" || e === "api") return [];
+      return statSync(join(ROOT, rel)).isDirectory() ? walk(rel) : rel.endsWith(".tsx") ? [rel] : [];
+    });
+  const files = [...walk("app"), ...walk("components")];
+
+  // `100vh` is the height of the phone screen WITHOUT the browser/keyboard
+  // bars, so the bottom of a 100vh page sits underneath them. `dvh` is what
+  // is actually visible.
+  const vh = files.filter((f) => /\bmin-h-screen\b|(?<![-\w])h-screen\b|\dvh\b/.test(code(f)));
+  check("no screen is sized with 100vh / min-h-screen (use dvh)", vh.length === 0, vh.slice(0, 8).join(", "));
+
+  // An <a href="/dashboard/…"> or window.location = "/member/…" throws the
+  // whole app away and loads it again. Links to files, Stripe and new tabs
+  // are fine; the three assignments below are deliberate (fresh session
+  // cookie after sign-in, sign-out, and leaving a deleted club).
+  const anchor = /<a(\s[^>]*?)?>/g;
+  const hardLinks: string[] = [];
+  for (const f of files) {
+    const src = code(f);
+    for (const m of Array.from(src.matchAll(anchor))) {
+      const attrs = m[1] ?? "";
+      if (!/href=(?:"\/(?:dashboard|member)[^"]*"|\{`\/(?:dashboard|member)[^`]*`\})/.test(attrs)) continue;
+      if (/target=|download|\/api\//.test(attrs)) continue;
+      hardLinks.push(f);
+    }
+  }
+  check("internal links use <Link>, not <a href>", hardLinks.length === 0, Array.from(new Set(hardLinks)).slice(0, 8).join(", "));
+
+  const ALLOWED_HARD_NAV = new Set(["app/login/page.tsx", "app/member/signup/page.tsx", "app/dashboard/settings/page.tsx", "lib/signOutEverywhere.ts", "app/dashboard/events/page.tsx"]);
+  const hardNav = files.filter((f) => !ALLOWED_HARD_NAV.has(f) && /window\.location\.href\s*=\s*[`"']\/(dashboard|member|login)/.test(code(f)));
+  check("no in-app navigation by assigning window.location", hardNav.length === 0, hardNav.join(", "));
+  const deep = code("components/NativeDeepLinks.tsx");
+  check("links opened from outside the app navigate in place (router.push)", /router\.push\(path\)/.test(deep) && !/window\.location\.href\s*=/.test(deep));
 }
 
 console.log(`\n${"─".repeat(70)}`);

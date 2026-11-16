@@ -105,7 +105,7 @@ export default function NotificationBell({
               Dashboard →
             </Link>
           </div>
-          <div className="max-h-[60vh] overflow-y-auto">
+          <div className="max-h-[60dvh] overflow-y-auto">
             {items === null ? (
               <div className="p-4 space-y-2">
                 {[0, 1].map((i) => (

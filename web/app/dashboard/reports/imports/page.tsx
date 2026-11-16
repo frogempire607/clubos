@@ -174,7 +174,7 @@ function NewImportModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
       <div
-        className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[92vh] overflow-y-auto"
+        className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[92dvh] overflow-y-auto"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">

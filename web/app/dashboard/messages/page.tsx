@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { MessageSquare } from "lucide-react";
@@ -98,7 +99,7 @@ export default function MessagesPage() {
       <div className="p-4 sm:p-8 max-w-6xl">
         <PageHeader
           title="Messages"
-          description={<>Posting to the whole club? <a href="/dashboard/announcements" className="text-brand hover:underline font-medium">Announcements</a> are included on every plan.</>}
+          description={<>Posting to the whole club? <Link href="/dashboard/announcements" className="text-brand hover:underline font-medium">Announcements</Link> are included on every plan.</>}
         />
         <UpgradeNotice
           title="Private messaging is included on Pro"
@@ -112,7 +113,7 @@ export default function MessagesPage() {
     <div className="p-8 max-w-6xl">
       <PageHeader
         title="Messages"
-        description={<>Group chats and direct messages. Posting to the whole club? Use <a href="/dashboard/announcements" className="text-brand hover:underline font-medium">Announcements</a>.</>}
+        description={<>Group chats and direct messages. Posting to the whole club? Use <Link href="/dashboard/announcements" className="text-brand hover:underline font-medium">Announcements</Link>.</>}
       />
 
       <div className="flex gap-1 bg-app-bg rounded-lg p-1 mb-6 w-fit">
@@ -529,7 +530,7 @@ function CreateGroupModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90dvh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <h2 className="text-lg font-semibold text-text-primary">Create group</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>

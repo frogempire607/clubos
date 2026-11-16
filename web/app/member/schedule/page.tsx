@@ -860,7 +860,7 @@ function ScheduleInner() {
 
         {selected && (
           <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4">
-            <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-lg max-h-[90dvh] overflow-y-auto">
               <div className="p-5 border-b border-stone-200 flex items-start justify-between gap-4">
                 <div>
                   <p className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-1">

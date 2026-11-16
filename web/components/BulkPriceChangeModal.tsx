@@ -601,7 +601,7 @@ export default function BulkPriceChangeModal({
         </div>
 
         {/* Body */}
-        <div className="px-5 py-4 space-y-5 max-h-[65vh] overflow-y-auto">
+        <div className="px-5 py-4 space-y-5 max-h-[65dvh] overflow-y-auto">
           {/* Result view replaces the table entirely once applied — the
               selection that produced it is no longer the live state. */}
           {applied ? (
