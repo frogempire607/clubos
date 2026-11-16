@@ -5,6 +5,7 @@
 // links to the page where the work gets done; items vanish once resolved.
 // Styling matches the other section widgets (bg-surface card, app-border).
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, CheckCircle2 } from "lucide-react";
@@ -30,14 +31,14 @@ export default function ActionCenterWidget() {
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/dashboard/action-center")
-      .then(async (r) => {
+    // Shared with the notification bell in the layout — one request, not three.
+    sharedGet<{ items?: ActionItem[]; code?: string }>("/api/dashboard/action-center")
+      .then((r) => {
         if (r.status === 403) {
-          const b = await r.json().catch(() => null);
-          if (alive && b?.code === "UPGRADE_REQUIRED") setLocked(true);
+          if (alive && r.data?.code === "UPGRADE_REQUIRED") setLocked(true);
           return null;
         }
-        return r.ok ? r.json() : null;
+        return r.ok ? r.data : null;
       })
       .then((d) => {
         if (alive && d && Array.isArray(d.items)) setItems(d.items);

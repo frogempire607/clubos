@@ -14,6 +14,7 @@
 // Change dates. Change plan (Stripe) still hands off to B12's dialog in
 // the Membership panel (B16 retired Advanced billing).
 
+import { sharedGet } from "@/lib/sharedGet";
 import { computeProcessingFeeCents, type FeePolicy, type FeePolicyInput } from "@/lib/fees";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -430,7 +431,9 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
   const [chargeTo, setChargeTo] = useState<string>("ONFILE");
   useEffect(() => {
     let live = true;
-    fetch(`/api/members/${memberId}/billing-admin`).then((x) => (x.ok ? x.json() : null)).then((d) => {
+    // Shared with PaymentMethodsCard, which mounts beside this panel and reads
+    // the same thing — one request, not two (each one calls Stripe).
+    sharedGet<any>(`/api/members/${memberId}/billing-admin`).then((x) => (x.ok ? x.data : null)).then((d) => {
       if (!live || !d) return;
       const opts: { value: string; label: string; ownerUserId: string | null }[] = [];
       for (const w of (d.payerWallets ?? []) as { ownerUserId: string; ownerName: string; methods: { ref: string; label: string; onFile: boolean }[] }[]) {

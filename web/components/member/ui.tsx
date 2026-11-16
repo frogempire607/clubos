@@ -9,6 +9,7 @@
  * of truth. Safe to use anywhere under the `.member-portal` root.
  */
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { ReactNode, CSSProperties } from "react";
@@ -30,8 +31,8 @@ let _brandPromise: Promise<ClubBrand | null> | null = null;
 function fetchBrand(): Promise<ClubBrand | null> {
   if (_brandCache) return Promise.resolve(_brandCache);
   if (_brandPromise) return _brandPromise;
-  _brandPromise = fetch("/api/member/club")
-    .then((r) => (r.ok ? r.json() : null))
+  _brandPromise = sharedGet<any>("/api/member/club")
+    .then((r) => (r.ok ? r.data : null))
     .then((d) => {
       if (!d) return null;
       _brandCache = { name: d.name, logoUrl: d.logoUrl ?? null, primaryColor: d.primaryColor ?? null };

@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -152,9 +153,13 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Once per visit, not once per screen: preview mode is a cookie the owner
+  // sets from the dashboard, and both ways of changing it (entering from the
+  // dashboard, "Exit preview" below) leave or reload this layout. It was being
+  // re-asked on every navigation for every member.
   useEffect(() => {
     fetch("/api/preview").then((r) => (r.ok ? r.json() : { mode: null })).then((d) => setPreviewMode(d?.mode ?? null)).catch(() => {});
-  }, [pathname]);
+  }, []);
 
   async function exitPreview() {
     await fetch("/api/preview", { method: "DELETE" });
@@ -180,8 +185,8 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   }, []);
 
   useEffect(() => {
-    fetch("/api/member/club")
-      .then((r) => (r.ok ? r.json() : null))
+    sharedGet<any>("/api/member/club")
+      .then((r) => (r.ok ? r.data : null))
       .then((d) => {
         if (!d) return;
         setClub({

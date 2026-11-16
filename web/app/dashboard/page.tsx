@@ -1,5 +1,6 @@
 "use client";
 
+import { SkeletonList } from "@/components/LoadingSkeleton";
 import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -116,9 +117,10 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [recentMembers, setRecentMembers] = useState<any[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
-  const [allEvents, setAllEvents] = useState<any[]>([]);
   const [calItems, setCalItems] = useState<CalItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [membersLoading, setMembersLoading] = useState(true);
+  const [eventsLoading, setEventsLoading] = useState(true);
   const [prefs, setPrefs] = useState<WidgetPrefs | null>(null);
   const [catalog, setCatalog] = useState<WidgetDef[]>([]);
   const [customizing, setCustomizing] = useState(false);
@@ -132,30 +134,27 @@ export default function DashboardPage() {
   // Initial load of everything EXCEPT the calendar feed (that has its own
   // month-aware effect below).
   useEffect(() => {
-    async function load() {
-      const [mRes, eRes, sRes, wRes] = await Promise.all([
-        fetch("/api/members"),
-        fetch("/api/events"),
-        fetch("/api/dashboard/summary"),
-        fetch("/api/dashboard/widgets"),
-      ]);
-      const members = mRes.ok ? await mRes.json() : [];
-      const events = eRes.ok ? await eRes.json() : [];
-      const now = new Date();
-      const upcoming = events.filter((e: any) => new Date(e.startsAt) >= now);
-
-      setRecentMembers(members.slice(0, 5));
-      setUpcomingEvents(upcoming.slice(0, 5));
-      setAllEvents(events);
-      if (sRes.ok) setSummary(await sRes.json());
-      if (wRes.ok) {
-        const w = await wRes.json();
-        setPrefs(w.prefs);
-        setCatalog(w.catalog);
+    // Four independent reads, each filling its own part of the page as it
+    // lands. They used to be awaited together, so the whole page sat on
+    // "Loading…" until the slowest one — and stayed there for good if any one
+    // of them failed.
+    const json = (url: string) => fetch(url).then((r) => (r.ok ? r.json() : null));
+    json("/api/members?recent=5")
+      .then((d) => setRecentMembers(Array.isArray(d) ? d : []))
+      .catch(() => setRecentMembers([]))
+      .finally(() => setMembersLoading(false));
+    json("/api/events?next=5")
+      .then((d) => setUpcomingEvents(Array.isArray(d) ? d : []))
+      .catch(() => setUpcomingEvents([]))
+      .finally(() => setEventsLoading(false));
+    Promise.allSettled([json("/api/dashboard/summary"), json("/api/dashboard/widgets")]).then(([sum, wid]) => {
+      if (sum.status === "fulfilled" && sum.value) setSummary(sum.value);
+      if (wid.status === "fulfilled" && wid.value) {
+        setPrefs(wid.value.prefs);
+        setCatalog(wid.value.catalog);
       }
       setLoading(false);
-    }
-    load();
+    });
   }, []);
 
   // Refetch the calendar feed whenever the mini-calendar's visible month
@@ -480,8 +479,8 @@ export default function DashboardPage() {
               <h2 className="text-sm font-semibold text-text-primary">Recent members</h2>
               <Link href="/dashboard/members" className="text-xs text-text-muted hover:text-text-primary">View all →</Link>
             </div>
-            {loading ? (
-              <div className="p-6 text-sm text-text-muted text-center">Loading…</div>
+            {membersLoading ? (
+              <SkeletonList rows={5} />
             ) : recentMembers.length === 0 ? (
               <div className="p-6 text-sm text-text-muted text-center">No members yet.</div>
             ) : (
@@ -513,8 +512,8 @@ export default function DashboardPage() {
               <h2 className="text-sm font-semibold text-text-primary">Upcoming events</h2>
               <Link href="/dashboard/events" className="text-xs text-text-muted hover:text-text-primary">View all →</Link>
             </div>
-            {loading ? (
-              <div className="p-6 text-sm text-text-muted text-center">Loading…</div>
+            {eventsLoading ? (
+              <SkeletonList rows={5} />
             ) : upcomingEvents.length === 0 ? (
               <div className="p-6 text-sm text-text-muted text-center">No upcoming events.</div>
             ) : (

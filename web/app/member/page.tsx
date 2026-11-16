@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
@@ -114,8 +115,8 @@ function ClubBanner() {
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    fetch("/api/member/club")
-      .then((r) => (r.ok ? r.json() : null))
+    sharedGet<any>("/api/member/club")
+      .then((r) => (r.ok ? r.data : null))
       .then((d) => setClub(d));
   }, []);
 
@@ -508,12 +509,12 @@ function RecentAnnouncements() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/member/announcements")
+    fetch("/api/member/announcements?limit=3", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : []))
-      .then((d) => {
-        setItems(Array.isArray(d) ? d.slice(0, 3) : []);
-        setLoading(false);
-      });
+      .then((d) => setItems(Array.isArray(d) ? d.slice(0, 3) : []))
+      // A failed request hides the card; it must never leave it "loading".
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
   }, []);
 
   if (loading) return null;
@@ -1033,8 +1034,8 @@ export default function MemberHome() {
   const [loading, setLoading] = useState(true);
 
   function load() {
-    fetch("/api/member/portal")
-      .then((r) => (r.ok ? r.json() : null))
+    sharedGet<any>("/api/member/portal")
+      .then((r) => (r.ok ? r.data : null))
       .then((d) => { setData(d); setLoading(false); })
       // Without this, a rejected fetch (dropped connection, offline WebView)
       // leaves `loading` true forever and the portal renders its skeleton

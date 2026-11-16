@@ -366,7 +366,9 @@ export default function MembersApprovalsPage() {
       if (a.kind !== "MIGRATION_BILLING") continue;
       if (configuredFetched.current.has(a.memberId)) continue;
       configuredFetched.current.add(a.memberId);
-      fetch(`/api/members/${a.memberId}/billing-admin`)
+      // lite: only the database facts. The full read makes live Stripe calls
+      // per member, and this loop runs once per waiting card.
+      fetch(`/api/members/${a.memberId}/billing-admin?lite=1`)
         .then((r) => (r.ok ? r.json() : null))
         .then((d: BillingAdminData | null) => {
           const c = d?.billing?.configured;

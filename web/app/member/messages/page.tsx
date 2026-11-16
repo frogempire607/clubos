@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -141,8 +142,8 @@ export default function MemberMessagesPage() {
 
     // Best-effort fetch — used only for the empty-state "no child
     // messages yet" copy. Failure is silent.
-    fetch("/api/member/portal")
-      .then((r) => (r.ok ? r.json() : null))
+    sharedGet<any>("/api/member/portal")
+      .then((r) => (r.ok ? r.data : null))
       .then((d) => {
         if (!d?.user?.guardianOf) return;
         const kids: LinkedChild[] = d.user.guardianOf.map(

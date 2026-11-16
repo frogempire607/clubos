@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { parseNextEventsLimit } from "@/lib/listLimits";
 import { categoryFieldsFromForm } from "@/lib/eventCategories";
 import { requireTierFeature } from "@/lib/tierGuard";
 import { audienceProblem, audienceSchema, normalizeAudience } from "@/lib/eventAudience";
@@ -26,6 +27,23 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const upcoming = searchParams.get("upcoming") === "true";
+
+  // `?next=N` — the next N events to start, the five fields the dashboard home
+  // card draws. That card used to download every event the club has ever run,
+  // with sessions, staff and a money summary for each, to show five rows.
+  const next = parseNextEventsLimit(searchParams.get("next"));
+  if (next) {
+    const rows = await prisma.event.findMany({
+      where: { clubId: session.user.clubId, deletedAt: null, startsAt: { gte: new Date() } },
+      orderBy: { startsAt: "asc" },
+      take: next,
+      select: {
+        id: true, name: true, startsAt: true, type: true,
+        customEventType: { select: { name: true, color: true, textColor: true } },
+      },
+    });
+    return NextResponse.json(rows);
+  }
 
   const events = await prisma.event.findMany({
     where: {

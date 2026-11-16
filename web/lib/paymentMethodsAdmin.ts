@@ -67,15 +67,14 @@ export async function lastPaidWithForCustomers(
   customerIds: string[],
   stripeAccount: string,
 ): Promise<LastPaidWith | null> {
-  const all: Stripe.Charge[] = [];
-  for (const customer of customerIds) {
-    try {
-      const charges = await stripe.charges.list({ customer, limit: 10 }, { stripeAccount });
-      all.push(...charges.data);
-    } catch {
-      /* degrade — a missing "last paid with" must never break the billing read */
-    }
-  }
+  // Both customers at once; each degrades on its own — a missing "last paid
+  // with" must never break the billing read.
+  const lists = await Promise.all(
+    customerIds.map((customer) =>
+      stripe.charges.list({ customer, limit: 10 }, { stripeAccount }).then((c) => c.data, () => [] as Stripe.Charge[]),
+    ),
+  );
+  const all: Stripe.Charge[] = lists.flat();
   return lastPaidWithFromCharges(all as unknown as Parameters<typeof lastPaidWithFromCharges>[0]);
 }
 
