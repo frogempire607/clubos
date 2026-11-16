@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requireStaff } from "@/lib/apiGuard";
 import { sanitizeRichHtml } from "@/lib/sanitizeHtml";
 import { REQUIRED_DOCUMENT_SURFACES } from "@/lib/documents";
 
@@ -38,6 +38,8 @@ export async function GET(
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   const doc = await getDoc(params.id, session.user.clubId);
   if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });

@@ -4,10 +4,13 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTierFeatures, getTierName, upgradeRequired, tierBlockedBody } from "@/lib/tier";
+import { requireStaff } from "@/lib/apiGuard";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   const locations = await prisma.location.findMany({
     where: { clubId: session.user.clubId, deletedAt: null },

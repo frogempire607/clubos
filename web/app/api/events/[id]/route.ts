@@ -12,7 +12,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { withEntryCounts } from "@/lib/eventRosterServer";
 import { reserveSlug } from "@/lib/eventShareLink";
-import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
+import { requirePermission, requirePermissionLive, requireStaff } from "@/lib/apiGuard";
 import { setEventStaff, checkAssignmentChange, notifySelfRemoval } from "@/lib/staffAssignmentsServer";
 import { ASSIGNMENT_DENY_MESSAGE } from "@/lib/staffSelf";
 import { linkProblem, normalizeEventLinks } from "@/lib/eventLinks";
@@ -149,6 +149,8 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   const event = await prisma.event.findFirst({
     where: { id: params.id, clubId: session.user.clubId, deletedAt: null },

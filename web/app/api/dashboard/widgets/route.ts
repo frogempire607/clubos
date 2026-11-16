@@ -5,12 +5,15 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ALL_WIDGET_KEYS, resolvePrefs, WIDGET_CATALOG } from "@/lib/dashboardWidgets";
+import { requireStaff } from "@/lib/apiGuard";
 
 // GET /api/dashboard/widgets — current user's resolved widget preferences
 // plus the full catalog so the customize UI can render every option.
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
@@ -30,6 +33,8 @@ const putSchema = z.object({
 export async function PUT(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   let body: z.infer<typeof putSchema>;
   try {

@@ -156,6 +156,27 @@ export function requirePermission(
   );
 }
 
+// Owner-or-staff guard, ANY permission set. This is the floor for every
+// dashboard API handler that has no narrower permission of its own — most of
+// all the READ routes. A signed-in parent or athlete is a session too, and
+// middleware does not cover /api, so `if (!session)` alone lets a MEMBER login
+// read whatever the handler returns (2026-11-15: the whole roster export was
+// open this way). scripts/staff-route-role-guard.ts fails the build if a
+// staff-facing handler has neither this nor a stricter guard.
+//   - No session → 401     - removed/demoted (cached live record) → 401
+//   - OWNER, STAFF → allowed     - anyone else → 403
+export function requireStaff(session: Sess): NextResponse | null {
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let role = (session.user as any)?.role as string | undefined;
+  const live = peekLiveUser((session.user as any)?.id);
+  if (live !== undefined) {
+    if (isRevoked(live, (session.user as any)?.clubId)) return REVOKED();
+    role = live!.role;
+  }
+  if (role === "OWNER" || role === "STAFF") return null;
+  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+}
+
 // Owner-only guard (settings, billing, staff management, contractors).
 export function requireOwner(session: Sess): NextResponse | null {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

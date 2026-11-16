@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requireStaff } from "@/lib/apiGuard";
 import { sendEmail, isEmailConfigured, smtpMissingVars } from "@/lib/email";
 import { buildUnsubscribeUrl } from "@/lib/unsubscribe";
 import { getTierFeatures } from "@/lib/tier";
@@ -20,6 +20,8 @@ const schema = z.object({
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   const announcements = await prisma.announcement.findMany({
     where: { clubId: session.user.clubId, deletedAt: null },

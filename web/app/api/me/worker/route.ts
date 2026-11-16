@@ -6,6 +6,7 @@ import { fieldCryptoConfigured } from "@/lib/fieldCrypto";
 import { maskFor, w9History } from "@/lib/contractorTin";
 import { CLASSIFICATION_NOTE, contractorForStaff, workerTypeDescription, workerTypeLabel } from "@/lib/workerType";
 import { TAX_CLASSIFICATIONS, W9_CERTIFICATION_TEXT, W9_ESIGN_NOTICE } from "@/lib/tin";
+import { requireStaff } from "@/lib/apiGuard";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
   const clubId = session.user.clubId;
   const userId = session.user.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

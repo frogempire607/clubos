@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { checkinPaymentBlock } from "@/lib/eventPayments";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requireStaff } from "@/lib/apiGuard";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { trialWindowDays, freeTrialSummary } from "@/lib/freeTrial";
@@ -14,6 +14,8 @@ import { sendEmail } from "@/lib/email";
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   const { searchParams } = new URL(req.url);
   const dateStr = searchParams.get("date");

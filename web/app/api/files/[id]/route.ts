@@ -3,7 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getObject } from "@/lib/storage";
-import { requirePermissionLive } from "@/lib/apiGuard";
+import { requirePermissionLive, requireStaff } from "@/lib/apiGuard";
+import { fileResponseHeaders, STAFF_ONLY_FILE_KINDS } from "@/lib/fileResponse";
 
 // GET /api/files/[id]
 // Streams a stored file ONLY if the requester is a logged-in user in the same
@@ -22,8 +23,14 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   if (file.clubId !== session.user.clubId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  // Receipts are financial records: Financials access only (2026-10-14).
-  if (file.kind === "RECEIPT") {
+  // Tax forms, receipts and books attachments never go to a member login,
+  // whatever club it belongs to — a file id is unguessable, not secret.
+  if (STAFF_ONLY_FILE_KINDS.has(file.kind)) {
+    const staffOnly = requireStaff(session);
+    if (staffOnly) return staffOnly;
+  }
+  // Receipts and books attachments are financial records: Financials access only.
+  if (file.kind === "RECEIPT" || file.kind === "LEDGER") {
     const denied = await requirePermissionLive(session, "finances", "view");
     if (denied) return denied;
   }
@@ -37,11 +44,11 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const body = new Uint8Array(bytes);
   return new NextResponse(body, {
     status: 200,
-    headers: {
-      "Content-Type": file.mimeType,
-      "Content-Length": String(bytes.length),
-      "Cache-Control": "private, max-age=3600",
-      "Content-Disposition": `inline; filename="${file.originalName.replace(/"/g, "")}"`,
-    },
+    headers: fileResponseHeaders({
+      mimeType: file.mimeType,
+      size: bytes.length,
+      cacheControl: "private, max-age=3600",
+      originalName: file.originalName,
+    }),
   });
 }

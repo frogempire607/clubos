@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { freeTrialSummary } from "@/lib/freeTrial";
 import { coverageForMembers, loadSessionCoverageContext } from "@/lib/coverageQuery";
+import { requireStaff } from "@/lib/apiGuard";
 
 // GET /api/attendance/[sessionId]
 // Returns attendance records for a class session with member details
@@ -11,6 +12,8 @@ export async function GET(_req: Request, context: { params: Promise<{ sessionId:
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   const classSession = await prisma.classSession.findFirst({
     where: { id: params.sessionId, clubId: session.user.clubId },

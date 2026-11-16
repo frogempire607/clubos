@@ -176,7 +176,7 @@ export function analyzeRouteSource(raw: string): HandlerFinding[] {
  */
 export const APPROVED_INLINE: Record<string, string> = {
   "app/api/messages/dm/[userId]/route.ts#POST":
-    "Session-only by design: members may DM staff and owners freely. Recipient and subject athlete are both looked up with clubId = the caller's club, so there is no cross-tenant reach.",
+    "Owner or staff, any permission set (requireStaff): replying to a family is part of every staff role, and the messages:send level is checked by the screens that start a thread. Members do NOT use this route — the portal sends through /api/member/messages/dm, which applies the parental messaging controls this one would bypass (closed to member logins 2026-11-15). Recipient and subject athlete are both looked up with clubId = the caller's club.",
   "app/api/contractors/[id]/w9/route.ts#POST":
     "SELF-ONLY by design, which is STRICTER than any permission level and cannot be expressed as one. A W-9's Part II is a certification under penalties of perjury, so only the person it is for may sign it — not an owner, and not a staffer with payroll permission. The handler loads the contractor with clubId = the caller's club and then requires contractor.convertedUserId === session.user.id, refusing everyone else with a 403. Phase 12.1.",
 };

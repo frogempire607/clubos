@@ -3,10 +3,13 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { exportResponse, parseExportFormat, isAdvancedExport } from "@/lib/exporters";
 import { getTierFeatures } from "@/lib/tier";
+import { requireStaff } from "@/lib/apiGuard";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return new Response("Unauthorized", { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   const url = new URL(req.url);
   const from = url.searchParams.get("from");

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requireStaff } from "@/lib/apiGuard";
 import { MEMBER_ORIGIN } from "@/lib/memberOrigin";
 import { getTierFeatures, getTierName } from "@/lib/tier";
 import { upsertGuardianProfile } from "@/lib/guardian";
@@ -30,6 +30,8 @@ async function listMembersPaginated(req: Request, clubId: string) {
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   const url = new URL(req.url);
   const guardianEmail = url.searchParams.get("guardianEmail");

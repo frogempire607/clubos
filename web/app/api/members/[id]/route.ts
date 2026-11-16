@@ -5,7 +5,7 @@ import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requireStaff } from "@/lib/apiGuard";
 import { upsertGuardianProfile } from "@/lib/guardian";
 import { ensurePrimaryGuardian } from "@/lib/guardianLink";
 import { deleteOrphanedMemberLogins } from "@/lib/memberLink";
@@ -77,6 +77,8 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   const member = await prisma.member.findFirst({
     where: { id: params.id, clubId: session.user.clubId, deletedAt: null },

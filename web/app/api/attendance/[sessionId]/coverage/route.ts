@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { coverageForMembers, loadSessionCoverageContext } from "@/lib/coverageQuery";
+import { requireStaff } from "@/lib/apiGuard";
 
 // GET /api/attendance/[sessionId]/coverage?memberIds=a,b,c
 //
@@ -16,6 +17,8 @@ export async function GET(req: Request, context: { params: Promise<{ sessionId: 
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   const ids = (new URL(req.url).searchParams.get("memberIds") ?? "")
     .split(",")

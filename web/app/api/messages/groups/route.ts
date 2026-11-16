@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requireStaff } from "@/lib/apiGuard";
 import { getTierFeatures } from "@/lib/tier";
 
 async function requirePrivateMessaging(clubId: string) {
@@ -21,6 +21,8 @@ async function requirePrivateMessaging(clubId: string) {
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   const gate = await requirePrivateMessaging(session.user.clubId);
   if (gate) return gate;

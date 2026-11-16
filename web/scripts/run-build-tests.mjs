@@ -30,6 +30,13 @@ export const GATED = [
   ["scripts/tier-gating-guard.ts"],
   ["scripts/subscription-truth-guard.ts"],
   ["scripts/permission-boundary-guard.ts"],
+  // 2026-11-15: READ handlers too. Any signed-in parent could call the staff
+  // roster export, member list, attendance rosters and exports directly —
+  // middleware does not cover /api. Zero open handlers, and it stays zero.
+  ["scripts/staff-route-role-guard.ts"],
+  // Stored files never run as a page on our origin (SVG), and tax forms,
+  // receipts and books attachments never reach a member login.
+  ["scripts/file-response-tests.ts"],
   ["scripts/members-grep-guards.ts"],
   ["scripts/reports-mobile-guard.ts", [], { TZ: "America/New_York" }],
   ["scripts/ui-polish-guard.ts"],
