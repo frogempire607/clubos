@@ -132,6 +132,13 @@ check("public /delete-account page exists (Google's web link)", existsSync(join(
   check("the public page is built from the same rules as the app", /planAccountDeletion\(/.test(page));
   check("member portal: delete + privacy + terms", /DeleteAccountDialog/.test(code("app/member/profile/page.tsx")) && /href="\/privacy"/.test(code("app/member/profile/page.tsx")) && /href="\/terms"/.test(code("app/member/profile/page.tsx")));
   check("staff and owners: delete + privacy + terms", /DeleteAccountDialog/.test(code("app/dashboard/my-account/page.tsx")) && /href="\/privacy"/.test(code("app/dashboard/my-account/page.tsx")) && /href="\/terms"/.test(code("app/dashboard/my-account/page.tsx")));
+  // The support page the store listings point at.
+  check("public /support page exists", existsSync(join(ROOT, "app/support/page.tsx")));
+  const support = code("app/support/page.tsx");
+  check("…it names the app, the company and the support address", /AthletixOS/.test(support) && /MC Technologies Group LLC/.test(support) && /support@athletix-os\.com/.test(support));
+  check("…it promises the same reply time as the pricing page, no faster", /3 to 5 business days/.test(support) && /3–5 business day/.test(code("app/pricing/page.tsx")));
+  check("…it links to account deletion, privacy and terms", /href="\/delete-account"/.test(support) && /href="\/privacy"/.test(support) && /href="\/terms"/.test(support));
+  check("…and both public pages are in the sitemap", /"\/delete-account", "\/support"/.test(code("app/sitemap.ts")));
   const mw = code("middleware.ts");
   check("middleware does not guard /delete-account", !/delete-account/.test(mw) && /matcher: \["\/dashboard\/:path\*", "\/admin\/:path\*", "\/member\/:path\*"\]/.test(mw));
 }

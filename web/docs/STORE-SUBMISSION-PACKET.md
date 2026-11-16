@@ -52,10 +52,10 @@ no photos of children in screenshots or the icon.
 - Terms: `https://athletix-os.com/terms`
 - Account deletion (Google requires this field): `https://athletix-os.com/delete-account`
 - Marketing: `https://athletix-os.com`
-- Support: `mailto:support@athletix-os.com` for Google. Apple wants a web
-  address in the Support URL field: use `https://athletix-os.com/delete-account`
-  only as a stopgap; a simple `/support` page showing that email is better
-  and is a five-minute job for me.
+- Support: `https://athletix-os.com/support` (both stores). Support email:
+  `support@athletix-os.com`. The page promises a reply within 3 to 5 business
+  days, the same as the pricing page; read that inbox daily while a review is
+  open, because reviewers do write to it.
 
 ## 2. Review notes (paste into "App Review Information → Notes")
 
