@@ -1,5 +1,6 @@
 "use client";
 
+import ScanCheckInCard from "@/components/member/ScanCheckInCard";
 import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
@@ -426,6 +427,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
         <div className={railRoute ? "md:hidden" : ""}>
           <ProfileSwitcher />
         </div>
+        {pathname === "/member" && <ScanCheckInCard />}
         {children}
       </main>
 

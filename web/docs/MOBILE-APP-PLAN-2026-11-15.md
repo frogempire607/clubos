@@ -97,9 +97,10 @@ and no browser chrome or web-address pop-ups anywhere.
 
 **Release hardening** (all in `capacitor.config.ts`, switched on automatically
 for an HTTPS build): logging off, cleartext off, Android mixed content off,
-navigation limited to `athletix-os.com`. Stripe Checkout and the Stripe billing
-portal open in the system in-app browser (`@capacitor/browser`), and return to
-the app through the Universal Link that already exists.
+navigation limited to `athletix-os.com` plus the three Stripe-hosted pages we
+send people to (Checkout, the billing portal, Connect onboarding). Those stay
+**inside** the app's web view on purpose: sent out to Safari, the "you paid"
+page would open in the browser and the app would never hear about it.
 
 ## 4. One thing to keep out of the iOS app: AthletixOS's own subscription
 
@@ -121,7 +122,7 @@ hand-written, additive SQL folder that you run after a backup.
 | # | Slice | What you get | Migration | Needs from you |
 |---|---|---|---|---|
 | 1 | **Store-policy basics** | Staff and owner account deletion; a public `/delete-account` page for Google; privacy policy and terms links inside the member portal and the dashboard; what happens to minors and billing records, in writing | No | The decisions in §6 |
-| 2 | **Native shell** | Official plugins (status bar, splash, keyboard, haptics, network, share, browser, app); release hardening; Android back button; offline screen with cached schedule; pull-to-refresh on the list screens | No | Nothing |
+| 2 | **Native shell** | Official plugins (app, status bar, splash, keyboard, haptics, network, share, preferences, barcode scanner); release hardening in one tested module; Android back button; offline screen with the last-known schedule; a web-to-native bridge that needs no library in the website | No | Nothing |
 | 3 | **QR scanner + "feels native" sweep** | Camera scanner for door check-in (member) and for the front desk (staff); the 78 browser dialogs replaced by in-app confirm sheets and toasts, with a build guard; AthletixOS plan screens hidden in the app (§4); text under 12 px raised; remaining stuck-spinner screens get Retry | No | Nothing |
 | 4 | **Review build** | TestFlight and Play internal testing builds; demo club with fictional data; screenshots; `docs/STORE-SUBMISSION-PACKET.md` | No | Apple and Google accounts (§8) |
 | 5 | **Push notifications** | Device registration, an in-app pre-prompt, per-person settings, first four notices | **Yes**: `device_tokens`, `notification_preferences` | APNs key and Firebase project (§8) |

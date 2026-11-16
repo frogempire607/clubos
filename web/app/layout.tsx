@@ -4,6 +4,7 @@ import Script from "next/script";
 import "./globals.css";
 import { Providers } from "./providers";
 import NativeDeepLinks from "@/components/NativeDeepLinks";
+import NativeShell from "@/components/NativeShell";
 
 const fraunces = Fraunces({ subsets: ["latin"], display: "swap", variable: "--font-fraunces" });
 const inter    = Inter({ subsets: ["latin"], display: "swap" });
@@ -158,6 +159,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           dangerouslySetInnerHTML={{ __html: JSON.stringify(SOFTWARE_JSONLD) }}
         />
         <NativeDeepLinks />
+        <NativeShell />
         <Providers>{children}</Providers>
       </body>
     </html>

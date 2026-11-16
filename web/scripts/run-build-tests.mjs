@@ -50,6 +50,10 @@ export const GATED = [
   // can delete itself in the app; what goes, what stays, children, and a
   // membership still being charged are all spelled out before confirming.
   ["scripts/account-deletion-tests.ts"],
+  // The native app shell: a store build ships no debug logging, cleartext,
+  // mixed content or open navigation; Android back, scanned codes and the
+  // offline schedule copy behave as written.
+  ["scripts/native-shell-tests.ts"],
   ["scripts/members-grep-guards.ts"],
   ["scripts/reports-mobile-guard.ts", [], { TZ: "America/New_York" }],
   ["scripts/ui-polish-guard.ts"],

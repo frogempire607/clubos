@@ -181,11 +181,11 @@ function LoginInner() {
                 type="text"
                 value={clubSlug}
                 onChange={(e) => setClubSlug(e.target.value)}
-                placeholder="apex-wrestling"
+                placeholder="riverside-athletics"
                 required
                 // iOS WKWebView's default keyboard would otherwise capitalize
                 // the first letter and run autocorrect, turning a valid slug
-                // like `apex-wrestling` into `Apex-wrestling` and 401'ing the
+                // like `riverside-athletics` into `Riverside-athletics` and 401'ing the
                 // login. Same reasoning for autoComplete="off" — Keychain
                 // would suggest "Username" autofill on a slug field.
                 autoCapitalize="none"
