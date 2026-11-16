@@ -132,7 +132,7 @@ family or staff member sees something broken. **Medium** = slow or confusing.
 | P11 | `app/dashboard/layout.tsx` | Blank "Loading…" page on every hard load; staff briefly (or permanently, on error) see the owner menu | High | **Fixed** |
 | P12 | `app/api/member/portal/route.ts`, `app/api/member/schedule/route.ts` (644 lines), `app/api/member/events/route.ts` | Still several round trips each | Medium | **Left**. A real fix is one bootstrap request for the whole portal shell; that is a bigger change I would do with the app work (the native shell needs the same thing). |
 | P13 | Six pickers load the full roster through the old `/api/members` (`attendance/page.tsx:938`, `privates/page.tsx:1656`, `messages/page.tsx:899`, `members/[id]/page.tsx:1926`, `SellModal.tsx:43`, `AddAttendeeForm.tsx:67`) | Slow open on each | Medium | **Left**. Each picker reads different fields; needs a slim endpoint per shape. |
-| P14 | `app/api/events/[id]/registrations/route.ts:86` charges due cards and sends reminders inside a page load | The Attendees screen can take seconds when a charge is due | Medium | **Left: your call.** The hourly job now exists, so this could be removed, but it changes *when* a card is charged (up to an hour later). |
+| P14 | `app/api/events/[id]/registrations/route.ts:86` charges due cards and sends reminders inside a page load | The Attendees screen can take seconds when a charge is due | Medium | **Fixed 2026-11-16** (your decision) on `claude/athletixos-mobile-app`. Due charges and reminders run only from the hourly jobs. |
 | P15 | `app/api/messages/dm/route.ts`, `app/api/member/messages/route.ts` load every message ever to build the list | Fine today (50 messages), will slow as history grows | Low | **Left**. Needs pagination design. |
 | P16 | `lib/actionCenter.ts` runs ~30 queries at once | 0.85 s typical | Medium | **Left**. Now fetched once instead of three times; collapsing the queries is a larger rewrite. |
 | P17 | `app/dashboard/financials/page.tsx` (2,436 lines, 12 tabs loaded up front), `communication/templates` (editor loaded up front) | Slowest dashboard routes to open | Low | **Left**. Split per tab with dynamic imports; safe but wide. |
@@ -149,12 +149,12 @@ family or staff member sees something broken. **Medium** = slow or confusing.
 | R4 | `app/api/members/[id]/offline-payment/route.ts` | Double tap on "Record payment" extends paid-through by two periods for one payment | High | **Fixed** |
 | R5 | `app/api/approvals/private-package-purchase`, `membership-purchase` | Double tap on Approve grants double lesson credits or two memberships | High | **Fixed** |
 | R6 | `financials/page.tsx` Mark paid, `staff/payouts/page.tsx`, announcements Send now, events Duplicate, staff Setup link | Double tap does it twice | High/Medium | **Fixed** (`useSingleFlight`) |
-| R7 | webhook returns 200 on every error | A temporary database blip during a payment event is never retried | High | **Left: needs a decision.** Returning an error makes Stripe retry for 3 days; safe only now that R1 is fixed, but I want you to see it before I change how Stripe retries. |
-| R8 | `app/api/attendance/charge/route.ts` | A second submit of "Cash $20" writes a second $20 row | High | **Left: your call.** Is charging the same attendee twice in one class ever real? If no, I add a claim. |
+| R7 | webhook returns 200 on every error | A temporary database blip during a payment event is never retried | High | **Fixed 2026-11-16** (your decision) on `claude/athletixos-mobile-app`. Connection failures are retried; anything that would fail every time is not. |
+| R8 | `app/api/attendance/charge/route.ts` | A second submit of "Cash $20" writes a second $20 row | High | **Fixed 2026-11-16** (your decision) on `claude/athletixos-mobile-app`. One payment per person per class or event; a second is refused. |
 | R9 | `app/api/events/[id]/charge/route.ts:296` (cash at the door), `events/[id]/comp/generate-payouts` | Double tap books cash twice / creates two payout records | High | **Left**. Same claim-first fix; each touches a money path I did not have time to trace end to end. Next on the list. |
 | R10 | An announcement cut off mid-send stays "Sending" forever with no retry | High | **Partly fixed** (R2 removes the main cause). A recovery sweep is still needed. |
 | R11 | `announcements/route.ts` legacy send, `members/migration/send` (150 at a time), `events/[id]/bill-registrants` loop with no time limit | Large sends can be cut off part-way | Medium | **Left**. Needs batching with a "remaining" count. |
-| R12 | Last event spot can be sold twice (`public/events/[slug]/register`); class capacity is not enforced on member booking | Medium | **Left: your call** (enforcing capacity changes who can book). |
+| R12 | Last event spot can be sold twice (`public/events/[slug]/register`); class capacity is not enforced on member booking | Medium | **Event half fixed 2026-11-16**: the last spot is sold once. Class capacity on member booking is still not enforced (not decided). |
 | R13 | Private-lesson credit can be used twice on a double accept; product stock can oversell | Medium | **Left**. |
 
 ### Dates and timezones
@@ -163,12 +163,12 @@ Frog Empire's timezone is set (`America/New_York`); the three other clubs have n
 
 | # | Where | Symptom | Severity | Status |
 |---|---|---|---|---|
-| D1 | `lib/discounts.ts:63` | A code that "expires Nov 15" stops working at 7 pm on Nov 14 | High | **Left: your call.** Does "expires the 15th" include the 15th? Changing it changes what families pay. |
+| D1 | `lib/discounts.ts:63` | A code that "expires Nov 15" stops working at 7 pm on Nov 14 | High | **Fixed 2026-11-16** (your decision) on `claude/athletixos-mobile-app`. Good through the end of the day shown, club time. |
 | D2 | `lib/reportsRange.ts` vs date-only money | An expense dated the 1st lands in the previous month's report | High | **Left**. Report-boundary change; no amounts move, but every monthly figure shifts, so you should see it first. |
 | D3 | `lib/email.ts:421`, `:911`, check-in page | Event emails print UTC times: a 6:00 pm event emails as "11:00 PM" | High | **Left**. Fixable with the club timezone; touches every event email template, next on the list. |
 | D4 | `app/api/dashboard/summary/route.ts`, `app/api/attendance/route.ts` | Today's evening class drops off the dashboard at lunchtime; a 7:30 pm event shows under tomorrow | Medium | **Left**. Next on the list. |
-| D5 | `lib/parentalControls.ts:184` | A minor's daily spending limit resets at 7 pm | Medium | **Left: your call** (changes what a minor can spend). |
-| D6 | `lib/memberStatus.ts:170`, `lib/chargeDate.ts` | Manual memberships end, and scheduled charges fire, at 7 pm the evening before the date shown | Low | **Left: your call** (charge timing). |
+| D5 | `lib/parentalControls.ts:184` | A minor's daily spending limit resets at 7 pm | Medium | **Fixed 2026-11-16** (your decision) on `claude/athletixos-mobile-app`. Resets at the club's midnight. |
+| D6 | `lib/memberStatus.ts:170`, `lib/chargeDate.ts` | Manual memberships end, and scheduled charges fire, at 7 pm the evening before the date shown | Low | **Fixed 2026-11-16** (your decision) on `claude/athletixos-mobile-app`. Both happen when that day starts at the club. Applies to memberships created from now on; existing Stripe subscriptions keep the time of day they already renew at. Stripe cancel-at dates were not changed. |
 
 ### Screens that can get stuck or misbehave
 

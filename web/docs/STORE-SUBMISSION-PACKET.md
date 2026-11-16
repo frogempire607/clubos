@@ -52,10 +52,10 @@ no photos of children in screenshots or the icon.
 - Terms: `https://athletix-os.com/terms`
 - Account deletion (Google requires this field): `https://athletix-os.com/delete-account`
 - Marketing: `https://athletix-os.com`
-- Support: **YOU** — a page or an email that is answered. `support@athletix-os.com`
-  already appears in the privacy policy; if that inbox is monitored, use
-  `mailto:` on a simple `/support` page (I can add the page; tell me the hours
-  and how fast you answer).
+- Support: `mailto:support@athletix-os.com` for Google. Apple wants a web
+  address in the Support URL field: use `https://athletix-os.com/delete-account`
+  only as a stopgap; a simple `/support` page showing that email is better
+  and is a five-minute job for me.
 
 ## 2. Review notes (paste into "App Review Information → Notes")
 
@@ -334,9 +334,9 @@ Check on the phone: the same list as iPhone, plus:
 |---|---|---|
 | 1 | Merge and deploy both branches (the app talks to the live site; the scanner button, the dialogs and the deletion screens are web changes) | YOU |
 | 2 | ~~Signup email check (audit S2)~~ **Built 2026-11-16.** Make sure confirmation emails actually arrive (Resend is configured in Netlify) before a reviewer signs up. | Done; YOU check delivery |
-| 3 | Confirm the account-deletion rules (plan §6.1 to §6.4). The public page says requests by email are handled within 30 days; change the number if that is not true. | YOU |
+| 3 | ~~Account-deletion rules~~ **Confirmed 2026-11-16: keep all four as built.** Still to confirm: the public page says requests by email are handled within 30 days. | Done; 30 days unconfirmed |
 | 4 | ~~Google target audience~~ **Decided 2026-11-16: 13 and over.** | Done |
-| 5 | Support address or page | YOU |
+| 5 | ~~Support address~~ **`support@athletix-os.com`** (2026-11-16). Make sure that inbox is read daily while a review is open. | Done |
 | 6 | Create the demo club data and three demo logins (§3) | YOU |
 | 7 | Hands-on phone checks in §7 and §8 | YOU |
 | 8 | The privacy policy is marked attorney-pending in the repo (`legal/PRIVACY_POLICY.md`). It should mention the app, the camera, and (later) push notifications. | YOU + attorney |

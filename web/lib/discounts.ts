@@ -1,3 +1,5 @@
+import { clubTimezone } from "@/lib/clubDayServer";
+import { isPastThroughDate } from "@/lib/clubDay";
 import { prisma } from "@/lib/prisma";
 
 // Discount validation + price application across every purchase type.
@@ -60,7 +62,8 @@ export async function findValidDiscountFor(
   });
   if (!d) return { ok: false, error: "That discount code doesn't exist." };
   if (!d.active) return { ok: false, error: "That discount code is no longer active." };
-  if (d.expiresAt && d.expiresAt < new Date()) {
+  // "Expires Nov 15" works all day on the 15th, club time (lib/clubDay.ts).
+  if (d.expiresAt && isPastThroughDate(d.expiresAt, new Date(), await clubTimezone(clubId))) {
     return { ok: false, error: "That discount code has expired." };
   }
   if (d.maxUses != null && d.usedCount >= d.maxUses) {

@@ -46,6 +46,11 @@ export const GATED = [
   // One payment counts once, one email goes once, one approval grants once,
   // one tap does one thing (2026-11 reliability pass).
   ["scripts/reliability-tests.ts"],
+  // The seven "your call" audit items as the owner decided them 2026-11-16:
+  // dates mean the club's day (discount expiry, spend limit, membership end,
+  // first charge), one payment per visit, webhook retry on connection
+  // failures, no charging from the Attendees screen, last event spot once.
+  ["scripts/owner-decisions-tests.ts"],
   // App-store policy (Apple 5.1.1(v), Google User Data): every account type
   // can delete itself in the app; what goes, what stays, children, and a
   // membership still being charged are all spelled out before confirming.

@@ -114,8 +114,27 @@ export async function POST(req: Request) {
       ...(data.classSessionId ? { classSessionId: data.classSessionId } : {}),
       ...(data.eventId ? { eventId: data.eventId } : {}),
     },
-    select: { id: true, checkedInAt: true },
+    select: { id: true, checkedInAt: true, amountCharged: true, paymentMethod: true },
   });
+  // One payment per person per class or event. A second submit — a double tap,
+  // a retry after a slow response, a second staff member at the desk — used to
+  // write a second payment row for the same visit: cash revenue overstated and
+  // a discount code's use counted twice. To CHANGE what was recorded, the
+  // first payment is taken out in Financials, then this route records the
+  // right one.
+  if (existing && existing.amountCharged != null) {
+    const how = existing.paymentMethod ? existing.paymentMethod.toLowerCase() : "payment";
+    const amountText = Number(existing.amountCharged).toFixed(2);
+    return NextResponse.json(
+      {
+        error:
+          "A payment is already recorded for " + memberName + " here (" + how + ", $" + amountText + "). " +
+          "Nothing was added. To correct it, take that payment out in Financials and record it again.",
+        code: "ALREADY_CHARGED",
+      },
+      { status: 409 },
+    );
+  }
   const recordData = {
     status: data.status,
     notes: data.notes ?? null,
@@ -124,8 +143,22 @@ export async function POST(req: Request) {
     checkedInAt: existing?.checkedInAt ?? now,
     addedById: session.user.id,
   };
+  // Claim the existing row only while it still carries no money: two requests
+  // that both passed the check above cannot both get past this write.
+  if (existing) {
+    const claimed = await prisma.attendanceRecord.updateMany({
+      where: { id: existing.id, amountCharged: null },
+      data: recordData,
+    });
+    if (claimed.count === 0) {
+      return NextResponse.json(
+        { error: "A payment was just recorded for " + memberName + " here. Nothing was added.", code: "ALREADY_CHARGED" },
+        { status: 409 },
+      );
+    }
+  }
   const record = existing
-    ? await prisma.attendanceRecord.update({ where: { id: existing.id }, data: recordData })
+    ? await prisma.attendanceRecord.findUniqueOrThrow({ where: { id: existing.id } })
     : await prisma.attendanceRecord.create({
         data: {
           clubId,

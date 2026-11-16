@@ -1,3 +1,5 @@
+import { clubTimezone } from "@/lib/clubDayServer";
+import { isPastThroughDate } from "@/lib/clubDay";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -36,13 +38,15 @@ export async function GET(req: Request) {
   });
 
   const now = new Date();
+  // Same rule as lib/discounts.findValidDiscountFor: good through the day shown.
+  const tz = await clubTimezone(session.user.clubId);
   const items = rows.map((d) => {
     const appliesTo = Array.isArray(d.appliesTo) ? (d.appliesTo as string[]) : [];
     const planScope = Array.isArray(d.membershipIds) ? (d.membershipIds as string[]) : [];
     const eventScope = Array.isArray((d as { eventIds?: unknown }).eventIds)
       ? ((d as { eventIds: unknown }).eventIds as string[])
       : [];
-    const expired = !!d.expiresAt && d.expiresAt < now;
+    const expired = !!d.expiresAt && isPastThroughDate(d.expiresAt, now, tz);
     const exhausted = d.maxUses != null && d.usedCount >= d.maxUses;
     // Mirrors findValidDiscountFor: empty appliesTo = all types, EXCEPT the
     // legacy plan-narrowed case which is memberships-only.

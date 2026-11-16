@@ -90,7 +90,8 @@ Two branches, the second cut from the first. No migration in either.
 - [x] Internal links no longer reload the app; phone screen heights fixed.
 - [x] Signup email check (audit S2) — decided "verify first", built 2026-11-16 on branch 2. New signups get a "Confirm your email" message; records the club already has under that email connect when they tap it.
 - [ ] **CHECK in Netlify:** Functions region (should be `us-east-2`, where the database is) and whether `DATABASE_URL` has `connection_limit=1`. Tell Claude what they say.
-- [ ] Decide the "left: your call" rows in the audit (webhook retry on error, attendance double charge, discount expiry day, capacity).
+- [x] All seven "your call" audit rows decided and built 2026-11-16 (branch 2): discount good through its day, one payment per visit, webhook retries connection failures, Attendees screen no longer charges, last event spot sold once, spend limit and membership end/first charge on the club's day.
+- [ ] Still open: enforce CLASS capacity when members book? (not decided)
 
 **Branch 2 `claude/athletixos-mobile-app`** — plan: `docs/MOBILE-APP-PLAN-2026-11-15.md`, store forms: `docs/STORE-SUBMISSION-PACKET.md`
 - [x] Account deletion for every account type + public `/delete-account` page + privacy links in the app.
@@ -98,6 +99,7 @@ Two branches, the second cut from the first. No migration in either.
 - [x] Camera QR check-in, haptics. iOS simulator build succeeds and launches.
 - [x] All 78 browser pop-ups replaced with in-app dialogs. AthletixOS plans are not sold inside the app.
 - [x] Google audience: **13 and over** (decided 2026-11-16).
-- [ ] **DECIDE:** account-deletion rules (plan §6.1–6.4), support address.
+- [x] Account-deletion rules: keep all four as built (2026-11-16). Support address: support@athletix-os.com.
+- [ ] Confirm the "within 30 days" promise on `/delete-account`.
 - [ ] **YOU:** Apple + Google accounts, demo club + 3 demo logins, TestFlight / Play internal builds, phone checks (packet §3, §7, §8).
 - [ ] Next code: push notifications (needs a migration + APNs key + Firebase), text under 12px, stuck-spinner screens, event-email timezones.

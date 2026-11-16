@@ -1,3 +1,4 @@
+import { dayStartAtClub } from "@/lib/clubDay";
 import crypto from "crypto";
 
 // Billing control center — shared constants + PURE decision logic.
@@ -385,9 +386,21 @@ export type ChargeTiming = {
  * future date? Null/past/today (within a minute of now) = immediate.
  * The label is what buttons/emails must show — timing is never vague.
  */
-export function chargeTiming(firstChargeDate: Date | null | undefined, now: Date = new Date()): ChargeTiming {
+export function chargeTiming(
+  firstChargeDate: Date | null | undefined,
+  now: Date = new Date(),
+  /**
+   * The club's timezone. A first-charge DATE is stored as midnight UTC; with
+   * the timezone, "has that day started?" is asked of the club's own day, so
+   * what the screen says ("charged today" vs "first payment Nov 16") matches
+   * when the card is really charged (lib/clubDay.ts). The date SHOWN is always
+   * the stored calendar day. Omitted: the old rule.
+   */
+  timeZone?: string | null,
+): ChargeTiming {
   const d = firstChargeDate ?? null;
-  const immediate = !d || d.getTime() <= now.getTime() + 60_000;
+  const moment = d ? dayStartAtClub(d, timeZone) : null;
+  const immediate = !moment || moment.getTime() <= now.getTime() + 60_000;
   return {
     immediate,
     firstChargeDate: immediate ? now : d,

@@ -30,6 +30,7 @@
 // charge.dispute.created resolve by charge, not subscription — so nulling the
 // id orphans no money event arriving afterwards.
 
+import { chargeMomentFor } from "@/lib/clubDayServer";
 import { prisma } from "@/lib/prisma";
 import { stripe, calculatePlatformFeePercent } from "@/lib/stripe";
 import { setStripeStop } from "@/lib/stripeStop";
@@ -210,7 +211,8 @@ export async function turnAutopayOn(
   }
 
   // The FIRST charge lands when the paid period ends, never today.
-  const anchor = sub.paidThroughDate ?? sub.currentPeriodEnd;
+  // A paid-through DATE means that day at the club, not midnight UTC.
+  const anchor = await chargeMomentFor(clubId, sub.paidThroughDate ?? sub.currentPeriodEnd);
   const trialEnd = anchor && anchor.getTime() > Date.now() + 60_000
     ? Math.floor(anchor.getTime() / 1000)
     : undefined;

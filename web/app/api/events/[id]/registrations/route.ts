@@ -3,8 +3,6 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { runDueEventCharges } from "@/lib/eventAutoCharge";
-import { runDueTournamentReminders } from "@/lib/tournamentReminders";
 import {
   eventAllowedPaymentMethods,
   UNPAID_REGISTRATION_STATUSES,
@@ -77,18 +75,14 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   });
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Lazy sweep: with no cron in the app, opening the roster is one of the
-  // moments a due event-day charge actually runs. Never blocks the response on
-  // failure (runDueEventCharges swallows its own errors). Capped low on
-  // purpose — each charge is a round trip to Stripe, and staff opening a roster
-  // shouldn't wait on a long queue. Whatever's left is picked up by the next
-  // open or by /api/cron/event-charges.
-  await runDueEventCharges({ clubId: session.user.clubId, eventId: event.id, limit: 3 });
-  // Same lazy-sweep parity for reminders (§5.6.1): a club that never sets
-  // CRON_SECRET still gets them whenever staff open a roster. Capped at 3 for
-  // the same reason — each one is a round trip to the email provider, and the
-  // per-stage dedupe key means the cron and this can both fire harmlessly.
-  await runDueTournamentReminders({ clubId: session.user.clubId, eventId: event.id, limit: 3 });
+  // REMOVED 2026-11-16 (owner decision). Opening a list of names no longer
+  // charges cards or sends reminder emails. Both jobs now run only from the
+  // hourly scheduled functions (netlify/functions/event-charges-cron.mts and
+  // tournament-reminders-cron.mts), which were confirmed running in production
+  // on 2026-11-15 (24 runs a day each, no errors). Effect: a due charge lands
+  // within the hour instead of the moment staff happen to open this screen,
+  // and the screen no longer waits on Stripe. If those jobs ever stop,
+  // EVENT_CHARGE_OVERDUE in the Action Center is what says so.
 
   const rows = await prisma.eventRegistration.findMany({
     where: { eventId: event.id },
