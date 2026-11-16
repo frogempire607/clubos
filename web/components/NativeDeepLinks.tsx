@@ -2,50 +2,32 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { isNativeApp, nativeListen } from "@/lib/native";
+import { pathForAppUrl } from "@/lib/nativeLinks";
 
-// Inside the native app (Capacitor), a Universal Link / App Link — the door QR
-// (/c/...), a Stripe return (/member/checkin/...?paid=1), a portal email link —
-// launches or foregrounds the app and fires `appUrlOpen`. The WebView does NOT
+// Inside the native app, a Universal Link / App Link — the door QR (/c/...),
+// a Stripe return (/member/checkin/...?paid=1), a portal email link — launches
+// or foregrounds the app and fires `appUrlOpen`. The web view does NOT
 // navigate by itself, so route it here. Outside the app this renders nothing
 // and does nothing.
 //
-// Uses the bridge the shell injects (window.Capacitor.Plugins.App) instead of
-// importing @capacitor/app, so the website bundle doesn't carry native code.
+// The listener is attached through lib/native.ts. It used to read
+// `window.Capacitor.Plugins.App`, which nothing on this site ever creates, so
+// it never attached at all — see the note at the top of lib/native.ts.
 
-type AppPlugin = { addListener: (ev: string, cb: (e: { url?: string }) => void) => Promise<{ remove: () => void }> | { remove: () => void } };
-type CapWindow = Window & { Capacitor?: { isNativePlatform?: () => boolean; Plugins?: { App?: AppPlugin } } };
-
-const OUR_HOSTS = /(^|\.)athletix-os\.com$/i;
-
-export function pathForAppUrl(raw: string, currentHost: string): string | null {
-  try {
-    const u = new URL(raw);
-    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
-    if (!OUR_HOSTS.test(u.hostname) && u.host !== currentHost) return null;
-    return `${u.pathname}${u.search}${u.hash}` || "/";
-  } catch {
-    return null;
-  }
-}
+export { pathForAppUrl };
 
 export default function NativeDeepLinks() {
   const router = useRouter();
   useEffect(() => {
-    const w = window as CapWindow;
-    if (!w.Capacitor?.isNativePlatform?.()) return;
-    const App = w.Capacitor.Plugins?.App;
-    if (!App?.addListener) return;
-    let handle: { remove: () => void } | null = null;
-    Promise.resolve(
-      App.addListener("appUrlOpen", (e) => {
-        const path = e?.url ? pathForAppUrl(e.url, window.location.host) : null;
-        // In-app navigation, not a page load: assigning window.location here
-        // restarted the whole app (blank screen, every script re-downloaded)
-        // each time a door QR, an emailed link or a Stripe return opened it.
-        if (path && path !== `${window.location.pathname}${window.location.search}`) router.push(path);
-      }),
-    ).then((h) => { handle = h; }).catch(() => {});
-    return () => { handle?.remove(); };
+    if (!isNativeApp()) return;
+    return nativeListen<{ url?: string }>("App", "appUrlOpen", (e) => {
+      const path = e?.url ? pathForAppUrl(e.url, window.location.host) : null;
+      // In-app navigation, not a page load: assigning window.location here
+      // restarted the whole app (blank screen, every script re-downloaded)
+      // each time a door QR, an emailed link or a Stripe return opened it.
+      if (path && path !== `${window.location.pathname}${window.location.search}`) router.push(path);
+    });
   }, [router]);
   return null;
 }

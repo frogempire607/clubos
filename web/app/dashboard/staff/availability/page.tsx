@@ -1,5 +1,6 @@
 "use client";
 
+import { alertDialog } from "@/lib/dialogs";
 import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
@@ -148,7 +149,7 @@ export default function StaffAvailabilityPage() {
       loadData(selectedId);
     } else {
       const d = await res.json().catch(() => ({}));
-      alert(typeof d.error === "string" ? d.error : "Could not add exception");
+      void alertDialog(typeof d.error === "string" ? d.error : "Could not add exception");
     }
   }
 

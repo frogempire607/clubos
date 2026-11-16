@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/lib/dialogs";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { ArrowLeft, Plus, Copy, Archive, ArchiveRestore, Trash2, Pencil, Save, X } from "lucide-react";
@@ -63,7 +64,7 @@ export default function TemplatesPage() {
 
   async function hardDelete(t: TemplateRow) {
     if (t.isSystem) return; // UI shouldn't show delete for system; guard anyway
-    if (!confirm(`Delete "${t.name}"? This can't be undone.`)) return;
+    if (!(await confirmDialog(`Delete "${t.name}"? This can't be undone.`))) return;
     const res = await fetch(`/api/email-templates/${t.id}`, { method: "DELETE" });
     if (!res.ok) { setError((await res.json()).error ?? "Delete failed"); return; }
     await load();

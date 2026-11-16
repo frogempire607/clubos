@@ -6,6 +6,8 @@
 // stays as a deep link). All booking / registration / check-in / discount
 // flows are unchanged.
 
+import { isNativeApp, nativeStoreSet } from "@/lib/native";
+import { OFFLINE_SCHEDULE_KEY, buildOfflineSchedule } from "@/lib/offlineSchedule";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
@@ -318,6 +320,11 @@ function ScheduleInner() {
       setError("Schedule could not be loaded.");
       setLoading(false);
       return;
+    }
+    // In the app: keep a small copy of what is coming up on the phone itself,
+    // so the offline screen can still show it (lib/offlineSchedule.ts).
+    if (isNativeApp()) {
+      void nativeStoreSet(OFFLINE_SCHEDULE_KEY, JSON.stringify(buildOfflineSchedule(next.items, null, new Date())));
     }
     const canFamily = familyEligible(
       next.accessibleMembers.map((m) => ({ kind: m.kind })),

@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/lib/dialogs";
 import { useEffect, useRef, useState } from "react";
 import { FileText, List, ListOrdered, Eraser } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
@@ -65,7 +66,7 @@ export default function DocumentsPage() {
   useEffect(() => { load(); }, []);
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this document?")) return;
+    if (!(await confirmDialog("Delete this document?"))) return;
     await fetch(`/api/documents/${id}`, { method: "DELETE" });
     load();
   }

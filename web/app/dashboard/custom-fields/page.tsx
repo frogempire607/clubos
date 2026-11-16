@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/lib/dialogs";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ListChecks, ArrowLeft } from "lucide-react";
@@ -42,7 +43,7 @@ export default function CustomFieldsPage() {
   useEffect(() => { load(); }, []);
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this custom field? Existing values will remain on members.")) return;
+    if (!(await confirmDialog("Delete this custom field? Existing values will remain on members."))) return;
     await fetch(`/api/custom-fields/${id}`, { method: "DELETE" });
     load();
   }

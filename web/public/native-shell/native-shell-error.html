@@ -9,7 +9,7 @@
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        min-height: 100vh;
+        min-height: 100dvh;
         display: flex;
         flex-direction: column;
         justify-content: center;
@@ -74,6 +74,16 @@
       }
       button:active { opacity: 0.7; }
       button.hidden { display: none; }
+      /* Last-known schedule, saved on the phone by the app while it was online. */
+      #schedule { margin-top: 28px; text-align: left; }
+      #schedule.hidden { display: none; }
+      #schedule h2 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+      #schedule .asof { font-size: 12px; color: rgba(255, 255, 255, 0.6); margin: 0 0 10px; }
+      #schedule ul { list-style: none; margin: 0; padding: 0; }
+      #schedule li { padding: 10px 0; border-top: 1px solid rgba(255, 255, 255, 0.12); }
+      #schedule .when { font-size: 13px; color: rgba(255, 255, 255, 0.7); }
+      #schedule .what { font-size: 15px; font-weight: 600; }
+      #schedule .tag { font-size: 12px; color: rgba(255, 255, 255, 0.7); }
       .status {
         font-size: 12px;
         color: rgba(255, 255, 255, 0.4);
@@ -95,6 +105,11 @@
       <p id="message">Just a moment while we get you back online.</p>
       <button id="reload-btn" class="hidden" type="button">Try again</button>
       <div id="status" class="status"></div>
+      <section id="schedule" class="hidden" aria-live="polite">
+        <h2>Your schedule</h2>
+        <p class="asof" id="schedule-asof"></p>
+        <ul id="schedule-list"></ul>
+      </section>
     </main>
     <script>
       (function () {
@@ -159,6 +174,67 @@
           status.textContent = attempts > 0 ? "Attempt " + attempts : "";
           setTimeout(tryNavigate, AUTO_RETRY_MS);
         }
+
+        // ── Native bits available on this bundled page ────────────────────
+        // The app injects window.Capacitor here too. Hide the launch screen
+        // (this page may be the first thing drawn), retry the moment the
+        // phone reports a connection, and show the last-known schedule.
+        var cap = window.Capacitor;
+        function native(plugin, method, options) {
+          try {
+            if (cap && typeof cap.nativePromise === "function") return cap.nativePromise(plugin, method, options || {});
+          } catch (_) {}
+          return Promise.resolve(null);
+        }
+        native("SplashScreen", "hide", { fadeOutDuration: 200 }).catch(function () {});
+        try {
+          if (cap && typeof cap.addListener === "function") {
+            cap.addListener("Network", "networkStatusChange", function (s) {
+              if (s && s.connected) { resetAttempts(); tryNavigate(); }
+            });
+          }
+        } catch (_) {}
+
+        // Mirrors lib/offlineSchedule.ts (key, shape, 7-day staleness). Class
+        // times are the club's wall clock pinned to UTC, so they are printed
+        // in UTC; event times are real instants and print in the phone's zone.
+        var SCHEDULE_KEY = "aox.schedule.v1";
+        var STALE_MS = 7 * 24 * 60 * 60 * 1000;
+        function fmt(iso, utc) {
+          try {
+            return new Date(iso).toLocaleString(undefined, {
+              weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+              timeZone: utc ? "UTC" : undefined,
+            });
+          } catch (_) { return ""; }
+        }
+        native("Preferences", "get", { key: SCHEDULE_KEY }).then(function (r) {
+          var snap = null;
+          try { snap = r && r.value ? JSON.parse(r.value) : null; } catch (_) {}
+          if (!snap || !snap.entries || !snap.entries.length || !snap.savedAt) return;
+          var saved = Date.parse(snap.savedAt);
+          if (!isFinite(saved)) return;
+          var list = document.getElementById("schedule-list");
+          snap.entries.slice(0, 20).forEach(function (e) {
+            if (!e || typeof e.title !== "string" || typeof e.startsAt !== "string") return;
+            var li = document.createElement("li");
+            var when = document.createElement("div"); when.className = "when"; when.textContent = fmt(e.startsAt, !!e.wallClockUTC);
+            var what = document.createElement("div"); what.className = "what"; what.textContent = e.title;
+            li.appendChild(when); li.appendChild(what);
+            if (e.canceled || e.booked) {
+              var tag = document.createElement("div"); tag.className = "tag";
+              tag.textContent = e.canceled ? "Canceled" : "You are booked";
+              li.appendChild(tag);
+            }
+            list.appendChild(li);
+          });
+          if (!list.children.length) return;
+          var old = Date.now() - saved > STALE_MS;
+          document.getElementById("schedule-asof").textContent =
+            (old ? "This copy is more than a week old and may be out of date. " : "") +
+            "Saved on this phone " + fmt(snap.savedAt, false) + ". Times and bookings may have changed since.";
+          document.getElementById("schedule").classList.remove("hidden");
+        }).catch(function () {});
 
         btn.addEventListener("click", function () {
           resetAttempts();

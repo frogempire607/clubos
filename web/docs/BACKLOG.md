@@ -638,6 +638,10 @@ live, not future; App Store 4.2 is a configuration problem, not a design one (B2
     charge date. Nobody registered on it; the real event has its 2. If it still appears anywhere in the app, that list
     is missing a `deletedAt: null` filter — find it.
 - [ ] **B22 · App Store Guideline 4.2 compliance** · its own project · GATES App Store submission (audit §6)
+  **2026-11-15: mostly BUILT on `claude/athletixos-mobile-app` (not pushed).** Done: bundled shell + offline screen, 9 official
+  plugins, release hardening, native QR scanner, Android back, haptics, all 78 browser dialogs replaced (+ guard), account
+  deletion for every account type, AthletixOS plans not sold in the app. Left: push notifications, text under 12px, stuck
+  spinners, swipe-to-dismiss / pull-to-refresh. Plan: `docs/MOBILE-APP-PLAN-2026-11-15.md`. Store forms: `docs/STORE-SUBMISSION-PACKET.md`.
   Configuration (no design): (a) `server.url` points at the live origin — binary ships no web assets, Airplane Mode
   on first launch shows "Can't reach AthletixOS"; bundle the shell, keep data on /api. (b) one plugin
   (`@capacitor/app`), zero device capabilities, no `plugins` block. (c) `limitsNavigationsToAppBoundDomains: false`.

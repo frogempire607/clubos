@@ -1,4 +1,5 @@
 import { addBillingPeriod } from "@/lib/billingAdmin";
+import { provedByActivationLink } from "@/lib/emailLinkServer";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -543,6 +544,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       where: { id: user.id },
       data: {
         passwordHash,
+        ...(await provedByActivationLink(member.id, contactEmail)),
         deletedAt: null,
         firstName: accountFirstName,
         lastName: accountLastName,
@@ -565,6 +567,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
           clubId: club.id,
           email: contactEmail,
           passwordHash,
+          ...(await provedByActivationLink(member.id, contactEmail)),
           firstName: accountFirstName,
           lastName: accountLastName,
           role: "MEMBER",

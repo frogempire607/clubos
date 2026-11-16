@@ -23,7 +23,10 @@ export async function POST(req: Request) {
     const passwordHash = await bcrypt.hash(password, 12);
     await prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash, resetToken: null, resetExpires: null },
+      // The token reached them by email, so using it proves the address
+      // (lib/emailVerification.ts). Covers password resets, staff setup links
+      // and guardian invites, which all land here. Never un-sets a proof.
+      data: { passwordHash, resetToken: null, resetExpires: null, emailVerified: user.emailVerified ?? new Date() },
     });
     return NextResponse.json({ ok: true });
   } catch {

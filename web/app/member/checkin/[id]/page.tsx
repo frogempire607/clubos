@@ -1,5 +1,6 @@
 "use client";
 
+import { haptic } from "@/lib/native";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, AlertTriangle, Users, CreditCard, Banknote } from "lucide-react";
@@ -52,9 +53,11 @@ export default function MemberCheckinPage({ params }: { params: { id: string } }
     }
     setDropIn(null);
     if (!res.ok) {
+      haptic("error");
       setError(typeof d.error === "string" ? d.error : "Could not check you in. Please try again.");
       return;
     }
+    haptic("success");
     setDone({
       message: payAtDesk ? `${d.message || "You're checked in."} Please pay at the front desk.` : d.message || "You're checked in!",
       already: !!d.already,

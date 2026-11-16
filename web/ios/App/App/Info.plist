@@ -44,7 +44,7 @@
 	<!-- Photo uploads (profile photos, documents) use the web file picker,
 	     which offers Camera and Photo Library. iOS kills the app without these. -->
 	<key>NSCameraUsageDescription</key>
-	<string>AthletixOS uses the camera so you can take a profile photo or photograph a document to upload.</string>
+	<string>AthletixOS uses the camera to scan the check-in code at your club&apos;s door, and to take a profile photo or photograph a document you choose to upload.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>AthletixOS lets you choose a photo to upload as a profile picture or document.</string>
 	<!-- Only standard HTTPS — answers App Store Connect's export-compliance question. -->

@@ -88,7 +88,7 @@ const GUARD =
 const NOT_STAFF_FACING = [
   /\/api\/(member|public|auth|stripe\/webhook|cron|webhooks|files|preview|unsubscribe)\//,
   /\[token\]/,
-  /\/api\/(me|dashboard\/widgets|upload|emails\/image-url)\//,
+  /\/api\/(me|account|dashboard\/widgets|upload|emails\/image-url)\//,
 ];
 
 const MUTATING = ["POST", "PATCH", "PUT", "DELETE"] as const;

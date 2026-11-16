@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/lib/dialogs";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
@@ -201,7 +202,7 @@ function GroupsTab() {
   }
 
   async function deleteGroup(id: string) {
-    if (!confirm("Delete this group and all its messages?")) return;
+    if (!(await confirmDialog("Delete this group and all its messages?"))) return;
     await fetch(`/api/messages/groups/${id}`, { method: "DELETE" });
     setActiveGroup(null);
     setMessages([]);

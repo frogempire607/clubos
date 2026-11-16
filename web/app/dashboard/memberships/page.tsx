@@ -1,5 +1,6 @@
 "use client";
 
+import { alertDialog, confirmDialog, promptDialog } from "@/lib/dialogs";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Ticket } from "lucide-react";
@@ -173,7 +174,7 @@ export default function MembershipsPage() {
   useEffect(() => { load(); }, []);
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this membership? Members on this plan won't be affected.")) return;
+    if (!(await confirmDialog("Delete this membership? Members on this plan won't be affected."))) return;
     const res = await fetch(`/api/memberships/${id}`, { method: "DELETE" });
     if (res.ok) load();
   }
@@ -181,11 +182,11 @@ export default function MembershipsPage() {
   async function handleDuplicate(id: string) {
     const res = await fetch(`/api/memberships/${id}/duplicate`, { method: "POST" });
     if (res.ok) load();
-    else alert("Could not duplicate this membership.");
+    else void alertDialog("Could not duplicate this membership.");
   }
 
   async function handleDeleteDiscount(id: string) {
-    if (!confirm("Delete this discount code?")) return;
+    if (!(await confirmDialog("Delete this discount code?"))) return;
     const res = await fetch(`/api/discounts/${id}`, { method: "DELETE" });
     if (res.ok) load();
   }
@@ -213,7 +214,7 @@ export default function MembershipsPage() {
   // plan with club branding and funnels into the existing signup/onboarding.
   function copyPublicLink(m: Membership) {
     if (!clubSlug) {
-      alert("Set your club URL (slug) in Settings → Club first so the public link works.");
+      void alertDialog("Set your club URL (slug) in Settings → Club first so the public link works.");
       return;
     }
     const url = `${window.location.origin}/join/${clubSlug}?m=${m.id}`;
@@ -222,11 +223,11 @@ export default function MembershipsPage() {
       setTimeout(() => setCopiedId((c) => (c === m.id ? null : c)), 1800);
     };
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(url).then(done, () =>
-        window.prompt("Copy this public registration link:", url),
-      );
+      navigator.clipboard.writeText(url).then(done, () => {
+        void promptDialog("Copy this public registration link:", url);
+      });
     } else {
-      window.prompt("Copy this public registration link:", url);
+      void promptDialog("Copy this public registration link:", url);
     }
   }
 
@@ -1007,7 +1008,7 @@ function FreeTrialModal({ info, memberships, onClose, onSaved }: {
   }
 
   async function handleRemove() {
-    if (!confirm("Stop offering a free trial? New signups and subscriptions won't get one until you set it up again.")) return;
+    if (!(await confirmDialog("Stop offering a free trial? New signups and subscriptions won't get one until you set it up again."))) return;
     setSaving(true);
     const res = await fetch("/api/club/free-trial", { method: "DELETE" });
     setSaving(false);
@@ -1026,7 +1027,7 @@ function FreeTrialModal({ info, memberships, onClose, onSaved }: {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      window.prompt("Copy the free-trial signup link:", info.signupUrl);
+      (await promptDialog("Copy the free-trial signup link:", info.signupUrl));
     }
   }
 

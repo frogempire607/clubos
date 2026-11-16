@@ -150,7 +150,7 @@ export default function SignupPage() {
                   type="text"
                   value={clubSlug}
                   onChange={(e) => setClubSlug(e.target.value.toLowerCase())}
-                  placeholder="apex-wrestling"
+                  placeholder="riverside-athletics"
                   required
                   className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
                 />

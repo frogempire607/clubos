@@ -46,6 +46,25 @@ export const GATED = [
   // One payment counts once, one email goes once, one approval grants once,
   // one tap does one thing (2026-11 reliability pass).
   ["scripts/reliability-tests.ts"],
+  // App-store policy (Apple 5.1.1(v), Google User Data): every account type
+  // can delete itself in the app; what goes, what stays, children, and a
+  // membership still being charged are all spelled out before confirming.
+  // Audit S2 (2026-11-15): an email address only links an account to a
+  // record somebody else created once the person has proved they receive
+  // mail there. Signup used to hand over a family on a typed address.
+  ["scripts/email-verification-tests.ts"],
+  ["scripts/account-deletion-tests.ts"],
+  // The native app shell: a store build ships no debug logging, cleartext,
+  // mixed content or open navigation; Android back, scanned codes and the
+  // offline schedule copy behave as written.
+  ["scripts/native-shell-tests.ts"],
+  // Zero browser alert()/confirm()/prompt() in the product (they are what a
+  // wrapped website looks like to an app reviewer), and the in-app
+  // replacements keep the same meaning.
+  ["scripts/no-native-dialogs-guard.ts"],
+  // …and the one component all of those dialogs are drawn by, exercised as
+  // rendered (jsdom): what is on screen, and that each button answers.
+  ["scripts/dialog-host-tests.ts", RENDER],
   ["scripts/members-grep-guards.ts"],
   ["scripts/reports-mobile-guard.ts", [], { TZ: "America/New_York" }],
   ["scripts/ui-polish-guard.ts"],

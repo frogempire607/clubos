@@ -1,5 +1,6 @@
 "use client";
 
+import { alertDialog, confirmDialog } from "@/lib/dialogs";
 import { useSingleFlight } from "@/lib/useSingleFlight";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -222,7 +223,7 @@ export default function EventsPage() {
     const d = await res.json().catch(() => ({}));
     setChatBusy(null);
     if (!res.ok || !d.groupId) {
-      alert(d.error || "Couldn't open the event chat.");
+      void alertDialog(d.error || "Couldn't open the event chat.");
       return;
     }
     router.push(`/dashboard/messages?group=${d.groupId}`);
@@ -278,7 +279,7 @@ export default function EventsPage() {
   });
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this event? Bookings will be canceled.")) return;
+    if (!(await confirmDialog("Delete this event? Bookings will be canceled."))) return;
     const res = await fetch(`/api/events/${id}`, { method: "DELETE" });
     if (res.ok) load();
   }
@@ -288,7 +289,7 @@ export default function EventsPage() {
   const handleDuplicate = (id: string) => flight.run(`dup:${id}`, () => duplicateNow(id));
   async function duplicateNow(id: string) {
     const res = await fetch(`/api/events/${id}/duplicate`, { method: "POST" });
-    if (!res.ok) { alert("Could not duplicate this event."); return; }
+    if (!res.ok) { void alertDialog("Could not duplicate this event."); return; }
     // Straight into the editor on the copy, flagged as a copy so the name,
     // dates and charge date are the first thing the owner changes.
     const copy = await res.json().catch(() => null);
@@ -825,7 +826,7 @@ function ManageTypesModal({
   }
 
   async function deleteType(id: string) {
-    if (!confirm("Delete this event type? Events using it will revert to 'Other'.")) return;
+    if (!(await confirmDialog("Delete this event type? Events using it will revert to 'Other'."))) return;
     await fetch(`/api/events/types/${id}`, { method: "DELETE" });
     setLocalTypes(localTypes.filter((t) => t.id !== id));
   }
@@ -1036,7 +1037,7 @@ function EventCompModal({ eventId, onClose }: { eventId: string; onClose: () => 
   }
 
   async function generatePayouts() {
-    if (!window.confirm("Create pending payout records for everyone below? Amounts are computed from revenue collected so far. Nothing is sent — you review and mark paid on the Payouts page.")) return;
+    if (!(await confirmDialog("Create pending payout records for everyone below? Amounts are computed from revenue collected so far. Nothing is sent — you review and mark paid on the Payouts page."))) return;
     setBusy(true); setErr(""); setMsg("");
     const res = await fetch(`/api/events/${eventId}/comp/generate-payouts`, { method: "POST" });
     const d = await res.json().catch(() => ({}));

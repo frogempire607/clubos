@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/lib/dialogs";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Search, RotateCcw, X, History } from "lucide-react";
@@ -70,7 +71,7 @@ export default function UnsubscribesPage() {
   }
 
   async function resubscribe(email: string) {
-    if (!confirm(`Resubscribe ${email}? They will receive marketing email again.`)) return;
+    if (!(await confirmDialog(`Resubscribe ${email}? They will receive marketing email again.`))) return;
     const res = await fetch("/api/emails/opt-outs", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },

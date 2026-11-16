@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog, promptDialog } from "@/lib/dialogs";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -373,18 +374,18 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
    */
   const changeLoginEmail = useCallback(async () => {
     const current = m?.user?.email ?? "";
-    const next = window.prompt(
+    const next = (await promptDialog(
       `Change the sign-in email for ${m?.firstName ?? "this member"}.\n\n` +
         `They currently sign in with ${current}.\n` +
         `Both the old and the new address will be told, and the change is logged against you.`,
       current,
-    );
+    ));
     if (!next || next.trim().toLowerCase() === current.toLowerCase()) return;
     if (
-      !window.confirm(
+      !(await confirmDialog(
         `Move the sign-in email from\n\n  ${current}\n\nto\n\n  ${next.trim()}\n\n` +
           `${current} will stop working as a login. No password is reset and nothing about their membership changes.`,
-      )
+      ))
     )
       return;
     try {
@@ -508,9 +509,9 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
             break;
           case "archive": {
             if (
-              !confirm(
+              !(await confirmDialog(
                 `Archive ${mm.fullName}?\n\nThey stop appearing in the roster, billing and messaging. Nothing is deleted — history, payments and documents are kept, and an owner can restore them.`,
-              )
+              ))
             )
               break;
             const r = await fetch(`/api/members/${mm.id}`, { method: "DELETE" });
@@ -1059,7 +1060,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
                   </span>
                   <button
                     onClick={async () => {
-                      if (!confirm("Remove this relationship?")) return;
+                      if (!(await confirmDialog("Remove this relationship?"))) return;
                       await fetch(`/api/members/${id}/relationships?relationshipId=${r.id}`, { method: "DELETE" });
                       load();
                     }}

@@ -1,5 +1,6 @@
 "use client";
 
+import { alertDialog, confirmDialog, promptDialog } from "@/lib/dialogs";
 import PageHeader from "@/components/PageHeader";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
@@ -1058,7 +1059,7 @@ function PartnersPanel({ booking, onChanged }: { booking: Booking; onChanged: ()
   }
 
   async function remove(id: string) {
-    if (!confirm("Remove this partner from the booking?")) return;
+    if (!(await confirmDialog("Remove this partner from the booking?"))) return;
     setBusyId(id);
     const ok = await call(`/api/private-lessons/bookings/${booking.id}/partners/${id}`, {
       method: "DELETE",
@@ -1612,7 +1613,7 @@ export default function PrivatesPage() {
   // /member/privates.
   function copyPublicPrivatesLink() {
     if (!clubSlug) {
-      alert("Set your club URL (slug) in Settings → Club first so the public link works.");
+      void alertDialog("Set your club URL (slug) in Settings → Club first so the public link works.");
       return;
     }
     const url = `${window.location.origin}/join/${clubSlug}?goal=privates`;
@@ -1621,11 +1622,11 @@ export default function PrivatesPage() {
       setTimeout(() => setCopiedLink(false), 1800);
     };
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(url).then(done, () =>
-        window.prompt("Copy this public booking link:", url),
-      );
+      navigator.clipboard.writeText(url).then(done, () => {
+        void promptDialog("Copy this public booking link:", url);
+      });
     } else {
-      window.prompt("Copy this public booking link:", url);
+      void promptDialog("Copy this public booking link:", url);
     }
   }
 
@@ -1684,13 +1685,13 @@ export default function PrivatesPage() {
   useEffect(() => { load(); }, [load]);
 
   async function deletePackage(id: string) {
-    if (!confirm("Delete this package?")) return;
+    if (!(await confirmDialog("Delete this package?"))) return;
     await fetch(`/api/private-lessons/packages/${id}`, { method: "DELETE" });
     load();
   }
 
   async function deleteLessonType(id: string) {
-    if (!confirm("Delete this lesson type?")) return;
+    if (!(await confirmDialog("Delete this lesson type?"))) return;
     await fetch(`/api/private-lessons/types/${id}`, { method: "DELETE" });
     load();
   }
@@ -1698,7 +1699,7 @@ export default function PrivatesPage() {
   async function duplicateLessonType(id: string) {
     const res = await fetch(`/api/private-lessons/types/${id}/duplicate`, { method: "POST" });
     if (res.ok) load();
-    else alert("Could not duplicate this lesson type.");
+    else void alertDialog("Could not duplicate this lesson type.");
   }
 
   function packageTypeLabel(pkg: Package): string {

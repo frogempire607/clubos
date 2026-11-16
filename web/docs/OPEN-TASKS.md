@@ -79,5 +79,24 @@ Built 2026-11-13 on branch `followups-2026-11` (**not pushed / not deployed yet 
 - [ ] Run the clean-up commands in `docs/BRANCH-CLEANUP-2026-11.md` (you), and move the stray
       `web/backfill-platform-fee-…json` out of the repo.
 
-## 6. Then: the app
-- [ ] Follow `docs/MOBILE-APP-AUDIT-2026-10-18.md` slices 1–7 (B22 App Store 4.2 work first).
+## 6. Speed, bugs and the app (built 2026-11-15, **not pushed / not deployed — Julian pushes**)
+Two branches, the second cut from the first. No migration in either.
+
+**Branch 1 `claude/athletixos-perf-app-audit-d31643`** — full write-up: `docs/PERF-AND-BUG-AUDIT-2026-11-15.md`
+- [x] SECURITY: 39 staff data routes accepted any member login (whole roster export included). Closed, with a build guard.
+- [x] SECURITY: uploaded SVG files could run script on our site; W-9s / receipts reachable by a member with the link. Closed.
+- [x] Speed: Stripe reads in parallel, no duplicate requests, slim dashboard cards, loading + error screens.
+- [x] Double-tap money bugs (cash payment, approvals, mark paid, payouts), email-queue double send, webhook receipts.
+- [x] Internal links no longer reload the app; phone screen heights fixed.
+- [x] Signup email check (audit S2) — decided "verify first", built 2026-11-16 on branch 2. New signups get a "Confirm your email" message; records the club already has under that email connect when they tap it.
+- [ ] **CHECK in Netlify:** Functions region (should be `us-east-2`, where the database is) and whether `DATABASE_URL` has `connection_limit=1`. Tell Claude what they say.
+- [ ] Decide the "left: your call" rows in the audit (webhook retry on error, attendance double charge, discount expiry day, capacity).
+
+**Branch 2 `claude/athletixos-mobile-app`** — plan: `docs/MOBILE-APP-PLAN-2026-11-15.md`, store forms: `docs/STORE-SUBMISSION-PACKET.md`
+- [x] Account deletion for every account type + public `/delete-account` page + privacy links in the app.
+- [x] Native shell: 9 official plugins, release hardening, Android back, offline screen with saved schedule.
+- [x] Camera QR check-in, haptics. iOS simulator build succeeds and launches.
+- [x] All 78 browser pop-ups replaced with in-app dialogs. AthletixOS plans are not sold inside the app.
+- [ ] **DECIDE:** account-deletion rules (plan §6.1–6.4), Google audience 18+ vs 13+ (§6.5), support address.
+- [ ] **YOU:** Apple + Google accounts, demo club + 3 demo logins, TestFlight / Play internal builds, phone checks (packet §3, §7, §8).
+- [ ] Next code: push notifications (needs a migration + APNs key + Firebase), text under 12px, stuck-spinner screens, event-email timezones.

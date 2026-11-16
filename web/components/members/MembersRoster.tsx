@@ -10,6 +10,7 @@
 
 "use client";
 
+import { alertDialog, confirmDialog, promptDialog } from "@/lib/dialogs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -408,7 +409,7 @@ export default function MembersRoster({
   useEffect(() => { loadViews(); }, [loadViews]);
 
   const saveCurrentView = useCallback(async () => {
-    const name = window.prompt("Name this view");
+    const name = (await promptDialog("Name this view"));
     if (!name?.trim()) return;
     setSavingView(true);
     try {
@@ -424,7 +425,7 @@ export default function MembersRoster({
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Could not save the view");
       loadViews();
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : "Could not save the view");
+      void alertDialog(e instanceof Error ? e.message : "Could not save the view");
     } finally {
       setSavingView(false);
     }
@@ -440,7 +441,7 @@ export default function MembersRoster({
 
   const deleteView = useCallback(
     async (v: SavedView) => {
-      if (!window.confirm(`Delete the view "${v.name}"? This removes the shortcut, not any member.`)) return;
+      if (!(await confirmDialog(`Delete the view "${v.name}"? This removes the shortcut, not any member.`))) return;
       await fetch(`/api/members/views?id=${encodeURIComponent(v.id)}`, { method: "DELETE" });
       loadViews();
     },
@@ -550,7 +551,7 @@ export default function MembersRoster({
         // prompt should cost nothing.
         let tagName: string | null = null;
         if (kind === "tag") {
-          tagName = window.prompt("Tag to add to the selected people")?.trim() || null;
+          tagName = (await promptDialog("Tag to add to the selected people"))?.trim() || null;
           if (!tagName) return;
         }
         setBusy(`bulk:${kind}`);

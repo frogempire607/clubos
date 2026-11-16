@@ -30,6 +30,7 @@
 
 "use client";
 
+import { confirmDialog } from "@/lib/dialogs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { History, KeyRound, Lock, X } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
@@ -149,8 +150,8 @@ export function EditMemberDrawer({
     JSON.stringify(customValues) !==
       JSON.stringify((() => { try { return JSON.parse(member.customFieldValues || "{}"); } catch { return {}; } })());
 
-  const requestClose = useCallback(() => {
-    if (dirty && !window.confirm("Discard your unsaved changes to this member?")) return;
+  const requestClose = useCallback(async () => {
+    if (dirty && !(await confirmDialog("Discard your unsaved changes to this member?"))) return;
     onClose();
   }, [dirty, onClose]);
 

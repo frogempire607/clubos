@@ -4,6 +4,7 @@
 // guest clinicians, contractors, and event workers — separate from payroll.
 // Recording money owed/paid; the platform never moves money here.
 
+import { confirmDialog } from "@/lib/dialogs";
 import { useSingleFlight } from "@/lib/useSingleFlight";
 import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
@@ -86,7 +87,7 @@ export default function PayoutsPage() {
     }
   }
   async function delNow(id: string) {
-    if (!confirm("Delete this payout record?")) return;
+    if (!(await confirmDialog("Delete this payout record?"))) return;
     const res = await fetch(`/api/payouts/${id}`, { method: "DELETE" });
     if (res.ok) {
       setActionError(null);
@@ -96,9 +97,9 @@ export default function PayoutsPage() {
       setActionError(typeof d.error === "string" ? d.error : "That payout couldn't be deleted.");
     }
   }
-  function voidLedger(p: Payout) {
+  async function voidLedger(p: Payout) {
     const n = p.lineCount ?? 0;
-    if (!confirm(`Void this ${fmtMoney(p.amount)} payout to ${p.payeeName}? Its ${n} pay line${n === 1 ? "" : "s"} go back to unpaid on the Payroll page so they can be corrected and paid again.`)) return;
+    if (!(await confirmDialog(`Void this ${fmtMoney(p.amount)} payout to ${p.payeeName}? Its ${n} pay line${n === 1 ? "" : "s"} go back to unpaid on the Payroll page so they can be corrected and paid again.`))) return;
     patch(p.id, { status: "VOID" });
   }
 

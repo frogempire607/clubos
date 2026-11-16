@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/lib/dialogs";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CalendarDays } from "lucide-react";
@@ -899,7 +900,7 @@ export default function ClassesPage() {
   }, [loading]);
 
   async function deleteClass(id: string) {
-    if (!confirm("Archive this class? Sessions already generated will remain.")) return;
+    if (!(await confirmDialog("Archive this class? Sessions already generated will remain."))) return;
     await fetch(`/api/classes/${id}`, { method: "DELETE" });
     load();
   }

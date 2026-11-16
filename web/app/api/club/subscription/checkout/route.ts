@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isNativeShellUserAgent, NATIVE_PLAN_NOTICE } from "@/lib/nativeUserAgent";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
@@ -34,6 +35,11 @@ export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "OWNER") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Never from inside the iOS / Android app — see lib/nativeUserAgent.ts.
+  if (isNativeShellUserAgent(req.headers.get("user-agent"))) {
+    return NextResponse.json({ error: NATIVE_PLAN_NOTICE, code: "NOT_AVAILABLE_IN_APP" }, { status: 403 });
   }
 
   try {

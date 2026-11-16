@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/lib/dialogs";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { UserCheck, Ban, CreditCard, ChevronDown, ChevronUp, AlertTriangle, FilePen, ArrowRightLeft } from "lucide-react";
@@ -589,9 +590,9 @@ export default function MembersApprovalsPage() {
         // second confirmation proceeds with the charge.
         const amt = typeof d.price === "number" ? `$${d.price.toFixed(2)}` : "the full membership price";
         if (
-          confirm(
+          (await confirmDialog(
             `${a.memberName}'s billing date is today or already passed.\n\nApproving now charges ${amt} to the saved card IMMEDIATELY.\n\nCharge ${amt} today?\n\n(To bill on a future date instead, cancel and set a new billing date first.)`,
-          )
+          ))
         ) {
           await approveMigration(a, true);
         } else {
@@ -624,9 +625,9 @@ export default function MembersApprovalsPage() {
 
   async function approveProfileOnly(a: MigrationApproval) {
     if (
-      !confirm(
+      !(await confirmDialog(
         `Approve ${a.memberName}'s profile only?\n\nThis completes the profile review. It creates NO membership, starts NO subscription, and charges nothing — ${a.memberName} remains a prospect until a membership is assigned in the billing center.`,
-      )
+      ))
     )
       return;
     setBusyId(a.id);
@@ -658,7 +659,7 @@ export default function MembersApprovalsPage() {
     acknowledgeImmediateCharge = false,
   ) {
     if (action === "DENY" && !acknowledgeImmediateCharge) {
-      if (!confirm("Deny this change request?\n\nThe original offer unlocks and the client can confirm it as-is.")) return;
+      if (!(await confirmDialog("Deny this change request?\n\nThe original offer unlocks and the client can confirm it as-is."))) return;
     }
     setBusyId(a.id);
     setError("");
@@ -679,7 +680,7 @@ export default function MembersApprovalsPage() {
       if (d.code === "IMMEDIATE_CHARGE_CONFIRM_REQUIRED") {
         // Explicit second confirm — the server says the current billing date is
         // today/past, so a confirmed offer would charge immediately.
-        if (confirm(`${msg}\n\nApprove anyway? If the client confirms the new offer they are charged immediately.`)) {
+        if ((await confirmDialog(`${msg}\n\nApprove anyway? If the client confirms the new offer they are charged immediately.`))) {
           await actChangeRequest(a, action, true);
         }
         return;
@@ -1488,7 +1489,7 @@ function BillingReviewPanel({
       const msg = typeof d.error === "string" ? d.error : "Could not create the offer.";
       if (d.code === "IMMEDIATE_CHARGE_CONFIRM_REQUIRED") {
         // Explicit second confirm before re-posting with the acknowledgement.
-        if (confirm(`${msg}\n\nCreate the offer anyway? If the client confirms it they are charged immediately.`)) {
+        if ((await confirmDialog(`${msg}\n\nCreate the offer anyway? If the client confirms it they are charged immediately.`))) {
           await createOffer(true);
         }
         return;
@@ -1530,7 +1531,7 @@ function BillingReviewPanel({
   }
 
   async function sendOffer() {
-    if (!confirm("Send the offer email to the client?")) return;
+    if (!(await confirmDialog("Send the offer email to the client?"))) return;
     setBusy(true);
     setActionErr("");
     setActionMsg("");

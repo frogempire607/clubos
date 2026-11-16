@@ -1,5 +1,8 @@
 "use client";
 
+import { useIsNativeApp } from "@/lib/useIsNativeApp";
+import { NATIVE_PLAN_NOTICE } from "@/lib/nativeUserAgent";
+import { confirmDialog } from "@/lib/dialogs";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -265,6 +268,7 @@ function PlanSection({ club, onSaved }: { club: Club; onSaved: () => void }) {
   const [upgradingTo, setUpgradingTo] = useState<string | null>(null);
 
   const currentTier = TIERS.find((t) => t.id === club.tier) || TIERS[0];
+  const native = useIsNativeApp();
 
   async function applyPromo(e: React.FormEvent) {
     e.preventDefault();
@@ -304,6 +308,18 @@ function PlanSection({ club, onSaved }: { club: Club; onSaved: () => void }) {
     } else {
       setPromoError(typeof data.error === "string" ? data.error : "Could not start checkout");
     }
+  }
+
+  // In the iOS / Android app the plan is shown, never sold: no prices, no
+  // upgrade button, no link out (lib/nativeUserAgent.ts explains why).
+  if (native) {
+    return (
+      <div className="rounded-xl border border-app-border bg-surface p-5">
+        <p className="text-sm text-text-muted">Current plan</p>
+        <p className="mt-1 text-lg font-semibold text-text-primary">{currentTier.name}</p>
+        <p className="mt-3 text-sm text-text-muted">{NATIVE_PLAN_NOTICE}</p>
+      </div>
+    );
   }
 
   return (
@@ -564,7 +580,7 @@ function LocationsSection({ locations, onSaved }: { locations: Location[]; onSav
   const [editing, setEditing] = useState<Location | null>(null);
 
   async function handleDelete(id: string) {
-    if (!confirm("Remove this location?")) return;
+    if (!(await confirmDialog("Remove this location?"))) return;
     await fetch(`/api/club/locations/${id}`, { method: "DELETE" });
     onSaved();
   }
@@ -1438,13 +1454,13 @@ function LegalSection() {
   useEffect(() => { load(); }, []);
 
   async function deleteEntity(id: string) {
-    if (!confirm("Remove this legal entity?")) return;
+    if (!(await confirmDialog("Remove this legal entity?"))) return;
     await fetch(`/api/club/legal-entities/${id}`, { method: "DELETE" });
     load();
   }
 
   async function deleteLink(id: string) {
-    if (!confirm("Remove this donation link?")) return;
+    if (!(await confirmDialog("Remove this donation link?"))) return;
     await fetch(`/api/club/donation-links/${id}`, { method: "DELETE" });
     load();
   }

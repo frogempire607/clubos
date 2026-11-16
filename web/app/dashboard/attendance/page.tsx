@@ -1,5 +1,6 @@
 "use client";
 
+import { alertDialog, confirmDialog } from "@/lib/dialogs";
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense } from "react";
@@ -1669,13 +1670,13 @@ function AttendancePanel({
   // Not a status — leaves no attendance history for this session.
   async function removeFromRoster(rec: AttendanceRecord) {
     const name = `${rec.member.firstName} ${rec.member.lastName}`;
-    if (!confirm(`Remove ${name} from this roster? This deletes the attendance entry entirely (no absent/late mark, no record kept). Any payment already collected stays in Financials.`)) return;
+    if (!(await confirmDialog(`Remove ${name} from this roster? This deletes the attendance entry entirely (no absent/late mark, no record kept). Any payment already collected stays in Financials.`))) return;
     setUpdating(rec.member.id);
     const res = await fetch(`/api/attendance?recordId=${encodeURIComponent(rec.id)}`, { method: "DELETE" });
     setUpdating(null);
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      alert(typeof d.error === "string" ? d.error : "Failed to remove from roster");
+      void alertDialog(typeof d.error === "string" ? d.error : "Failed to remove from roster");
       return;
     }
     load();
