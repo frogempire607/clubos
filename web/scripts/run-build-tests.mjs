@@ -43,6 +43,9 @@ export const GATED = [
   // error screens present, staff menu never falls back to the owner menu).
   ["scripts/async-memo-tests.ts"],
   ["scripts/perf-guard.ts"],
+  // One payment counts once, one email goes once, one approval grants once,
+  // one tap does one thing (2026-11 reliability pass).
+  ["scripts/reliability-tests.ts"],
   ["scripts/members-grep-guards.ts"],
   ["scripts/reports-mobile-guard.ts", [], { TZ: "America/New_York" }],
   ["scripts/ui-polish-guard.ts"],

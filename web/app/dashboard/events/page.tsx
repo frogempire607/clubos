@@ -1,5 +1,6 @@
 "use client";
 
+import { useSingleFlight } from "@/lib/useSingleFlight";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarRange, X } from "lucide-react";
@@ -282,7 +283,10 @@ export default function EventsPage() {
     if (res.ok) load();
   }
 
-  async function handleDuplicate(id: string) {
+  // A second tap while the copy is being made would make a second copy.
+  const flight = useSingleFlight();
+  const handleDuplicate = (id: string) => flight.run(`dup:${id}`, () => duplicateNow(id));
+  async function duplicateNow(id: string) {
     const res = await fetch(`/api/events/${id}/duplicate`, { method: "POST" });
     if (!res.ok) { alert("Could not duplicate this event."); return; }
     // Straight into the editor on the copy, flagged as a copy so the name,

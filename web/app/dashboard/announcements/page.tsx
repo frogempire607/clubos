@@ -1,5 +1,6 @@
 "use client";
 
+import { useSingleFlight } from "@/lib/useSingleFlight";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Megaphone, Smartphone, Mail, Bell, Send, X as XIcon, BarChart3, type LucideIcon } from "lucide-react";
@@ -116,7 +117,10 @@ export default function AnnouncementsPage() {
   // real email. The dispatch is idempotent (Announcement.sendBatchId
   // durable mark + M16 partial unique) so a double-click cannot
   // double-send, but confirmation prevents accidental clicks.
-  async function handleSendNow(a: Announcement) {
+  const flight = useSingleFlight();
+  const handleSendNow = (a: Announcement) => flight.run(`ann:${a.id}`, () => sendNow(a));
+  const handleCancel = (a: Announcement) => flight.run(`ann:${a.id}`, () => cancelNow(a));
+  async function sendNow(a: Announcement) {
     if (!confirm(`Send "${a.title}" now to every eligible recipient?\n\nThis cannot be undone once dispatched.`)) return;
     const res = await fetch(`/api/announcements/${a.id}/send`, { method: "POST" });
     if (!res.ok) {
@@ -127,7 +131,7 @@ export default function AnnouncementsPage() {
     load();
   }
 
-  async function handleCancel(a: Announcement) {
+  async function cancelNow(a: Announcement) {
     if (!confirm(`Cancel "${a.title}"?\n\nA scheduled send that hasn't fired yet will be dropped.`)) return;
     const res = await fetch(`/api/announcements/${a.id}/cancel`, { method: "POST" });
     if (!res.ok) {

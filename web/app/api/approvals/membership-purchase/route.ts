@@ -179,6 +179,19 @@ export async function POST(req: Request) {
   const termEnd = minimumTermEndForOptionId(
     startDate, planOptions, soldOptionId, { contractMonths: membership.contractMonths }, addUTCMonths,
   );
+  // CLAIM the request before anything is granted. The PENDING read at the top
+  // is not a lock — two taps on Approve (or two staff at once) both pass it,
+  // and every grant below used to run BEFORE the request was closed: double
+  // lesson credits, or two live memberships on one plan, each with its own
+  // invoice. Same claim-first shape as approvals/membership-transfer.
+  const claimed = await prisma.pendingApproval.updateMany({
+    where: { id: approval.id, status: "PENDING" },
+    data: { status: "APPROVED", respondedAt: new Date(), respondedById: session.user.id },
+  });
+  if (claimed.count === 0) {
+    return NextResponse.json({ error: "Someone else just handled this request." }, { status: 409 });
+  }
+  try {
   await prisma.memberSubscription.create({
     data: {
       memberId: approval.memberId,
@@ -227,9 +240,19 @@ export async function POST(req: Request) {
     });
   }
 
-  await close("APPROVED");
   await notifyRequester(
     `Your membership for ${who} (${membership.name} — ${option.label}) is active. The club will collect your ${paymentMethod.toLowerCase()} payment.`,
   );
   return NextResponse.json({ ok: true, activated: true });
+  } catch (err) {
+    // Nothing may be left looking approved if the grant failed part-way: put
+    // the request back in the queue so staff can see it and try again.
+    await prisma.pendingApproval
+      .updateMany({
+        where: { id: approval.id, status: "APPROVED" },
+        data: { status: "PENDING", respondedAt: null, respondedById: null },
+      })
+      .catch(() => undefined);
+    throw err;
+  }
 }

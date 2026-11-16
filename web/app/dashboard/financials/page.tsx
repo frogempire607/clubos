@@ -1,5 +1,6 @@
 "use client";
 
+import { useSingleFlight } from "@/lib/useSingleFlight";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePlaidLink } from "react-plaid-link";
@@ -567,12 +568,27 @@ function MoneyInTab({ qs, entity, entities }: { qs: string; entity: string; enti
   }, [qs]);
   useEffect(() => { load(); }, [load]);
 
-  async function markPaid(id: string) {
-    await fetch("/api/financials/manual-payment", {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ transactionId: id }),
+  // One tap = one payment marked. A second tap while the first is still
+  // saving is dropped (lib/singleFlight), and a refusal is shown, not ignored.
+  const flight = useSingleFlight();
+  const [markPaidError, setMarkPaidError] = useState<string | null>(null);
+  function markPaid(id: string) {
+    return flight.run(`paid:${id}`, async () => {
+      setMarkPaidError(null);
+      try {
+        const res = await fetch("/api/financials/manual-payment", {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transactionId: id }),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          setMarkPaidError(typeof d.error === "string" ? d.error : "That payment couldn't be marked paid. Nothing was changed.");
+        }
+      } catch {
+        setMarkPaidError("No connection — that payment was not marked paid. Try again.");
+      }
+      load();
     });
-    load();
   }
   async function del(id: string) {
     if (!confirm("Delete this manual entry? Stripe records can't be deleted.")) return;
@@ -583,6 +599,9 @@ function MoneyInTab({ qs, entity, entities }: { qs: string; entity: string; enti
 
   return (
     <>
+      {markPaidError && (
+        <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{markPaidError}</p>
+      )}
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-text-muted">Payments received — Stripe, cash, and manual invoices.</p>
         <button onClick={() => setShowRecord(true)} className="px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
@@ -613,7 +632,7 @@ function MoneyInTab({ qs, entity, entities }: { qs: string; entity: string; enti
                     <div className="flex gap-1">
                       <button onClick={() => setEdit(t)} className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded hover:bg-app-bg">Assign</button>
                       {t.manual && t.status === "PENDING" && (
-                        <button onClick={() => markPaid(t.id)} className="text-xs text-brand px-2 py-1 rounded hover:bg-brand/10">Mark paid</button>
+                        <button onClick={() => markPaid(t.id)} disabled={flight.isBusy(`paid:${t.id}`)} className="text-xs text-brand px-2 py-1 rounded hover:bg-brand/10 disabled:opacity-50">{flight.isBusy(`paid:${t.id}`) ? "Saving…" : "Mark paid"}</button>
                       )}
                       {t.manual && (
                         <button onClick={() => del(t.id)} className="text-xs text-red-600 px-2 py-1 rounded hover:bg-red-50">Delete</button>

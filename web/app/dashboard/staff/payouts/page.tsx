@@ -4,6 +4,7 @@
 // guest clinicians, contractors, and event workers — separate from payroll.
 // Recording money owed/paid; the platform never moves money here.
 
+import { useSingleFlight } from "@/lib/useSingleFlight";
 import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import PayrollTabs from "@/components/PayrollTabs";
@@ -65,7 +66,12 @@ export default function PayoutsPage() {
     load();
   }, []);
 
-  async function patch(id: string, body: Record<string, unknown>) {
+  // One tap = one change per payout row; a second tap while the first is
+  // still saving is dropped (lib/singleFlight). "Mark paid" twice is money.
+  const flight = useSingleFlight();
+  const patch = (id: string, body: Record<string, unknown>) => flight.run(`payout:${id}`, () => patchNow(id, body));
+  const del = (id: string) => flight.run(`payout:${id}`, () => delNow(id));
+  async function patchNow(id: string, body: Record<string, unknown>) {
     const res = await fetch(`/api/payouts/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -79,7 +85,7 @@ export default function PayoutsPage() {
       setActionError(typeof d.error === "string" ? d.error : "That change didn't save.");
     }
   }
-  async function del(id: string) {
+  async function delNow(id: string) {
     if (!confirm("Delete this payout record?")) return;
     const res = await fetch(`/api/payouts/${id}`, { method: "DELETE" });
     if (res.ok) {
@@ -206,7 +212,7 @@ export default function PayoutsPage() {
                       <td className="px-5 py-3">
                         <div className="flex gap-1 justify-end whitespace-nowrap">
                           {p.status === "PENDING" && (
-                            <button onClick={() => patch(p.id, { status: "PAID" })} className="text-xs text-text-primary border border-app-border px-2 py-1 rounded hover:bg-app-bg">Mark paid</button>
+                            <button onClick={() => patch(p.id, { status: "PAID" })} disabled={flight.isBusy(`payout:${p.id}`)} className="text-xs text-text-primary border border-app-border px-2 py-1 rounded hover:bg-app-bg disabled:opacity-50">{flight.isBusy(`payout:${p.id}`) ? "Saving…" : "Mark paid"}</button>
                           )}
                           {p.status !== "VOID" && p.status !== "PAID" && (
                             <button onClick={() => patch(p.id, { status: "VOID" })} className="text-xs text-text-muted px-2 py-1 rounded hover:bg-app-bg">Void</button>
