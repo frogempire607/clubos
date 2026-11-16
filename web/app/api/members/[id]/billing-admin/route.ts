@@ -1,3 +1,4 @@
+import { clubTimezone } from "@/lib/clubDayServer";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
@@ -504,7 +505,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       return sel && typeof sel.label === "string" ? sel.label : null;
     })(),
   };
-  const timing = chargeTiming(finalBillingDate);
+  const timing = chargeTiming(finalBillingDate, new Date(), await clubTimezone(club.id));
   // The two owner date fields can disagree (imported anchor vs the approved
   // final date). The final date always wins when billing starts — surface the
   // mismatch instead of letting the page show two different "next" dates.

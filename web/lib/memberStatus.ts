@@ -1,3 +1,5 @@
+import { clubTimezone } from "@/lib/clubDayServer";
+import { endDateCutoff } from "@/lib/clubDay";
 import { prisma } from "@/lib/prisma";
 import { countsAsMembership } from "@/lib/memberTracks";
 import { nextMemberStatus, nextStatusOnActivation } from "@/lib/billingDataRules";
@@ -167,7 +169,10 @@ export async function expireEndedManualSubscriptions(
       status: "active",
       autoRenew: false,
       stripeSubscriptionId: null,
-      endDate: { lt: new Date() },
+      // The end date is a calendar day: it has arrived once the CLUB's
+      // calendar reads that day, not at midnight UTC (7 pm the evening before
+      // in New York). See lib/clubDay.endDateCutoff.
+      endDate: { lte: endDateCutoff(new Date(), await clubTimezone(clubId)) },
     },
     select: { id: true, memberId: true, optionLabel: true, price: true },
   });

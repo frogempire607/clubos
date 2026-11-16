@@ -22,6 +22,8 @@
 // after the guardian approves. The approval-flow API (step 6) reads the
 // payload and calls back into the underlying booking endpoint.
 
+import { clubTimezone } from "@/lib/clubDayServer";
+import { startOfClubDay } from "@/lib/clubDay";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { resolveIsMinor } from "@/lib/parentalConsent";
@@ -181,8 +183,9 @@ export async function applyParentalControls(input: GateInput): Promise<GateResul
   let needsApproval = controls.requirePaymentApproval === true;
 
   if (!needsApproval && typeof controls.dailySpendLimit === "number") {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    // "Daily" means the club's day. The server's midnight is 7 pm in New
+    // York, so the limit used to reset mid-evening and could be spent twice.
+    const startOfDay = startOfClubDay(new Date(), await clubTimezone(member.clubId));
     const todaySpend = await prisma.pendingApproval.aggregate({
       where: {
         memberId: member.id,

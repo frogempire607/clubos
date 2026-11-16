@@ -9,6 +9,7 @@
 // and everything after (events, member update, audit, email) stay with the
 // caller, because they differ between approval and direct activation.
 
+import { chargeMomentFor } from "@/lib/clubDayServer";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { stripe, billingPeriodToStripeInterval, calculatePlatformFeePercent } from "@/lib/stripe";
@@ -68,7 +69,11 @@ export type CardActivationResult =
 
 export async function createSavedCardSubscription(input: CardActivationInput): Promise<CardActivationResult> {
   const { member, club, price, period } = input;
-  const anchor = input.anchor && input.anchor.getTime() > Date.now() + 60_000 ? input.anchor : null;
+  // "First payment Nov 16" means Nov 16 AT THE CLUB. The date is stored as
+  // midnight UTC, which is 7 pm on the 15th in New York — and that is when the
+  // card used to be charged (lib/clubDay.ts).
+  const chargeAt = await chargeMomentFor(club.id, input.anchor);
+  const anchor = chargeAt && chargeAt.getTime() > Date.now() + 60_000 ? chargeAt : null;
   // trial_end anchors the FIRST charge to the agreed date so nobody is billed
   // on activation day; no future anchor ⇒ the charge runs now.
   const trialEnd = anchor ? Math.floor(anchor.getTime() / 1000) : undefined;

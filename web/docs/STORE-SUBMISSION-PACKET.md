@@ -52,10 +52,10 @@ no photos of children in screenshots or the icon.
 - Terms: `https://athletix-os.com/terms`
 - Account deletion (Google requires this field): `https://athletix-os.com/delete-account`
 - Marketing: `https://athletix-os.com`
-- Support: **YOU** — a page or an email that is answered. `support@athletix-os.com`
-  already appears in the privacy policy; if that inbox is monitored, use
-  `mailto:` on a simple `/support` page (I can add the page; tell me the hours
-  and how fast you answer).
+- Support: `https://athletix-os.com/support` (both stores). Support email:
+  `support@athletix-os.com`. The page promises a reply within 3 to 5 business
+  days, the same as the pricing page; read that inbox daily while a review is
+  open, because reviewers do write to it.
 
 ## 2. Review notes (paste into "App Review Information → Notes")
 
@@ -190,9 +190,13 @@ Sign in with Apple: not required (no third-party login).
 - **Content rating:** questionnaire, category "Utility, Productivity,
   Communication or Other"; all "No". User-to-user communication: **Yes**
   (members message club staff), not public, and staff are identified.
-- **Target audience:** **YOU decide** (plan §6.5). "18 and over" hides the app
-  from under-18s, including teen athletes with their own login. "13 and over"
-  matches the product. Either way answer "No" to "appeals to children".
+- **Target audience:** **13 and over** (decided 2026-11-16). Tick the age
+  groups 13–15, 16–17 and 18+. Do NOT tick any group under 13: that would put
+  the app in Google's Families program, which this app is not built for.
+  Answer "No" to "Could your store listing unintentionally appeal to
+  children?". Do not turn on "Restrict Minor Access". Teen athletes with
+  their own login can then find and install the app; children under 13 are
+  managed from a parent's account, as they are today.
 - **News app / COVID / Government / Financial features / Health:** No.
 - **Data safety:**
   - Collects data: Yes. Shares with third parties: **No** (Stripe, Supabase,
@@ -330,9 +334,9 @@ Check on the phone: the same list as iPhone, plus:
 |---|---|---|
 | 1 | Merge and deploy both branches (the app talks to the live site; the scanner button, the dialogs and the deletion screens are web changes) | YOU |
 | 2 | ~~Signup email check (audit S2)~~ **Built 2026-11-16.** Make sure confirmation emails actually arrive (Resend is configured in Netlify) before a reviewer signs up. | Done; YOU check delivery |
-| 3 | Confirm the account-deletion rules (plan §6.1 to §6.4). The public page says requests by email are handled within 30 days; change the number if that is not true. | YOU |
-| 4 | Google target audience 18+ or 13+ (plan §6.5) | YOU |
-| 5 | Support address or page | YOU |
+| 3 | ~~Account-deletion rules~~ **Confirmed 2026-11-16: keep all four as built.** Still to confirm: the public page says requests by email are handled within 30 days. | Done; 30 days unconfirmed |
+| 4 | ~~Google target audience~~ **Decided 2026-11-16: 13 and over.** | Done |
+| 5 | ~~Support address~~ **`support@athletix-os.com`** (2026-11-16). Make sure that inbox is read daily while a review is open. | Done |
 | 6 | Create the demo club data and three demo logins (§3) | YOU |
 | 7 | Hands-on phone checks in §7 and §8 | YOU |
 | 8 | The privacy policy is marked attorney-pending in the repo (`legal/PRIVACY_POLICY.md`). It should mention the app, the camera, and (later) push notifications. | YOU + attorney |

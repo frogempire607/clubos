@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withEventCapacityLock } from "@/lib/eventCapacityServer";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { prisma } from "@/lib/prisma";
@@ -411,7 +412,11 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     }
   }
 
-  const registration = await prisma.eventRegistration.create({
+  // Count and create together, one registration at a time for this event,
+  // so two people cannot both take the last spot (lib/eventCapacityServer).
+  const made = await withEventCapacityLock(
+    { eventId: event.id, capacity: event.capacity, holdSpotDuringReview: !!policy.holdSpotDuringReview },
+    (db) => db.eventRegistration.create({
     data: {
       eventId: event.id,
       clubId: event.clubId,
@@ -487,7 +492,12 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       discountLabel: discountFields.discountLabel,
       groupValue: groupDisplay,
     },
-  });
+  }),
+  );
+  if (made.full) {
+    return NextResponse.json({ error: "This event is full" }, { status: 409 });
+  }
+  const registration = made.value;
 
 
   if (entries.length > 0) {

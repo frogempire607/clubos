@@ -1,3 +1,4 @@
+import { clubTimezone } from "@/lib/clubDayServer";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
@@ -175,7 +176,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         { status: 400 },
       );
     }
-    const timing = chargeTiming(firstCharge);
+    const timing = chargeTiming(firstCharge, new Date(), await clubTimezone(session.user.clubId));
     if (timing.immediate && !data.acknowledgeImmediateCharge) {
       return NextResponse.json(
         {

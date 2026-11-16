@@ -1,4 +1,5 @@
 import { addBillingPeriod } from "@/lib/billingAdmin";
+import { webhookFailureStatus } from "@/lib/webhookRetry";
 import { createTransactionOnce } from "@/lib/transactionOnce";
 import { normalizeTier } from "@/lib/tier";
 import { NextResponse } from "next/server";
@@ -1468,9 +1469,14 @@ export async function POST(req: Request) {
         data: { errorMessage: String(err), processedAt: new Date() },
       }).catch(() => {});
     }
-    // Return 200 anyway so Stripe doesn't retry-storm us on a persistent bug.
-    // The event is saved with the error message for replay/debugging.
-    return NextResponse.json({ received: true, error: String(err) }, { status: 200 });
+    // A passing connection problem (database or Stripe unreachable) is answered
+    // with an error so Stripe sends the event again; it used to be answered
+    // 200 like everything else, and the payment was never recorded. Anything
+    // that would fail the same way every time is still answered 200, so a bug
+    // of ours cannot make Stripe retry for days. The event stays on the log
+    // with its error either way. See lib/webhookRetry.ts.
+    const status = webhookFailureStatus(err);
+    return NextResponse.json({ received: status === 200, retry: status === 500, error: String(err) }, { status });
   }
 }
 

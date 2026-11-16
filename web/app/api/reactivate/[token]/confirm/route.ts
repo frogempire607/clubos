@@ -1,3 +1,5 @@
+import { clubTimezone } from "@/lib/clubDayServer";
+import { chargeMomentFor } from "@/lib/clubDayServer";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
@@ -201,8 +203,11 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   }
 
   // ── Charge timing, recomputed NOW ───────────────────────────────────────
+  // The promised DATE, as the moment that day starts at the club — the same
+  // value is used for what the person is told and for what Stripe is given.
   const firstCharge = offer.firstChargeDate ? new Date(offer.firstChargeDate) : null;
-  const timing = chargeTiming(firstCharge);
+  const firstChargeMoment = await chargeMomentFor(club.id, firstCharge);
+  const timing = chargeTiming(firstCharge, new Date(), await clubTimezone(club.id));
   const chargesNow = isCard && timing.immediate;
   // Exact card charge — fee-inclusive when the club passes the processing fee.
   // Every user-facing amount below states THIS (it's what Stripe bills), never
@@ -302,8 +307,8 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
       // trial_end anchors the FIRST charge to the promised date; a past date
       // (explicitly acknowledged above) charges now.
       const trialEnd =
-        firstCharge && firstCharge.getTime() > Date.now() + 60_000
-          ? Math.floor(firstCharge.getTime() / 1000)
+        firstChargeMoment && firstChargeMoment.getTime() > Date.now() + 60_000
+          ? Math.floor(firstChargeMoment.getTime() / 1000)
           : undefined;
       let cancelSource = offer.commitmentEndDate ? new Date(offer.commitmentEndDate) : null;
       // Plan-level Auto Renew OFF with no explicit commitment: the

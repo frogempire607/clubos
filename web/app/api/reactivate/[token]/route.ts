@@ -1,3 +1,4 @@
+import { clubTimezone } from "@/lib/clubDayServer";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parseOffer, compareOfferToCurrent, offerEffectivePrice } from "@/lib/reactivation";
@@ -122,7 +123,7 @@ export async function GET(_req: Request, context: { params: Promise<{ token: str
   if (!payerName && r.member.isMinor) payerName = r.member.guardianName;
 
   const firstCharge = offer.firstChargeDate ? new Date(offer.firstChargeDate) : null;
-  const timing = chargeTiming(firstCharge);
+  const timing = chargeTiming(firstCharge, new Date(), await clubTimezone(r.member.clubId));
   const isFree = offer.paymentMode === "FREE" || offer.price <= 0;
 
   // What the client actually pays: the DISCOUNTED price when a discount is

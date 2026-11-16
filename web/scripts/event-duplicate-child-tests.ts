@@ -133,7 +133,7 @@ check("the decision is pure — no prisma in the lib", !/from "@\/lib\/prisma"|@
 check("register route asks the pure decision", route.includes("findDuplicateChild({") && route.includes('from "@/lib/eventDuplicateChild"'));
 check("the route does not hand-roll the status test", !/status\s*!==\s*"PAID"/.test(route));
 check("answers 409 with the code and the message", /duplicate\.duplicate\)\s*\{\s*return NextResponse\.json\(\{ error: duplicate\.code, code: duplicate\.code, message: duplicate\.message \}, \{ status: 409 \}\)/.test(route));
-check("the guard runs before anything is written", route.indexOf("findDuplicateChild({") > 0 && route.indexOf("findDuplicateChild({") < route.indexOf("prisma.eventRegistration.create("));
+check("the guard runs before anything is written", route.indexOf("findDuplicateChild({") > 0 && route.indexOf("findDuplicateChild({") < route.indexOf("db.eventRegistration.create(") && route.indexOf("db.eventRegistration.create(") > 0);
 check("…and before the capacity answer", route.indexOf("findDuplicateChild({") < route.indexOf('"This event is full"'));
 check("one route serves the public and the private link", route.includes("resolveEventLink(params.slug)"));
 check("the guard keeps the one member match", (route.match(/findMemberForPublicSignup\(/g) ?? []).length === 1);
