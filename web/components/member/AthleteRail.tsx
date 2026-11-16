@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -64,8 +65,8 @@ const _profileSubs = new Set<(list: AthleteProfile[]) => void>();
 function fetchProfiles(): Promise<AthleteProfile[]> {
   if (_profilesCache) return Promise.resolve(_profilesCache);
   if (_profilesPromise) return _profilesPromise;
-  _profilesPromise = fetch("/api/member/portal")
-    .then((r) => (r.ok ? r.json() : null))
+  _profilesPromise = sharedGet<any>("/api/member/portal")
+    .then((r) => (r.ok ? r.data : null))
     .then((d) => {
       if (!d?.user) {
         // Don't memoize failures — the next consumer retries (a flaky first

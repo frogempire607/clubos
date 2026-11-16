@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendMemberMessage } from "@/lib/memberMessaging";
 import { requireTierFeature } from "@/lib/tierGuard";
+import { requireStaff } from "@/lib/apiGuard";
 
 export async function GET(
   req: Request,
@@ -13,6 +14,8 @@ export async function GET(
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
   // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
   const tierGate = await requireTierFeature(session.user.clubId, "privateMessaging");
   if (tierGate) return tierGate;
@@ -69,6 +72,8 @@ export async function POST(
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
   // Tier gate (pricing overhaul 2026-10-18) — enforced server-side.
   const tierGate = await requireTierFeature(session.user.clubId, "privateMessaging");
   if (tierGate) return tierGate;

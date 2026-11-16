@@ -254,7 +254,7 @@ function SignaturesModal({ doc, onClose }: { doc: Doc; onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-app-border">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90dvh] overflow-y-auto border border-app-border">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <div>
             <h2 className="text-base font-semibold text-text-primary">Signatures</h2>
@@ -605,7 +605,7 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
         onInput={sync}
         onMouseUp={saveSelection}
         onKeyUp={saveSelection}
-        className="rich-editor min-h-[240px] max-h-[55vh] overflow-y-auto p-4 text-sm text-text-primary leading-relaxed focus:outline-none"
+        className="rich-editor min-h-[240px] max-h-[55dvh] overflow-y-auto p-4 text-sm text-text-primary leading-relaxed focus:outline-none"
         style={{ fontFamily: "inherit" }}
         data-placeholder="Write the full document content here…"
       />
@@ -695,7 +695,7 @@ function DocumentModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[92dvh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white z-10">
           <h2 className="text-lg font-semibold text-text-primary">
             {isEdit ? "Edit document" : "New document"}
@@ -864,7 +864,7 @@ function DocumentViewer({ doc, onClose }: { doc: Doc; onClose: () => void }) {
   const c = typeColors[doc.type] || typeColors.Other;
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90dvh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-lg font-semibold text-text-primary">{doc.title}</h2>

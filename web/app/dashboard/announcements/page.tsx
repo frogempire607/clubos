@@ -1,5 +1,6 @@
 "use client";
 
+import { useSingleFlight } from "@/lib/useSingleFlight";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Megaphone, Smartphone, Mail, Bell, Send, X as XIcon, BarChart3, type LucideIcon } from "lucide-react";
@@ -116,7 +117,10 @@ export default function AnnouncementsPage() {
   // real email. The dispatch is idempotent (Announcement.sendBatchId
   // durable mark + M16 partial unique) so a double-click cannot
   // double-send, but confirmation prevents accidental clicks.
-  async function handleSendNow(a: Announcement) {
+  const flight = useSingleFlight();
+  const handleSendNow = (a: Announcement) => flight.run(`ann:${a.id}`, () => sendNow(a));
+  const handleCancel = (a: Announcement) => flight.run(`ann:${a.id}`, () => cancelNow(a));
+  async function sendNow(a: Announcement) {
     if (!confirm(`Send "${a.title}" now to every eligible recipient?\n\nThis cannot be undone once dispatched.`)) return;
     const res = await fetch(`/api/announcements/${a.id}/send`, { method: "POST" });
     if (!res.ok) {
@@ -127,7 +131,7 @@ export default function AnnouncementsPage() {
     load();
   }
 
-  async function handleCancel(a: Announcement) {
+  async function cancelNow(a: Announcement) {
     if (!confirm(`Cancel "${a.title}"?\n\nA scheduled send that hasn't fired yet will be dropped.`)) return;
     const res = await fetch(`/api/announcements/${a.id}/cancel`, { method: "POST" });
     if (!res.ok) {
@@ -336,7 +340,7 @@ function EngagementModal({
 }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-3xl max-h-[90dvh] overflow-y-auto shadow-xl">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <div>
             <h2 className="text-lg font-semibold text-text-primary">Announcement engagement</h2>
@@ -498,7 +502,7 @@ function AnnouncementModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90dvh] overflow-y-auto shadow-xl">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-white">
           <h2 className="text-lg font-semibold text-text-primary">
             {isEdit ? "Edit announcement" : "New announcement"}

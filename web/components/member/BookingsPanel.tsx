@@ -7,6 +7,7 @@
 // Desktop ≥ md gets a real table (Date · Session · Type · Status · actions);
 // mobile keeps stacked cards. All mutation flows are unchanged.
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -404,7 +405,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
 
   useEffect(() => {
     (async () => {
-      const portal = await fetch("/api/member/portal").then((r) => (r.ok ? r.json() : null));
+      const portal = await sharedGet<any>("/api/member/portal").then((r) => (r.ok ? r.data : null));
       if (!portal) { setLoading(false); return; }
       if (typeof portal?.club?.timezone === "string") setClubTz(portal.club.timezone);
 

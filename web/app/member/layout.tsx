@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -152,9 +153,13 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Once per visit, not once per screen: preview mode is a cookie the owner
+  // sets from the dashboard, and both ways of changing it (entering from the
+  // dashboard, "Exit preview" below) leave or reload this layout. It was being
+  // re-asked on every navigation for every member.
   useEffect(() => {
     fetch("/api/preview").then((r) => (r.ok ? r.json() : { mode: null })).then((d) => setPreviewMode(d?.mode ?? null)).catch(() => {});
-  }, [pathname]);
+  }, []);
 
   async function exitPreview() {
     await fetch("/api/preview", { method: "DELETE" });
@@ -180,8 +185,8 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   }, []);
 
   useEffect(() => {
-    fetch("/api/member/club")
-      .then((r) => (r.ok ? r.json() : null))
+    sharedGet<any>("/api/member/club")
+      .then((r) => (r.ok ? r.data : null))
       .then((d) => {
         if (!d) return;
         setClub({
@@ -260,7 +265,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   const railRoute = RAIL_ROUTES.some((r) => pathname.startsWith(r));
 
   return (
-    <div className="min-h-screen bg-stone-50 native-shell-root member-portal" style={brandedStyle}>
+    <div className="min-h-dvh bg-stone-50 native-shell-root member-portal" style={brandedStyle}>
       {/* Preview-mode banner. Only visible to owner/staff sessions that
           activated preview from the dashboard; members never see this. */}
       {previewMode && (
@@ -495,7 +500,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
         >
           <div className="absolute inset-0 bg-black/40" aria-hidden />
           <div
-            className="relative w-full bg-white rounded-t-2xl shadow-2xl safe-area-bottom md:max-w-3xl md:rounded-2xl max-h-[85vh] overflow-y-auto"
+            className="relative w-full bg-white rounded-t-2xl shadow-2xl safe-area-bottom md:max-w-3xl md:rounded-2xl max-h-[85dvh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"

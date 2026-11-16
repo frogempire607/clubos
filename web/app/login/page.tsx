@@ -117,7 +117,7 @@ function LoginInner() {
   const isStaff = role === "staff";
 
   return (
-    <div className="dashboard-root min-h-screen flex items-center justify-center bg-app-bg px-4 py-10">
+    <div className="dashboard-root min-h-dvh flex items-center justify-center bg-app-bg px-4 py-10">
       <div className="w-full max-w-md">
         <div className="flex justify-center mb-6">
           <Link
@@ -289,7 +289,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="dashboard-root min-h-screen flex items-center justify-center bg-app-bg text-sm text-text-muted">
+        <div className="dashboard-root min-h-dvh flex items-center justify-center bg-app-bg text-sm text-text-muted">
           Loading…
         </div>
       }

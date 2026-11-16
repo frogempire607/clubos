@@ -656,7 +656,7 @@ function Sheet({ title, children, onClose }: { title: string; children: React.Re
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClick={onClose}>
       <div
-        className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-t-2xl bg-surface p-4 sm:rounded-xl"
+        className="max-h-[90dvh] w-full max-w-2xl overflow-auto rounded-t-2xl bg-surface p-4 sm:rounded-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center gap-2">

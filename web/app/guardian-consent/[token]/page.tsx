@@ -53,7 +53,7 @@ export default function GuardianConsentPage({ params }: { params: { token: strin
     }
   }
 
-  const wrap = "min-h-screen bg-stone-100 flex items-center justify-center p-4";
+  const wrap = "min-h-dvh bg-stone-100 flex items-center justify-center p-4";
   const card = "w-full max-w-lg bg-white rounded-2xl border border-stone-200 p-6 sm:p-8 shadow-sm";
 
   if (loading) {

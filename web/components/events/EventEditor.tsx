@@ -19,6 +19,7 @@
 // (pricingModel, signupAccess, splitInvoiceWhen, sellIndividualSessions,
 // sessions[].price, sessions[].id). The API writes both vocabularies.
 
+import Link from "next/link";
 import { audienceProblem, describeAudience, normalizeAudience } from "@/lib/eventAudience";
 import AutoDiscountsEditor, { autoDiscountsLine } from "@/components/events/AutoDiscountsEditor";
 import { parseAutoDiscounts, type AutoDiscounts } from "@/lib/eventAutoDiscounts";
@@ -1017,7 +1018,7 @@ export default function EventEditor({
         {/* The private link works whatever is chosen above — that is its point. */}
         <div className="rounded-xl bg-app-bg px-3 py-2.5">
           {!toolkitOn && (
-            <p className="text-xs text-text-muted mb-1">Private share links, participant categories and the roster grid are included on Pro. <a href="/dashboard/settings?section=plan" className="text-brand hover:underline">See plans</a></p>
+            <p className="text-xs text-text-muted mb-1">Private share links, participant categories and the roster grid are included on Pro. <Link href="/dashboard/settings?section=plan" className="text-brand hover:underline">See plans</Link></p>
           )}
           {ev?.id ? (
             <PrivateShareLink eventId={ev.id} />
@@ -1245,7 +1246,7 @@ export default function EventEditor({
           )}
         </div>
         {isEdit && rosterCols.length > 0 && rosterRows.length > 0 && !rosterDirty && (
-          <a href={`/dashboard/events/${ev!.id}/roster`} className="inline-block text-xs text-brand font-medium">Open the roster grid →</a>
+          <Link href={`/dashboard/events/${ev!.id}/roster`} className="inline-block text-xs text-brand font-medium">Open the roster grid →</Link>
         )}
       </Card>
 
@@ -1301,7 +1302,7 @@ export default function EventEditor({
       <form
         onSubmit={handleSubmit}
         onClick={(e) => e.stopPropagation()}
-        className="bg-app-bg w-full h-[100dvh] lg:h-auto lg:max-h-[92vh] lg:max-w-[900px] lg:rounded-2xl flex flex-col overflow-hidden"
+        className="bg-app-bg w-full h-[100dvh] lg:h-auto lg:max-h-[92dvh] lg:max-w-[900px] lg:rounded-2xl flex flex-col overflow-hidden"
       >
         <header className="shrink-0 bg-surface border-b border-app-border px-4 py-3 pt-[max(12px,env(safe-area-inset-top))]">
           <div className="flex items-center justify-between">

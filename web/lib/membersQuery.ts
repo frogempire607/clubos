@@ -650,14 +650,18 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
     f.membership || f.setupState || (f.personType && f.personType !== "everyone"),
   );
 
-  const total = await prisma.member.count({ where });
-
-  // Counted club-wide, not against `where` — the point is to explain rows the
-  // roster can never reach under ANY filter, so it must not move when the
-  // staffer narrows the view.
-  const [archived, historical] = await Promise.all([
+  // Independent reads go out together. They used to be awaited one at a time
+  // — seven round trips in a row on every roster page, search keystroke and
+  // filter change.
+  //
+  // archived / historical are counted club-wide, not against `where` — the
+  // point is to explain rows the roster can never reach under ANY filter, so
+  // they must not move when the staffer narrows the view.
+  const [total, archived, historical, facets] = await Promise.all([
+    prisma.member.count({ where }),
     prisma.member.count({ where: { clubId, deletedAt: { not: null } } }),
     prisma.member.count({ where: { clubId, deletedAt: null, isHistoricalOnly: true } }),
+    loadFacets(clubId),
   ]);
 
   // ── Counts, and the derived-filter path ─────────────────────────────────
@@ -667,20 +671,23 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
   // that honest at scale.
   const capped = total > COUNT_CAP;
 
-  const queueCounts = capped ? null : await countQueues(clubId, f);
-  const facets = await loadFacets(clubId);
-
   if (!capped) {
-    const all = await prisma.member.findMany({
-      where,
-      orderBy: ORDER_BY[f.sort],
-      select: MEMBER_TRACK_SELECT,
-    });
-    const ctx = await buildTrackContext(
-      all.map((m) => m.id),
-      now,
-    );
-    ctx.sourceLabelByBatch = await loadSourceLabels(all.map((m) => m.importBatchId));
+    const [queueCounts, all] = await Promise.all([
+      countQueues(clubId, f),
+      prisma.member.findMany({
+        where,
+        orderBy: ORDER_BY[f.sort],
+        select: MEMBER_TRACK_SELECT,
+      }),
+    ]);
+    const [ctx, sourceLabels] = await Promise.all([
+      buildTrackContext(
+        all.map((m) => m.id),
+        now,
+      ),
+      loadSourceLabels(all.map((m) => m.importBatchId)),
+    ]);
+    ctx.sourceLabelByBatch = sourceLabels;
 
     const familyKeys = familyKeysFor(all);
     const serialized: RosterListMember[] = all.map((m) => ({
@@ -715,11 +722,14 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
     skip: (f.page - 1) * f.pageSize,
     take: f.pageSize,
   });
-  const ctx = await buildTrackContext(
-    rows.map((m) => m.id),
-    now,
-  );
-  ctx.sourceLabelByBatch = await loadSourceLabels(rows.map((m) => m.importBatchId));
+  const [ctx, sourceLabels] = await Promise.all([
+    buildTrackContext(
+      rows.map((m) => m.id),
+      now,
+    ),
+    loadSourceLabels(rows.map((m) => m.importBatchId)),
+  ]);
+  ctx.sourceLabelByBatch = sourceLabels;
 
   const pageFamilyKeys = familyKeysFor(rows);
   return {
@@ -734,7 +744,7 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
     counts: null,
     countsCapped: true,
     excluded: { archived, historical },
-    queueCounts,
+    queueCounts: null,
   };
 }
 

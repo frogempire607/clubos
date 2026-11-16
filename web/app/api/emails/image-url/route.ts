@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildEmailImageUrl, isEmailImageSigningConfigured } from "@/lib/emailImages";
+import { requireStaff } from "@/lib/apiGuard";
 
 // POST /api/emails/image-url
 //
@@ -24,6 +25,8 @@ const schema = z.object({
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   if (!isEmailImageSigningConfigured()) {
     return NextResponse.json(

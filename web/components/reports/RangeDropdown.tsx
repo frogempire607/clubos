@@ -101,7 +101,7 @@ export default function RangeDropdown({
           <div className="sm:hidden fixed inset-0 z-50 flex items-end" onClick={() => setOpen(false)}>
             <div className="absolute inset-0 bg-black/40" />
             <div
-              className="relative w-full bg-surface rounded-t-2xl p-3 pb-safe max-h-[80vh] overflow-y-auto"
+              className="relative w-full bg-surface rounded-t-2xl p-3 pb-safe max-h-[80dvh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
               style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)" }}
             >

@@ -1,4 +1,5 @@
 import { stripe } from "@/lib/stripe";
+import { memoAsync, withTimeout } from "@/lib/asyncMemo";
 import { isOffSessionChargeable, paymentMethodLabel } from "@/lib/billingDataRules";
 
 // Read-only resolver for the saved card behind a member's billing so the member
@@ -54,6 +55,26 @@ export async function resolveCardSnapshot(
   stripeAccountId: string | null | undefined,
 ): Promise<CardSnapshot | null> {
   if (!customerId || !stripeAccountId) return null;
+  // A card label is decoration on a page that is otherwise ready. Stripe's SDK
+  // will wait 80 seconds by default; the page will not.
+  return withTimeout(readCardSnapshot(customerId, stripeAccountId), CARD_SNAPSHOT_BUDGET_MS, "card snapshot", () => null);
+}
+
+/** How long a page waits for a card label before rendering without it. */
+export const CARD_SNAPSHOT_BUDGET_MS = 4000;
+
+/**
+ * A per-request card lookup: each Stripe customer is read once however many
+ * athletes share it (siblings on one family card were each looked up again).
+ * Build it inside the request handler — never at module level, or one
+ * family's card would be served to the next viewer.
+ */
+export function cardSnapshotLookup(stripeAccountId: string | null | undefined): (customerId: string | null | undefined) => Promise<CardSnapshot | null> {
+  const memo = memoAsync((customerId: string) => resolveCardSnapshot(customerId, stripeAccountId));
+  return (customerId) => (customerId && stripeAccountId ? memo(customerId) : Promise.resolve(null));
+}
+
+async function readCardSnapshot(customerId: string, stripeAccountId: string): Promise<CardSnapshot | null> {
   try {
     // Prefer the customer's default payment method (the one that will be
     // charged); fall back to the first saved card (setup-mode / migrated cards

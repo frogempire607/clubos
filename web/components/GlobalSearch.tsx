@@ -114,7 +114,7 @@ export default function GlobalSearch() {
       </div>
 
       {open && (q.trim().length >= 2 || showRecent) && (
-        <div className="absolute z-50 mt-1.5 left-0 right-0 bg-surface border border-app-border rounded-lg shadow-lg max-h-[70vh] overflow-y-auto">
+        <div className="absolute z-50 mt-1.5 left-0 right-0 bg-surface border border-app-border rounded-lg shadow-lg max-h-[70dvh] overflow-y-auto">
           {showRecent ? (
             <div className="p-2">
               <p className="text-[12px] uppercase tracking-wider text-text-muted px-2 py-1">Recent searches</p>

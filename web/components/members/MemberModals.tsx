@@ -12,6 +12,7 @@
 
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import nextDynamic from "next/dynamic";
 import { FileText } from "lucide-react";
@@ -554,7 +555,7 @@ export function BulkEmailModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-4xl border border-app-border max-h-[95vh] flex flex-col">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-4xl border border-app-border max-h-[95dvh] flex flex-col">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between shrink-0">
           <h2 className="text-base font-semibold text-text-primary">
             Email {activeMemberIds.length} member{activeMemberIds.length === 1 ? "" : "s"}
@@ -595,12 +596,12 @@ export function BulkEmailModal({
                 </div>
               </div>
               {sendResult.sendBatchId && (
-                <a
+                <Link
                   href={`/dashboard/communication/results/${encodeURIComponent(sendResult.sendBatchId)}`}
                   className="block w-full px-4 py-2 border border-app-border rounded-lg text-sm font-medium text-text-primary text-center hover:bg-app-bg"
                 >
                   View results
-                </a>
+                </Link>
               )}
               <button onClick={onSent} className="w-full px-4 py-2 bg-brand text-white rounded-lg text-sm font-medium hover:bg-brand-hover">
                 Done
@@ -1097,7 +1098,7 @@ export function MemberModal({ member, customFields, formConfig, onClose, onSaved
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[90dvh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <h2 className="text-lg font-semibold text-text-primary">{isEdit ? "Edit member" : "Add member"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -1544,7 +1545,7 @@ export function PurchaseMembershipModal({ member, onClose }: { member: Member; o
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90dvh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <h2 className="text-lg font-semibold text-text-primary">Assign membership</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -1897,7 +1898,7 @@ export function ImportCSVModal({ customFields, formConfig, onClose, onImported }
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90dvh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <h2 className="text-lg font-semibold text-text-primary">Import members from CSV</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>
@@ -1939,7 +1940,7 @@ export function ImportCSVModal({ customFields, formConfig, onClose, onImported }
                 </ul>
                 <p className="mt-2 pt-2 border-t border-app-border">
                   Switching from other software? Use{" "}
-                  <a href="/dashboard/members/migration" className="text-brand hover:underline font-medium">Import / Migrate</a>{" "}
+                  <Link href="/dashboard/members/migration" className="text-brand hover:underline font-medium">Import / Migrate</Link>{" "}
                   to bring your whole roster and keep everyone&apos;s existing billing dates.
                 </p>
               </div>

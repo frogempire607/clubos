@@ -309,7 +309,7 @@ export default function DuplicatesPage() {
         return (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => { if (!busy) setPreview(null); }}>
             <div
-              className="bg-surface rounded-xl border border-app-border w-full max-w-2xl max-h-[85vh] overflow-y-auto p-5"
+              className="bg-surface rounded-xl border border-app-border w-full max-w-2xl max-h-[85dvh] overflow-y-auto p-5"
               onClick={(e) => e.stopPropagation()}
             >
               <h3 className="text-base font-semibold text-text-primary">

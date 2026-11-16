@@ -5,6 +5,7 @@
 // the dashboard. `variant` adapts the icon color to the charcoal mobile topbar
 // vs. the light desktop topbar. Self-clearing: counts come from live queries.
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Bell, ChevronRight, CheckCircle2 } from "lucide-react";
@@ -34,8 +35,10 @@ export default function NotificationBell({
   const ref = useRef<HTMLDivElement>(null);
 
   function load() {
-    fetch("/api/dashboard/action-center")
-      .then((r) => (r.ok ? r.json() : null))
+    // Shared: the bell is mounted twice (phone bar + desktop bar) and the home
+    // page's "Needs your attention" card reads the same thing — one request.
+    sharedGet<{ items?: ActionItem[]; badge?: number }>("/api/dashboard/action-center")
+      .then((r) => (r.ok ? r.data : null))
       .then((d) => {
         if (d && Array.isArray(d.items)) {
           setItems(d.items);
@@ -102,7 +105,7 @@ export default function NotificationBell({
               Dashboard →
             </Link>
           </div>
-          <div className="max-h-[60vh] overflow-y-auto">
+          <div className="max-h-[60dvh] overflow-y-auto">
             {items === null ? (
               <div className="p-4 space-y-2">
                 {[0, 1].map((i) => (

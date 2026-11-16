@@ -77,7 +77,7 @@ type Booking = {
   partners: BookingPartner[];
 };
 
-type MemberHit = { id: string; firstName: string; lastName: string; email: string | null };
+type MemberHit = { id: string; firstName: string; lastName: string };
 
 type Invite = {
   id: string;
@@ -1308,7 +1308,7 @@ function PartnerPicker({
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by name or email"
+                placeholder="Search by name"
                 className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
               />
               {searching && <p className="text-[11px] text-stone-400 mt-1">Searching…</p>}
@@ -1326,7 +1326,6 @@ function PartnerPicker({
                         className="w-full text-left px-3 py-2 text-sm hover:bg-stone-50"
                       >
                         {r.firstName} {r.lastName}
-                        {r.email && <span className="ml-2 text-xs text-stone-400">{r.email}</span>}
                       </button>
                     </li>
                   ))}

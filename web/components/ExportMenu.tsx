@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
@@ -89,9 +90,9 @@ export default function ExportMenu({ baseUrl, label = "Export" }: Props) {
             <span>{error}</span>
             <button onClick={() => setError(null)} className="text-orange-accent hover:text-orange-accent">×</button>
           </div>
-          <a href="/dashboard/settings/billing" className="block mt-1 underline text-white">
+          <Link href="/dashboard/settings/billing" className="block mt-1 underline text-white">
             View plan options →
-          </a>
+          </Link>
         </div>
       )}
     </div>

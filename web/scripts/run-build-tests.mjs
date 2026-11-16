@@ -30,6 +30,22 @@ export const GATED = [
   ["scripts/tier-gating-guard.ts"],
   ["scripts/subscription-truth-guard.ts"],
   ["scripts/permission-boundary-guard.ts"],
+  // 2026-11-15: READ handlers too. Any signed-in parent could call the staff
+  // roster export, member list, attendance rosters and exports directly —
+  // middleware does not cover /api. Zero open handlers, and it stays zero.
+  ["scripts/staff-route-role-guard.ts"],
+  // Stored files never run as a page on our origin (SVG), and tax forms,
+  // receipts and books attachments never reach a member login.
+  ["scripts/file-response-tests.ts"],
+  // 2026-11 speed work: fetch-once / time-budget / row-limit helpers, and a
+  // source guard that keeps the fixes in place (no Stripe await in a loop on
+  // a page read, no whole-roster download for a five-row card, loading and
+  // error screens present, staff menu never falls back to the owner menu).
+  ["scripts/async-memo-tests.ts"],
+  ["scripts/perf-guard.ts"],
+  // One payment counts once, one email goes once, one approval grants once,
+  // one tap does one thing (2026-11 reliability pass).
+  ["scripts/reliability-tests.ts"],
   ["scripts/members-grep-guards.ts"],
   ["scripts/reports-mobile-guard.ts", [], { TZ: "America/New_York" }],
   ["scripts/ui-polish-guard.ts"],

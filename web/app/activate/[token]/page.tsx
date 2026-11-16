@@ -186,11 +186,11 @@ export default function ActivatePage() {
   }
 
   if (loading) {
-    return <div className="min-h-screen bg-stone-50 flex items-center justify-center text-sm text-stone-400">Loading…</div>;
+    return <div className="min-h-dvh bg-stone-50 flex items-center justify-center text-sm text-stone-400">Loading…</div>;
   }
   if (loadErr) {
     return (
-      <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4">
+      <div className="min-h-dvh bg-stone-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl border border-stone-200 p-8 max-w-sm text-center">
           <p className="text-base font-semibold text-stone-900 mb-1">Activation link unavailable</p>
           <p className="text-sm text-stone-500">{loadErr}</p>
@@ -209,7 +209,7 @@ export default function ActivatePage() {
         `Thanks, ${data.member.firstName}! Your details and payment method are saved. ${data.club.name} will review and confirm your billing — you have not been charged, and won't be until they approve and your billing date arrives.`;
 
   return (
-    <div className="min-h-screen bg-stone-50 py-10 px-4">
+    <div className="min-h-dvh bg-stone-50 py-10 px-4">
       <div className="max-w-lg mx-auto">
         {/* Branded header / card reveal */}
         <div className="rounded-t-2xl px-8 py-8 text-center" style={{ background: `linear-gradient(135deg, ${accent}, ${accent}cc)` }}>

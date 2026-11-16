@@ -121,8 +121,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const receivedAt = new Date();
   const receiver = session.user.id ?? null;
 
-  await prisma.transaction.update({
-    where: { id: tx.id },
+  // CLAIM the payment before anything else is written. The read above is not a
+  // lock: two taps on "Record payment" both pass it. Offline money has no
+  // unique key the way a Stripe payment does, so this conditional write is the
+  // only thing that makes one payment count once — without it the second tap
+  // found no pending membership, fell through to the live one, and extended
+  // the family's paid-through date by a SECOND period for the same cash.
+  const claimed = await prisma.transaction.updateMany({
+    where: { id: tx.id, clubId, status: "PENDING" },
     data: {
       status: "SUCCEEDED",
       paymentMethod: finalMethod,
@@ -133,6 +139,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       recordedByUserId: session.user.id ?? tx.recordedByUserId ?? null,
     },
   });
+  if (claimed.count === 0) {
+    return NextResponse.json(
+      { error: "This payment was already recorded.", code: "ALREADY_RECORDED" },
+      { status: 409 },
+    );
+  }
 
   // Activate the pending offline membership (ON_PAYMENT policy) — this is the
   // exact moment "awaiting cash/check" becomes "Paid" + Active.

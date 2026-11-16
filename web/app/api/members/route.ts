@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
+import { parseRecentLimit } from "@/lib/listLimits";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requireStaff } from "@/lib/apiGuard";
 import { MEMBER_ORIGIN } from "@/lib/memberOrigin";
 import { getTierFeatures, getTierName } from "@/lib/tier";
 import { upsertGuardianProfile } from "@/lib/guardian";
@@ -30,6 +31,8 @@ async function listMembersPaginated(req: Request, clubId: string) {
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   const url = new URL(req.url);
   const guardianEmail = url.searchParams.get("guardianEmail");
@@ -46,6 +49,21 @@ export async function GET(req: Request) {
   // break every one of them in the same commit.
   if (url.searchParams.get("paginated") === "1") {
     return listMembersPaginated(req, session.user.clubId);
+  }
+
+  // `?recent=N` — the newest N members, six fields each, for the dashboard
+  // home card. The home page used to download the ENTIRE roster (every column,
+  // guardians and subscriptions included) and run both self-heal sweeps below
+  // just to show five names.
+  const recent = parseRecentLimit(url.searchParams.get("recent"));
+  if (recent) {
+    const rows = await prisma.member.findMany({
+      where: { clubId: session.user.clubId, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      take: recent,
+      select: { id: true, firstName: true, lastName: true, joinedAt: true, isMinor: true, status: true },
+    });
+    return NextResponse.json(rows);
   }
 
   // Self-heal: lazily flip prospects older than the TTL to INACTIVE.

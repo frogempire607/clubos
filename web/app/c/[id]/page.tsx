@@ -45,7 +45,7 @@ export default function CheckinPage({ params }: { params: { id: string } }) {
 
   if (notFound) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-50 px-4">
+      <div className="min-h-dvh flex items-center justify-center bg-stone-50 px-4">
         <p className="text-stone-500 text-sm">This check-in link is no longer available.</p>
       </div>
     );
@@ -53,7 +53,7 @@ export default function CheckinPage({ params }: { params: { id: string } }) {
 
   if (!d) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-50 text-sm text-stone-400">
+      <div className="min-h-dvh flex items-center justify-center bg-stone-50 text-sm text-stone-400">
         Loading…
       </div>
     );
@@ -69,7 +69,7 @@ export default function CheckinPage({ params }: { params: { id: string } }) {
   const signInUrl = `/login?club=${clubQ}&role=member&next=${checkinNext}`;
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-stone-50 px-4 py-10 print:bg-white">
+    <div className="min-h-dvh flex flex-col items-center justify-center bg-stone-50 px-4 py-10 print:bg-white">
       <div className="w-full max-w-sm bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden print:shadow-none print:border-stone-300">
         <div className="px-8 pt-10 pb-8 flex flex-col items-center text-center">
           {/* Club logo */}

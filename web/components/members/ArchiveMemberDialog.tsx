@@ -67,7 +67,7 @@ export function ArchiveMemberDialog({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg border border-app-border max-h-[95vh] flex flex-col">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg border border-app-border max-h-[95dvh] flex flex-col">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between shrink-0">
           <h2 className="text-base font-semibold text-text-primary">
             Archive {data?.member.fullName ?? "member"}

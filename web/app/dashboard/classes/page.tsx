@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CalendarDays } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
@@ -308,7 +309,7 @@ function ClassModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90dvh] overflow-y-auto shadow-xl">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <h2 className="font-semibold text-text-primary">{editing ? "Edit Class" : "New Class"}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-muted text-xl leading-none">×</button>
@@ -554,9 +555,9 @@ function ClassModal({
             {memberships.length === 0 ? (
               <div className="border border-dashed border-app-border rounded-lg p-3 text-xs text-text-muted">
                 No active memberships yet.{" "}
-                <a href="/dashboard/memberships" className="text-brand hover:underline">
+                <Link href="/dashboard/memberships" className="text-brand hover:underline">
                   Create a membership →
-                </a>
+                </Link>
               </div>
             ) : (
               <div className="border border-app-border rounded-lg p-3 space-y-1.5 max-h-72 overflow-y-auto">
@@ -764,7 +765,7 @@ function SessionsModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[80vh] overflow-y-auto shadow-xl">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-md max-h-[80dvh] overflow-y-auto shadow-xl">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
           <div>
             <h2 className="font-semibold text-text-primary">{cls.name}</h2>
@@ -782,7 +783,7 @@ function SessionsModal({
           ) : (
             <div className="space-y-1.5">
               {sessions.map((s) => (
-                <a
+                <Link
                   key={s.id}
                   href={`/dashboard/attendance?session=${s.id}&date=${s.date.split("T")[0]}`}
                   className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-app-bg border border-app-border group"
@@ -801,18 +802,18 @@ function SessionsModal({
                     </span>
                     <span className="text-xs text-text-muted group-hover:text-text-muted">→</span>
                   </div>
-                </a>
+                </Link>
               ))}
             </div>
           )}
         </div>
         <div className="px-4 pb-4">
-          <a
+          <Link
             href={`/dashboard/attendance`}
             className="block text-center text-xs text-text-muted hover:text-text-primary"
           >
             Go to Attendance →
-          </a>
+          </Link>
         </div>
       </div>
     </div>
@@ -1242,7 +1243,7 @@ function SessionEditModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90dvh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <div>
             <h2 className="text-lg font-semibold text-text-primary">

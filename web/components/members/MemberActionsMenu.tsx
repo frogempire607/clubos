@@ -238,7 +238,7 @@ export function MemberActionsMenu({
               ref={menuRef}
               role="menu"
               aria-label={`Actions for ${member.fullName}`}
-              className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-[22px] bg-surface px-2 pt-2"
+              className="absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-[22px] bg-surface px-2 pt-2"
               style={{
                 paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
                 boxShadow: "var(--shadow-overlay)",

@@ -5,6 +5,7 @@
 // The page is used twice: /dashboard/staff/[id] (managers) and
 // /dashboard/my-profile (a staff member's own profile). What each person may
 // change comes from `viewer` in the payload; the API enforces the same rules.
+import { useSingleFlight } from "@/lib/useSingleFlight";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -128,7 +129,11 @@ export default function StaffProfile({ staffId, selfRoute = false }: { staffId: 
     `on staff since ${new Date(staff.createdAt).toLocaleDateString("en-US", { month: "short", year: "numeric" })}`,
   ].filter(Boolean) as string[];
 
-  async function sendSetupLink() {
+  // Each call emails a link AND replaces the previous one, so a double tap
+  // sent two emails, the first of which no longer worked.
+  const flight = useSingleFlight();
+  const sendSetupLink = () => flight.run("setup-link", sendSetupLinkNow);
+  async function sendSetupLinkNow() {
     const res = await fetch(`/api/staff/${staffId}/setup-link`, { method: "POST" });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) return setNotice(d.error || "Couldn't create a setup link.");
@@ -193,7 +198,7 @@ export default function StaffProfile({ staffId, selfRoute = false }: { staffId: 
                 Message
               </a>
               {viewer.canEditRecord && (
-                <button type="button" onClick={sendSetupLink} className={`${btn} border border-app-border text-text-primary hover:bg-app-bg`}>
+                <button type="button" onClick={sendSetupLink} disabled={flight.isBusy("setup-link")} className={`${btn} border border-app-border text-text-primary hover:bg-app-bg disabled:opacity-50`}>
                   Setup link
                 </button>
               )}

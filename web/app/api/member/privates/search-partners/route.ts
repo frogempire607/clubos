@@ -32,11 +32,12 @@ export async function GET(req: Request) {
         OR: [
           { firstName: { contains: t, mode: "insensitive" } },
           { lastName: { contains: t, mode: "insensitive" } },
-          { email: { contains: t, mode: "insensitive" } },
         ],
       })),
     },
-    select: { id: true, firstName: true, lastName: true, email: true },
+    // Names only. This is another family's record: their email is not ours to
+    // hand out, and searching BY email let any member confirm who is on the roster.
+    select: { id: true, firstName: true, lastName: true },
     take: 20,
     orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
   });

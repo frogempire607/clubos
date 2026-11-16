@@ -5,7 +5,7 @@ import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/apiGuard";
+import { requirePermission, requireStaff } from "@/lib/apiGuard";
 import { upsertGuardianProfile } from "@/lib/guardian";
 import { ensurePrimaryGuardian } from "@/lib/guardianLink";
 import { deleteOrphanedMemberLogins } from "@/lib/memberLink";
@@ -77,6 +77,8 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const params = await context.params;
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const staffOnly = requireStaff(session);
+  if (staffOnly) return staffOnly;
 
   const member = await prisma.member.findFirst({
     where: { id: params.id, clubId: session.user.clubId, deletedAt: null },
@@ -171,6 +173,13 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   // returned before, so a correctly-linked child was invisible on the profile.
   const family = await loadFamilyForMember(params.id, session.user.clubId);
 
+  // Everything below is independent of everything else below: each block
+  // reads its own tables, fills its own variable and already swallows its own
+  // failure. They used to run one after another — about a dozen round trips in
+  // a row, ~2 s on the busiest staff screen (measured 2026-11-15). Each block is
+  // now started as a task and they are awaited together before the response.
+  const tasks: Promise<void>[] = [];
+
   // ── Phase 4.5.3 — the family switcher's people ──────────────────────────
   // `family` answers "who can act for this member" and "who can this member's
   // login act for". Neither answers "who else is in this family" — a sibling is
@@ -190,6 +199,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     viaGuardian: string;
     canPay: boolean;
   }[] = [];
+  tasks.push((async () => {
   try {
     const guardianUserIds = family.guardians
       .filter((g) => g.status === "CONFIRMED")
@@ -230,6 +240,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     console.error("[members/[id]] family switcher resolution failed", e);
     familyMembers = [];
   }
+  })());
 
   const { relationshipsFrom: _f, relationshipsTo: _t, club: _c, ...rest } = member;
   void _f; void _t;
@@ -241,7 +252,8 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   // Derived here rather than client-side for the reason 4.5.1 exists: two
   // staff must never see a different answer, and the profile banner and the
   // list button must never disagree about what to do next.
-  let tracks: SerializedMember | null = null;
+  let tracks = null as SerializedMember | null;
+  tasks.push((async () => {
   try {
     const trackRow = await prisma.member.findFirst({
       where: { id: params.id, clubId: session.user.clubId },
@@ -257,6 +269,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     // tab on this page works without it.
     console.error("[members/[id]] track derivation failed", e);
   }
+  })());
 
   // ── Phase 4.5.3 — the three tabs that had no data behind them ───────────
   // PROFILE_TABS declared eleven tabs; the body handled eight. Documents,
@@ -281,6 +294,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     expiresAt: string | null;
     expired: boolean;
   }[] = [];
+  tasks.push((async () => {
   try {
     const [clubDocs, sigs] = await Promise.all([
       prisma.document.findMany({
@@ -322,6 +336,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   } catch (e) {
     console.error("[members/[id]] document load failed", e);
   }
+  })());
 
   // Migration activity (§1c "Full migration activity"). The same
   // MemberMigrationEvent rows the 4.5.8 drawer reads, resolved to actor names
@@ -329,6 +344,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   let migrationEvents: {
     id: string; type: string; message: string | null; createdAt: string; actor: string | null;
   }[] = [];
+  tasks.push((async () => {
   try {
     const evts = await prisma.memberMigrationEvent.findMany({
       where: { memberId: params.id, clubId: session.user.clubId },
@@ -353,6 +369,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   } catch (e) {
     console.error("[members/[id]] migration event load failed", e);
   }
+  })());
 
   // ── B6 — Overview summary figures ───────────────────────────────────────
   // Small, bounded reads: counts and single rows, plus ≤8 rows per activity
@@ -367,6 +384,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   } | null = null;
   let recentActivity: ActivityItem[] = [];
   let accountHolderLastLoginAt: string | null = null;
+  tasks.push((async () => {
   try {
     const { monthStart, since30 } = attendanceWindows(new Date());
     const present = { memberId: params.id, status: { in: [...PRESENT_STATUSES] } };
@@ -398,7 +416,9 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   } catch (e) {
     console.error("[members/[id]] overview figures failed", e);
   }
+  })());
 
+  tasks.push((async () => {
   try {
     const [subEvents, deliveries, recentSigs] = await Promise.all([
       prisma.memberSubscriptionEvent.findMany({
@@ -450,9 +470,11 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   } catch (e) {
     console.error("[members/[id]] recent activity failed", e);
   }
+  })());
 
   // Account-holder card meta line: when the primary confirmed guardian last
   // signed in. One row, scalars only.
+  tasks.push((async () => {
   try {
     const holder =
       family.guardians.find((g) => g.status === "CONFIRMED" && g.isPrimary) ??
@@ -464,6 +486,9 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   } catch (e) {
     console.error("[members/[id]] account holder meta failed", e);
   }
+  })());
+
+  await Promise.all(tasks);
 
   return NextResponse.json({
     ...rest,

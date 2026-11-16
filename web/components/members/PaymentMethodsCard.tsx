@@ -16,6 +16,7 @@
 // Stripe) and GET /api/members/[id]/billing-details (ids). Nothing here
 // charges anyone.
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CreditCard, RefreshCw } from "lucide-react";
@@ -117,10 +118,10 @@ export default function PaymentMethodsCard({
   const [whose, setWhose] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    fetch(`/api/members/${memberId}/billing-admin`)
-      .then(async (r) => {
+    sharedGet(`/api/members/${memberId}/billing-admin`)
+      .then((r) => {
         if (r.status === 403) { setForbidden(true); return null; }
-        return r.ok ? r.json() : null;
+        return r.ok ? r.data : null;
       })
       .then((d) => { if (d) setAdmin(d as AdminSlice); })
       .catch(() => {});

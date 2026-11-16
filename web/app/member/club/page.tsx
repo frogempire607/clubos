@@ -4,6 +4,7 @@
 // and the club's donation/support links — one clean page for "who we are".
 // Data is read-only here: /api/member/club + /api/member/staff.
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
 import { Users, Mail, Phone, Globe, Clock, Heart, ExternalLink } from "lucide-react";
 
@@ -45,7 +46,7 @@ export default function MemberClubProfilePage() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/member/club").then((r) => (r.ok ? r.json() : null)),
+      sharedGet<any>("/api/member/club").then((r) => (r.ok ? r.data : null)),
       fetch("/api/member/staff").then((r) => (r.ok ? r.json() : [])),
     ]).then(([c, s]) => {
       setClub(c);

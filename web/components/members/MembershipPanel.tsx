@@ -14,6 +14,7 @@
 // Change dates. Change plan (Stripe) still hands off to B12's dialog in
 // the Membership panel (B16 retired Advanced billing).
 
+import { sharedGet } from "@/lib/sharedGet";
 import { computeProcessingFeeCents, type FeePolicy, type FeePolicyInput } from "@/lib/fees";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -100,7 +101,7 @@ async function patch(url: string, body: unknown) {
 function Sheet({ title, sub, children, onClose }: { title: string; sub?: string; children: React.ReactNode; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
-      <div className="bg-surface rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-surface rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[92dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="px-4 pt-4 pb-2.5 border-b border-[#F1F1F3]">
           <h3 className="text-[15px] font-semibold text-text-primary">{title}</h3>
           {sub && <p className="text-[12px] text-text-muted mt-0.5">{sub}</p>}
@@ -430,7 +431,9 @@ function AssignDialog({ data, initialMode, onClose, onDone }: { data: Payload; i
   const [chargeTo, setChargeTo] = useState<string>("ONFILE");
   useEffect(() => {
     let live = true;
-    fetch(`/api/members/${memberId}/billing-admin`).then((x) => (x.ok ? x.json() : null)).then((d) => {
+    // Shared with PaymentMethodsCard, which mounts beside this panel and reads
+    // the same thing — one request, not two (each one calls Stripe).
+    sharedGet<any>(`/api/members/${memberId}/billing-admin`).then((x) => (x.ok ? x.data : null)).then((d) => {
       if (!live || !d) return;
       const opts: { value: string; label: string; ownerUserId: string | null }[] = [];
       for (const w of (d.payerWallets ?? []) as { ownerUserId: string; ownerName: string; methods: { ref: string; label: string; onFile: boolean }[] }[]) {

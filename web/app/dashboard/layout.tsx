@@ -1,5 +1,6 @@
 "use client";
 
+import { SkeletonLine, SkeletonCard } from "@/components/LoadingSkeleton";
 import { useState, useEffect } from "react";
 import { useSession, getSession } from "next-auth/react";
 import { signOutEverywhere } from "@/lib/signOutEverywhere";
@@ -13,7 +14,6 @@ import DashboardBottomNav from "@/components/DashboardBottomNav";
 
 const BACKGROUND = "var(--color-bg)";
 const TEXT = "var(--color-text)";
-const MUTED = "var(--color-muted)";
 
 type Me = {
   role?: string;
@@ -91,23 +91,40 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => window.removeEventListener("aox:fee-choice-made", done);
   }, []);
 
+  // While the session is being read, show the SHAPE of the dashboard rather
+  // than a blank page with the word "Loading…": the frame is the same for
+  // everyone, so it can be on screen immediately. No menu items are drawn —
+  // what this person may open is not known yet.
   if (status === "loading") {
     return (
       <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: BACKGROUND,
-        }}
+        className="dashboard-root"
+        aria-busy="true"
+        aria-label="Loading your dashboard"
+        style={{ display: "flex", height: "100dvh", background: BACKGROUND }}
       >
-        <div style={{ fontSize: 14, color: MUTED }}>Loading…</div>
+        <aside className="hidden md:block" style={{ width: 248, flexShrink: 0, background: "var(--color-sidebar-bg, #1F1F23)" }} />
+        <main className="flex-1 min-w-0">
+          <div className="md:hidden" style={{ height: "calc(56px + env(safe-area-inset-top))", background: "var(--color-sidebar-bg, #1F1F23)" }} />
+          <div className="p-4 md:p-6 space-y-4 max-w-5xl">
+            <SkeletonLine width={192} height={28} />
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+        </main>
       </div>
     );
   }
 
   if (!session) return null;
+
+  // Until /api/me answers — and for good if it fails — the menu is drawn from
+  // the signed-in session's own role and permissions. It used to fall back to
+  // "unknown role", which the nav treats as an owner: a coach saw the full
+  // owner menu on every load, and permanently when that request errored.
+  // (The server refused every screen behind it; this was the menu lying.)
+  const sessionUser = session.user as { role?: string; permissions?: Record<string, unknown> | null };
+  const viewer: NonNullable<Me> = me ?? { role: sessionUser.role, permissions: sessionUser.permissions ?? null };
 
   const email = session.user.email;
   const displayName = session.user.name || email || "";
@@ -116,14 +133,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div
       className="dashboard-root"
-      style={{ display: "flex", height: "100vh", background: BACKGROUND, color: TEXT }}
+      style={{ display: "flex", height: "100dvh", background: BACKGROUND, color: TEXT }}
     >
       {/* Desktop sidebar — fixed 248px column, only at md+ */}
       <aside
         className="hidden md:flex"
         style={{ width: 248, flexShrink: 0, flexDirection: "column" }}
       >
-        <DashboardSidebar email={email} me={me} pathname={pathname} />
+        <DashboardSidebar email={email} me={viewer} pathname={pathname} />
       </aside>
 
       {/* Phones have no drawer: the bottom tab bar + /dashboard/more cover
@@ -196,8 +213,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           STAFF so they don't see tabs that dead-end on a 403 redirect. */}
       <DashboardBottomNav
         pathname={pathname}
-        role={me?.role}
-        permissions={me?.permissions}
+        role={viewer.role}
+        permissions={viewer.permissions}
       />
     </div>
   );

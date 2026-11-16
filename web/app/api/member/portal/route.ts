@@ -53,90 +53,97 @@ async function fetchUser(userId: string, clubTimezone: string | null) {
     lessonType: { select: { id: true, title: true, durationMin: true } },
     coach: { select: { id: true, firstName: true, lastName: true } },
   };
-  return prisma.user.findUnique({
-    where: { id: userId },
-    include: {
-      memberProfile: {
-        include: {
-          membership: true,
-          subscriptions: {
-            // include pending so the portal can show the upcoming/first-charge
-            // date and a "purchase in progress" status (migrated + card flows).
-            where: { status: { in: ["active", "past_due", "pending"] } },
-            include: { membership: true },
+  // Two reads side by side instead of one deep one. Prisma loads each nested
+  // relation with its own round trip, one after another; "my own profile" and
+  // "the children I manage" do not depend on each other, so running them as
+  // two requests roughly halves the wait. The shape handed back is unchanged.
+  const [own, guardianOf] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        memberProfile: {
+          include: {
+            membership: true,
+            subscriptions: {
+              // include pending so the portal can show the upcoming/first-charge
+              // date and a "purchase in progress" status (migrated + card flows).
+              where: { status: { in: ["active", "past_due", "pending"] } },
+              include: { membership: true },
+            },
+            bookings: {
+              // A deleted event is not something to show up to.
+              where: { status: { in: ["CONFIRMED", "WAITLISTED"] }, event: { deletedAt: null } },
+              include: { event: { include: { customEventType: true } } },
+              orderBy: { event: { startsAt: "asc" } },
+              take: 20,
+            },
+            attendanceRecords: {
+              where: classWhere,
+              include: classInclude,
+              orderBy: { classSession: { startsAt: "asc" } },
+              take: 20,
+            },
+            privateBookings: {
+              where: privateWhere,
+              select: privateSelect,
+              orderBy: { createdAt: "desc" },
+              take: 20,
+            },
+            guardianLinks: {
+              where: ACTIVE_GUARDIAN_LINK,
+              include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } },
+            },
+            guardian: true,
           },
-          bookings: {
-            // A deleted event is not something to show up to.
-            where: { status: { in: ["CONFIRMED", "WAITLISTED"] }, event: { deletedAt: null } },
-            include: { event: { include: { customEventType: true } } },
-            orderBy: { event: { startsAt: "asc" } },
-            take: 20,
-          },
-          attendanceRecords: {
-            where: classWhere,
-            include: classInclude,
-            orderBy: { classSession: { startsAt: "asc" } },
-            take: 20,
-          },
-          privateBookings: {
-            where: privateWhere,
-            select: privateSelect,
-            orderBy: { createdAt: "desc" },
-            take: 20,
-          },
-          guardianLinks: {
-            where: ACTIVE_GUARDIAN_LINK,
-            include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } },
-          },
-          guardian: true,
         },
       },
-      guardianOf: {
-        where: ACTIVE_GUARDIAN_LINK,
-        include: {
-          member: {
-            include: {
-              // `user: { id }` lets the client tell whether a linked child
-              // has their own member login (which is required for the
-              // child to receive DMs from coaches). Used by the messages
-              // page to render an explanatory note when no child threads
-              // exist because the kids have no logins.
-              user: { select: { id: true } },
-              // Who co-manages each child (names only) — powers the guardian
-              // avatars on the Account page. The viewer is one of these
-              // guardians, so this is data about their own family.
-              guardianLinks: {
-                where: ACTIVE_GUARDIAN_LINK,
-                orderBy: { createdAt: "asc" },
-                select: {
-                  userId: true,
-                  user: { select: { id: true, firstName: true, lastName: true } },
-                },
+    }),
+    prisma.memberGuardianUser.findMany({
+      where: { userId, ...ACTIVE_GUARDIAN_LINK },
+      include: {
+        member: {
+          include: {
+            // `user: { id }` lets the client tell whether a linked child
+            // has their own member login (which is required for the
+            // child to receive DMs from coaches). Used by the messages
+            // page to render an explanatory note when no child threads
+            // exist because the kids have no logins.
+            user: { select: { id: true } },
+            // Who co-manages each child (names only) — powers the guardian
+            // avatars on the Account page. The viewer is one of these
+            // guardians, so this is data about their own family.
+            guardianLinks: {
+              where: ACTIVE_GUARDIAN_LINK,
+              orderBy: { createdAt: "asc" },
+              select: {
+                userId: true,
+                user: { select: { id: true, firstName: true, lastName: true } },
               },
-              bookings: {
-                where: { status: { in: ["CONFIRMED", "WAITLISTED"] }, event: { deletedAt: null } },
-                include: { event: { include: { customEventType: true } } },
-                orderBy: { event: { startsAt: "asc" } },
-                take: 10,
-              },
-              attendanceRecords: {
-                where: classWhere,
-                include: classInclude,
-                orderBy: { classSession: { startsAt: "asc" } },
-                take: 20,
-              },
-              privateBookings: {
-                where: privateWhere,
-                select: privateSelect,
-                orderBy: { createdAt: "desc" },
-                take: 20,
-              },
+            },
+            bookings: {
+              where: { status: { in: ["CONFIRMED", "WAITLISTED"] }, event: { deletedAt: null } },
+              include: { event: { include: { customEventType: true } } },
+              orderBy: { event: { startsAt: "asc" } },
+              take: 10,
+            },
+            attendanceRecords: {
+              where: classWhere,
+              include: classInclude,
+              orderBy: { classSession: { startsAt: "asc" } },
+              take: 20,
+            },
+            privateBookings: {
+              where: privateWhere,
+              select: privateSelect,
+              orderBy: { createdAt: "desc" },
+              take: 20,
             },
           },
         },
       },
-    },
-  });
+    }),
+  ]);
+  return own ? { ...own, guardianOf } : null;
 }
 
 export async function GET() {
@@ -202,7 +209,9 @@ export async function GET() {
   // date the truth is that day's coach rows, so hand the page exactly that
   // list in staffOverride (in this response only — nothing is written).
   // Earlier days, and clubs not switched on, are passed through untouched.
-  if (user) {
+  // Runs alongside the summary queries below rather than in front of them.
+  const applyCoachNames = (async () => {
+    if (!user) return;
     const booked = [
       ...(user.memberProfile?.attendanceRecords ?? []),
       ...user.guardianOf.flatMap((g) => g.member.attendanceRecords),
@@ -219,7 +228,10 @@ export async function GET() {
         cs.staffOverride = staffOn.forSession(cs, cs.recurringClass?.assignedStaffIds ?? []).staffIds;
       }
     }
-  }
+  })();
+  // Awaited below; this only keeps an early failure from being reported as
+  // unhandled before that await is reached.
+  applyCoachNames.catch(() => undefined);
 
   // Per-managed-athlete summary: attendance count (last 30d), upcoming
   // bookings count, active membership name. Powers the parent quick
@@ -238,7 +250,10 @@ export async function GET() {
     membershipStatus: PortalMembershipStatus;
   }> = {};
   if (accessibleIds.length > 0) {
-    const [attCounts, upcomingCounts, subs, trialMembers, subRows, statusRows] = await Promise.all([
+    // Four queries, not six: "active plan name" is read off the same
+    // subscription rows that answer "ever held one", and the trial window off
+    // the same member rows as the stored status.
+    const [attCounts, upcomingCounts, subRows, statusRows] = await Promise.all([
       prisma.attendanceRecord.groupBy({
         by: ["memberId"],
         where: {
@@ -257,25 +272,19 @@ export async function GET() {
         },
         _count: { _all: true },
       }),
-      prisma.memberSubscription.findMany({
-        where: { memberId: { in: accessibleIds }, status: "active" },
-        select: { memberId: true, membership: { select: { name: true } } },
-      }),
-      // Active free-trial windows show as the profile's plan until they expire.
-      prisma.member.findMany({
-        where: { id: { in: accessibleIds }, trialEndsAt: { gt: now } },
-        select: { id: true, trialEndsAt: true },
-      }),
       // Every subscription row, any status, so "ever held one" is answerable.
       prisma.memberSubscription.findMany({
         where: { memberId: { in: accessibleIds } },
-        select: { memberId: true, status: true },
+        select: { memberId: true, status: true, membership: { select: { name: true } } },
       }),
       prisma.member.findMany({
         where: { id: { in: accessibleIds } },
         select: { id: true, status: true, trialEndsAt: true },
       }),
     ]);
+    const subs = subRows.filter((r) => r.status === "active");
+    // Active free-trial windows show as the profile's plan until they expire.
+    const trialMembers = statusRows.filter((r) => r.trialEndsAt != null && r.trialEndsAt > now);
     for (const id of accessibleIds) {
       const trial = trialMembers.find((t) => t.id === id);
       const stored = statusRows.find((r) => r.id === id);
@@ -298,6 +307,8 @@ export async function GET() {
       };
     }
   }
+
+  await applyCoachNames;
 
   // The portal's `status` field is what a family reads as "are we members".
   // The stored Member.status column lags the subscriptions it describes

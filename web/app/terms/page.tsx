@@ -21,7 +21,7 @@ export default function TermsPage() {
         fontFamily: "Inter, system-ui, sans-serif",
         background: "#F5F3EE",
         color: "#1C1917",
-        minHeight: "100vh",
+        minHeight: "100dvh",
       }}
     >
       {/* ── Top nav (same chrome as marketing pages) ── */}

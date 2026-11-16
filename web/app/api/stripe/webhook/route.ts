@@ -1,4 +1,5 @@
 import { addBillingPeriod } from "@/lib/billingAdmin";
+import { createTransactionOnce } from "@/lib/transactionOnce";
 import { normalizeTier } from "@/lib/tier";
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
@@ -54,9 +55,22 @@ async function memberContact(memberId: string): Promise<{ email: string | null; 
   return { email, firstName: m.firstName, clubName: m.club?.name ?? "your club" };
 }
 
-function safeAsync(fn: () => Promise<unknown>) {
-  fn().catch((err) => console.error("Email send failed:", err));
+// AWAITED. This used to fire the email and return at once; on serverless the
+// instance is frozen the moment the response is sent, so the receipt, the
+// booking confirmation and — worst — the "your card was declined" notice went
+// out late or not at all. A failed send is logged and never fails the webhook.
+async function safeAsync(fn: () => Promise<unknown>): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    console.error("Email send failed:", err);
+  }
 }
+
+// Stripe waits for the answer, and this handler now waits for its emails and
+// its Stripe lookups. The platform default (~10 s) cut long events off
+// mid-write; see lib/transactionOnce for what that left behind.
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   // Resolved per-request rather than at module load so a `.env` fix
@@ -295,7 +309,7 @@ export async function POST(req: Request) {
             // invoice.paid handler — one source of truth per dollar, deduped
             // by invoice id, so the first payment can't double-count.
             if (memberId && session.mode === "payment" && session.amount_total && session.amount_total > 0) {
-              await prisma.transaction.create({
+              await createTransactionOnce({
                 data: {
                   clubId,
                   memberId,
@@ -351,7 +365,7 @@ export async function POST(req: Request) {
               const amountStr = session.amount_total
                 ? `$${(session.amount_total / 100).toFixed(2)}`
                 : undefined;
-              safeAsync(() =>
+              await safeAsync(() =>
                 sendMembershipActivatedEmail({
                   to: contact.email!,
                   firstName: contact.firstName,
@@ -659,7 +673,7 @@ export async function POST(req: Request) {
         // approved. Never happened in production (checked 2026-09-24: zero
         // such registrations) — closed before it could.
         if (memberId && eventId && !eventRegistrationId) {
-          await prisma.transaction.create({
+          await createTransactionOnce({
             data: {
               clubId,
               memberId,
@@ -699,7 +713,7 @@ export async function POST(req: Request) {
                   const amountStr = session.amount_total
                     ? `$${(session.amount_total / 100).toFixed(2)}`
                     : undefined;
-                  safeAsync(() =>
+                  await safeAsync(() =>
                     sendBookingConfirmationEmail({
                       to: contact.email!,
                       firstName: contact.firstName,
@@ -730,7 +744,7 @@ export async function POST(req: Request) {
               const amountStr = session.amount_total
                 ? `$${(session.amount_total / 100).toFixed(2)}`
                 : undefined;
-              safeAsync(() =>
+              await safeAsync(() =>
                 sendBookingConfirmationEmail({
                   to: contact.email!,
                   firstName: contact.firstName,
@@ -744,7 +758,7 @@ export async function POST(req: Request) {
               );
             }
           }
-          await prisma.transaction.create({
+          await createTransactionOnce({
             data: {
               clubId,
               memberId,
@@ -878,7 +892,7 @@ export async function POST(req: Request) {
               // Record the transaction so the package purchase appears in
               // financials/reports alongside membership + event payments.
               if (amount > 0) {
-                await prisma.transaction.create({
+                await createTransactionOnce({
                   data: {
                     clubId,
                     memberId,
@@ -947,7 +961,7 @@ export async function POST(req: Request) {
           }
           if (reg && reg.status !== "PAID") {
             const amount = (session.amount_total || 0) / 100;
-            const tx = await prisma.transaction.create({
+            const { tx } = await createTransactionOnce({
               data: {
                 clubId: reg.clubId,
                 memberId: reg.memberId,
@@ -1325,7 +1339,7 @@ export async function POST(req: Request) {
         {
           const resolvedMemberId = memberId;
           const amountPaid = invoice.amount_paid / 100;
-          safeAsync(async () => {
+          await safeAsync(async () => {
             const contact = await memberContact(resolvedMemberId);
             const to = invoice.customer_email || contact.email;
             if (!to) return;
@@ -1365,7 +1379,7 @@ export async function POST(req: Request) {
               const amountStr = invoice.amount_due
                 ? `$${(invoice.amount_due / 100).toFixed(2)}`
                 : "your membership fee";
-              safeAsync(() =>
+              await safeAsync(() =>
                 sendPaymentFailedEmail({
                   to: contact.email!,
                   firstName: contact.firstName,

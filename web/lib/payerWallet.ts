@@ -134,7 +134,17 @@ export async function stampOwner(customerId: string, ownerUserId: string, stripe
 }
 
 /** Everyone who pays for this athlete, each with the Stripe customers that hold THEIR cards. */
-export async function walletsFor(clubId: string, memberId: string, stripeAccount: string): Promise<Wallets | null> {
+export async function walletsFor(
+  clubId: string,
+  memberId: string,
+  stripeAccount: string,
+  /**
+   * `retrieveCustomer` lets a caller that is ALREADY reading these customers
+   * (the billing screen) share one fetch instead of paying for a second.
+   * It must resolve null for a deleted or missing customer.
+   */
+  deps: { retrieveCustomer?: (customerId: string) => Promise<{ metadata?: Record<string, string> | null } | null> } = {},
+): Promise<Wallets | null> {
   const target = await prisma.member.findFirst({ where: { id: memberId, clubId, deletedAt: null }, select: MEMBER_SELECT });
   if (!target) return null;
   const tLinks = (await linksOf(clubId, [target.id])).get(target.id) ?? [];
@@ -170,10 +180,20 @@ export async function walletsFor(clubId: string, memberId: string, stripeAccount
     e.legacy.push(legacyCardOwner(m, links.get(m.id) ?? []));
     byCustomer.set(c, e);
   }
+  // One Stripe read per distinct customer, all at once (was one after another —
+  // a coach paying for a team waited on each in turn).
+  const stampOf = async (customerId: string): Promise<string | null> => {
+    if (!deps.retrieveCustomer) return stampedOwner(customerId, stripeAccount);
+    try {
+      return (await deps.retrieveCustomer(customerId))?.metadata?.[OWNER_META] || null;
+    } catch {
+      return null; // unreadable ⇒ unstamped, exactly like stampedOwner
+    }
+  };
+  const entries = Array.from(byCustomer.entries());
+  const stamps = await Promise.all(entries.map(([c]) => stampOf(c)));
   const ownerByCustomer = new Map<string, string | null>();
-  for (const [c, e] of Array.from(byCustomer.entries())) {
-    ownerByCustomer.set(c, ownerOfCustomer(await stampedOwner(c, stripeAccount), e.legacy));
-  }
+  entries.forEach(([c, e], i) => ownerByCustomer.set(c, ownerOfCustomer(stamps[i], e.legacy)));
 
   const users = payerIds.length
     ? await prisma.user.findMany({ where: { id: { in: payerIds }, clubId }, select: { id: true, firstName: true, lastName: true } })

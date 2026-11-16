@@ -125,6 +125,19 @@ export async function POST(req: Request) {
     }
   }
 
+  // CLAIM the request before anything is granted. The PENDING read at the top
+  // is not a lock — two taps on Approve (or two staff at once) both pass it,
+  // and every grant below used to run BEFORE the request was closed: double
+  // lesson credits, or two live memberships on one plan, each with its own
+  // invoice. Same claim-first shape as approvals/membership-transfer.
+  const claimed = await prisma.pendingApproval.updateMany({
+    where: { id: approval.id, status: "PENDING" },
+    data: { status: "APPROVED", respondedAt: new Date(), respondedById: session.user.id },
+  });
+  if (claimed.count === 0) {
+    return NextResponse.json({ error: "Someone else just handled this request." }, { status: 409 });
+  }
+  try {
   // The approved amount is what was quoted at request time (tier-priced for
   // PERCENT/FIXED packs) — captured on the approval row.
   const amount = Number(approval.amount ?? payload.totalAmount ?? 0);
@@ -203,7 +216,6 @@ export async function POST(req: Request) {
     });
   }
 
-  await close("APPROVED");
   await notifyRequester(
     `Your lesson package for ${who} (${pkg.title}) is active — ${grants} lesson${grants === 1 ? "" : "s"} added.${
       bookingsCreated > 0
@@ -212,4 +224,15 @@ export async function POST(req: Request) {
     } The club will collect your ${paymentMethod.toLowerCase()} payment.`,
   );
   return NextResponse.json({ ok: true, granted: grants, bookingsCreated });
+  } catch (err) {
+    // Nothing may be left looking approved if the grant failed part-way: put
+    // the request back in the queue so staff can see it and try again.
+    await prisma.pendingApproval
+      .updateMany({
+        where: { id: approval.id, status: "APPROVED" },
+        data: { status: "PENDING", respondedAt: null, respondedById: null },
+      })
+      .catch(() => undefined);
+    throw err;
+  }
 }

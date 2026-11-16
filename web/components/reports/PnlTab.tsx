@@ -378,7 +378,7 @@ function DrillSheet({
     <div className="fixed inset-0 z-50 bg-black/40 flex items-stretch sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-label={lineLabel}>
       {/* Phones: full-screen sheet (2.5.12.5); larger screens: centered panel. */}
       <div
-        className="bg-surface w-full sm:max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[90vh] rounded-none sm:rounded-xl flex flex-col overflow-hidden"
+        className="bg-surface w-full sm:max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[90dvh] rounded-none sm:rounded-xl flex flex-col overflow-hidden"
         style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
         <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">

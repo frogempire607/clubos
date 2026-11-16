@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, requirePermissionLive } from "@/lib/apiGuard";
+import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
 import {
@@ -28,6 +29,7 @@ import { reactivationUrl, parseOffer, compareOfferToCurrent } from "@/lib/reacti
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 import { parseOptions as parseOptionsShared } from "@/lib/membershipOptions";
 import { listPaymentMethodsForCustomer, lastPaidWithForCustomers } from "@/lib/paymentMethodsAdmin";
+import { memoAsync, withTimeout } from "@/lib/asyncMemo";
 import { paymentMethodLabel, paymentTypeName, isOffSessionChargeable, type LastPaidWith } from "@/lib/billingDataRules";
 import { chargeDateMoved } from "@/lib/chargeDate";
 import { walletsFor } from "@/lib/payerWallet";
@@ -70,25 +72,47 @@ type PaymentMethodView = {
   isCapturedForActivation: boolean;
 };
 
-async function listCustomerPaymentMethods(
-  customerId: string,
-  stripeAccount: string,
+/** Everything Stripe knows about one customer that this screen shows. */
+type CustomerBundle = {
+  customer: Stripe.Customer;
+  methods: Stripe.PaymentMethod[];
+  subs: Stripe.Subscription[];
+} | null;
+
+/**
+ * One customer's record, saved payment methods and subscriptions — the three
+ * reads in PARALLEL (they used to run one after another), and null for a
+ * customer that no longer exists. Wrap it in `memoAsync` per request: the
+ * athlete's own customer is also a wallet customer, and was fetched twice.
+ */
+async function fetchCustomerBundle(customerId: string, stripeAccount: string): Promise<CustomerBundle> {
+  const [customer, methods, subs] = await Promise.allSettled([
+    stripe.customers.retrieve(customerId, { stripeAccount }),
+    // Every type — see lib/paymentMethodsAdmin.listPaymentMethodsForCustomer.
+    listPaymentMethodsForCustomer(customerId, stripeAccount),
+    stripe.subscriptions.list({ customer: customerId, status: "all", limit: 20 }, { stripeAccount }),
+  ]);
+  if (customer.status === "rejected") throw customer.reason;
+  if (!customer.value || ("deleted" in customer.value && customer.value.deleted)) return null;
+  // The customer exists, so a failed list is a real read failure, not "none".
+  if (methods.status === "rejected") throw methods.reason;
+  if (subs.status === "rejected") throw subs.reason;
+  return { customer: customer.value as Stripe.Customer, methods: methods.value, subs: subs.value.data };
+}
+
+function paymentMethodViews(
+  bundle: CustomerBundle,
   role: "SETUP" | "LEGACY",
   capturedPmId: string | null,
-): Promise<{ methods: PaymentMethodView[]; liveSubCount: number }> {
-  const customer = await stripe.customers.retrieve(customerId, { stripeAccount });
-  if (!customer || ("deleted" in customer && customer.deleted)) return { methods: [], liveSubCount: 0 };
+): { methods: PaymentMethodView[]; liveSubCount: number } {
+  if (!bundle) return { methods: [], liveSubCount: 0 };
+  const { customer, methods: allMethods } = bundle;
+  const subs = { data: bundle.subs };
   const def = (customer as { invoice_settings?: { default_payment_method?: string | { id: string } | null } })
     .invoice_settings?.default_payment_method;
   const defaultPmId = typeof def === "string" ? def : def?.id ?? null;
   const custName = (customer as { name?: string | null }).name ?? null;
   const custEmail = (customer as { email?: string | null }).email ?? null;
-
-  // Every type — see lib/paymentMethodsAdmin.listPaymentMethodsForCustomer.
-  const [allMethods, subs] = await Promise.all([
-    listPaymentMethodsForCustomer(customerId, stripeAccount),
-    stripe.subscriptions.list({ customer: customerId, status: "all", limit: 20 }, { stripeAccount }),
-  ]);
 
   const liveSubs = subs.data.filter((s) => LIVE_STRIPE.has(s.status));
   const liveDefaultPmIds = new Set<string>();
@@ -120,6 +144,113 @@ async function listCustomerPaymentMethods(
     });
   }
   return { methods, liveSubCount: liveSubs.length };
+}
+
+type WalletMethod = { ref: string; label: string; isDefault: boolean; onFile: boolean; sharedWith: string[] };
+type PayerWalletView = { ownerUserId: string; ownerName: string; roles: string[]; methods: WalletMethod[] };
+type StripeReads = {
+  paymentMethods: PaymentMethodView[];
+  lastPaidWith: LastPaidWith | null;
+  stripeReadError: boolean;
+  payerWallets: PayerWalletView[];
+  onFileOwnerName: string | null;
+};
+
+/** How long the page waits on Stripe before rendering without it. */
+const STRIPE_READ_BUDGET_MS = 8000;
+
+/**
+ * Every live Stripe read this screen needs, with each customer fetched ONCE
+ * and everything independent in parallel. Was 7 sequential round trips for a
+ * one-child family and 20+ for a coach paying for a team (2026-11-15).
+ *
+ * NEVER rejects: a Stripe failure or a slow Stripe degrades to the same
+ * "couldn't read payment methods" state the screen already handles. The memo
+ * lives and dies inside this one call — nothing is shared between viewers.
+ */
+async function loadStripeReads(
+  stripeAccountId: string | null,
+  clubId: string,
+  member: { id: string; stripeSetupCustomerId: string | null; stripeCustomerId: string | null; stripeSetupPaymentMethodId: string | null },
+): Promise<StripeReads> {
+  const empty: StripeReads = { paymentMethods: [], lastPaidWith: null, stripeReadError: false, payerWallets: [], onFileOwnerName: null };
+  if (!stripeAccountId) return empty;
+  const bundleOf = memoAsync((customerId: string) => fetchCustomerBundle(customerId, stripeAccountId));
+
+  // ── Payment methods (both of the athlete's customers) + how they last paid ─
+  const own = (async (): Promise<Pick<StripeReads, "paymentMethods" | "lastPaidWith" | "stripeReadError">> => {
+    try {
+      const customers: { id: string; role: "SETUP" | "LEGACY" }[] = [];
+      if (member.stripeSetupCustomerId) customers.push({ id: member.stripeSetupCustomerId, role: "SETUP" });
+      if (member.stripeCustomerId && member.stripeCustomerId !== member.stripeSetupCustomerId) {
+        customers.push({ id: member.stripeCustomerId, role: "LEGACY" });
+      }
+      const [bundles, lastPaidWith] = await Promise.all([
+        Promise.all(customers.map((c) => bundleOf(c.id))),
+        // How they actually paid last — shown even when nothing reusable is saved.
+        lastPaidWithForCustomers(customers.map((c) => c.id), stripeAccountId),
+      ]);
+      const seen = new Set<string>();
+      const paymentMethods: PaymentMethodView[] = [];
+      customers.forEach((c, i) => {
+        for (const m of paymentMethodViews(bundles[i], c.role, member.stripeSetupPaymentMethodId).methods) {
+          const key = `${m.type}:${m.brand}:${m.last4}:${m.expMonth}:${m.expYear}:${m.ref}`;
+          if (!seen.has(key)) { seen.add(key); paymentMethods.push(m); }
+        }
+      });
+      return { paymentMethods, lastPaidWith, stripeReadError: false };
+    } catch (e) {
+      console.error("billing-admin: Stripe payment-method read failed", e);
+      return { paymentMethods: [], lastPaidWith: null, stripeReadError: true };
+    }
+  })();
+
+  // ── Wallets: the cards of the people who pay for this athlete (2026-11-03) ─
+  // Grouped by the PERSON who owns each card (lib/payerWallet): "Paid by"
+  // (memberships), family guardians, own login. Another family's card is never
+  // listed — Thaeden's mom's card shows on her kids only. Opaque refs only.
+  const wallets = (async (): Promise<Pick<StripeReads, "payerWallets" | "onFileOwnerName">> => {
+    try {
+      const w = await walletsFor(clubId, member.id, stripeAccountId, {
+        retrieveCustomer: async (customerId) => (await bundleOf(customerId))?.customer ?? null,
+      });
+      if (!w) return { payerWallets: [], onFileOwnerName: null };
+      let onFileOwnerName: string | null = null;
+      const payerWallets = await Promise.all(w.wallets.map(async (wal) => {
+        const shown = wal.customers.slice(0, 5);
+        const bundles = await Promise.all(shown.map((c) => bundleOf(c.customerId)));
+        const methods: WalletMethod[] = [];
+        const seenRef = new Set<string>();
+        shown.forEach((c, i) => {
+          for (const m of paymentMethodViews(bundles[i], "SETUP", member.stripeSetupPaymentMethodId).methods) {
+            if (!m.chargeableOffSession || seenRef.has(m.ref)) continue;
+            seenRef.add(m.ref);
+            methods.push({
+              ref: m.ref, label: m.label, isDefault: m.isDefault,
+              onFile: c.customerId === w.onFile?.customerId && m.isCapturedForActivation,
+              sharedWith: c.athletes.map((a) => a.name),
+            });
+          }
+        });
+        if (w.onFile?.ownerUserId === wal.ownerUserId) onFileOwnerName = wal.ownerName;
+        return { ownerUserId: wal.ownerUserId, ownerName: wal.ownerName, roles: wal.roles, methods };
+      }));
+      return { payerWallets, onFileOwnerName };
+    } catch (e) {
+      console.error("billing-admin: wallets read failed", e);
+      return { payerWallets: [], onFileOwnerName: null };
+    }
+  })();
+
+  return withTimeout(
+    Promise.all([own, wallets]).then(([o, w]) => ({ ...o, ...w })),
+    STRIPE_READ_BUDGET_MS,
+    "billing-admin Stripe reads",
+    () => {
+      console.error("billing-admin: Stripe reads exceeded the page budget — rendering without them");
+      return { ...empty, stripeReadError: true };
+    },
+  );
 }
 
 export async function GET(req: Request, context: { params: Promise<{ id: string }> }) {
@@ -234,71 +365,19 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
       (!s.stripeStatus || LIVE_STRIPE.has(s.stripeStatus)),
   );
 
-  // ── Payment methods (live read, both customers, graceful degrade) ──────
-  let paymentMethods: PaymentMethodView[] = [];
-  let lastPaidWith: LastPaidWith | null = null;
-  let stripeReadError = false;
-  if (club.stripeAccountId) {
-    try {
-      const seen = new Set<string>();
-      const customers: { id: string; role: "SETUP" | "LEGACY" }[] = [];
-      if (member.stripeSetupCustomerId) customers.push({ id: member.stripeSetupCustomerId, role: "SETUP" });
-      if (member.stripeCustomerId && member.stripeCustomerId !== member.stripeSetupCustomerId) {
-        customers.push({ id: member.stripeCustomerId, role: "LEGACY" });
-      }
-      for (const c of customers) {
-        const { methods } = await listCustomerPaymentMethods(
-          c.id, club.stripeAccountId, c.role, member.stripeSetupPaymentMethodId,
-        );
-        for (const m of methods) {
-          const key = `${m.type}:${m.brand}:${m.last4}:${m.expMonth}:${m.expYear}:${m.ref}`;
-          if (!seen.has(key)) { seen.add(key); paymentMethods.push(m); }
-        }
-      }
-      // How they actually paid last — shown even when nothing reusable is saved.
-      lastPaidWith = await lastPaidWithForCustomers(customers.map((c) => c.id), club.stripeAccountId);
-    } catch (e) {
-      console.error("billing-admin: Stripe payment-method read failed", e);
-      stripeReadError = true;
-      paymentMethods = [];
-    }
-  }
-
-  // ── Wallets: the cards of the people who pay for this athlete (2026-11-03) ─
-  // Grouped by the PERSON who owns each card (lib/payerWallet): "Paid by"
-  // (memberships), family guardians, own login. Another family's card is never
-  // listed — Thaeden's mom's card shows on her kids only. Opaque refs only.
-  type WalletMethod = { ref: string; label: string; isDefault: boolean; onFile: boolean; sharedWith: string[] };
-  let payerWallets: { ownerUserId: string; ownerName: string; roles: string[]; methods: WalletMethod[] }[] = [];
-  let onFileOwnerName: string | null = null;
-  if (club.stripeAccountId) {
-    try {
-      const w = await walletsFor(club.id, member.id, club.stripeAccountId);
-      if (w) {
-        for (const wal of w.wallets) {
-          const methods: WalletMethod[] = [];
-          const seenRef = new Set<string>();
-          for (const c of wal.customers.slice(0, 5)) {
-            const { methods: list } = await listCustomerPaymentMethods(c.customerId, club.stripeAccountId, "SETUP", member.stripeSetupPaymentMethodId);
-            for (const m of list) {
-              if (!m.chargeableOffSession || seenRef.has(m.ref)) continue;
-              seenRef.add(m.ref);
-              methods.push({
-                ref: m.ref, label: m.label, isDefault: m.isDefault,
-                onFile: c.customerId === w.onFile?.customerId && m.isCapturedForActivation,
-                sharedWith: c.athletes.map((a) => a.name),
-              });
-            }
-          }
-          payerWallets.push({ ownerUserId: wal.ownerUserId, ownerName: wal.ownerName, roles: wal.roles, methods });
-          if (w.onFile?.ownerUserId === wal.ownerUserId) onFileOwnerName = wal.ownerName;
-        }
-      }
-    } catch (e) {
-      console.error("billing-admin: wallets read failed", e);
-      payerWallets = [];
-    }
-  }
+  // ── Stripe reads: saved payment methods, "last paid with", payer wallets ──
+  // Started HERE and awaited just before the response, so they run while the
+  // database reads below are in flight instead of holding the page up in
+  // front of them. Never rejects — see loadStripeReads. `?lite=1` skips Stripe
+  // altogether for callers that only need the database facts (the Approvals
+  // list asked for the full read once per card just to learn `configured`).
+  const lite = new URL(req.url).searchParams.get("lite") === "1";
+  const stripeReads = loadStripeReads(lite ? null : club.stripeAccountId, club.id, {
+    id: member.id,
+    stripeSetupCustomerId: member.stripeSetupCustomerId,
+    stripeCustomerId: member.stripeCustomerId,
+    stripeSetupPaymentMethodId: member.stripeSetupPaymentMethodId,
+  });
 
   // ── Guardians & payer ───────────────────────────────────────────────────
   const guardians = member.guardianLinks.map((l) => ({
@@ -495,6 +574,8 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     select: { id: true, name: true, options: true, contractMonths: true, autoRenewDefault: true },
     orderBy: { name: "asc" },
   });
+
+  const { paymentMethods, lastPaidWith, stripeReadError, payerWallets, onFileOwnerName } = await stripeReads;
 
   return NextResponse.json({
     member: {

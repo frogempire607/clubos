@@ -7,6 +7,7 @@
 // request, pending approvals, guardian info, family linking, add-self,
 // invites, sign-out and account deletion.
 
+import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -281,7 +282,7 @@ export default function MemberAccountPage() {
   function load() {
     Promise.all([
       fetch("/api/member/me").then((r) => (r.ok ? r.json() : null)),
-      fetch("/api/member/portal").then((r) => (r.ok ? r.json() : null)),
+      sharedGet<any>("/api/member/portal").then((r) => (r.ok ? r.data : null)),
     ]).then(([data, portal]) => {
       if (data) hydrate(data);
       setExtras(portal);
@@ -1381,12 +1382,12 @@ function PendingApprovalsCard() {
                 may need fresh consent for a price delta. Send them to the one
                 page that owns that decision. */}
             {r.kind === "EVENT_PROPOSAL_RESPONSE" ? (
-              <a
+              <Link
                 href={`/member/bookings/${r.payload?.registrationId ?? ""}/proposal`}
                 className="text-xs px-3 py-1.5 rounded-lg bg-amber-900 text-amber-50 hover:bg-amber-800 flex-shrink-0"
               >
                 Review
-              </a>
+              </Link>
             ) : (
             <div className="flex gap-1 flex-shrink-0">
               <button

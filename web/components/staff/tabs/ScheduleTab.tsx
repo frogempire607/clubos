@@ -14,6 +14,7 @@
 //   time off     GET/POST/DELETE /api/staff/:id/availability/exceptions
 // Fit ("outside hours") comes from lib/staffScheduleFit.ts: SAVED weekly
 // hours + date exceptions.
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { ChevronLeft, ChevronRight, Lock, Pencil, X } from "lucide-react";
@@ -522,7 +523,7 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
                           const p = it.lesson;
                           const overlap = p.conflictWith?.length ? `Overlaps ${p.conflictWith.join(", ")}` : null;
                           return (
-                            <a
+                            <Link
                               key={it.key}
                               href={`/dashboard/privates?booking=${encodeURIComponent(p.id)}`}
                               aria-label={`Private lesson${p.athlete ? ` with ${p.athlete}` : ""}, ${shortDate(d)} — open this lesson`}
@@ -537,7 +538,7 @@ export default function ScheduleTab({ data, setDirty, setProblem }: StaffTabProp
                                 {p.status === "PENDING_COACH" && " · waiting to be accepted"}
                               </small>
                               <StateBadges states={p.conflict ? ["CONFLICT"] : []} detail={overlap} />
-                            </a>
+                            </Link>
                           );
                         }
                         // New coach scheduling: one tap opens the one editor for this class day.

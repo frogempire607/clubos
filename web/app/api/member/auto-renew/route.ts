@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { resolveCardSnapshot } from "@/lib/memberCard";
+import { cardSnapshotLookup } from "@/lib/memberCard";
 import {
   payablePeopleFor,
   describeForPortal,
@@ -49,19 +49,32 @@ export async function GET() {
 
   const now = new Date();
   const rows: AutoRenewRow[] = [];
-  for (const person of people) {
-    const m = members.find((x) => x.id === person.memberId);
-    if (!m || m.subscriptions.length === 0) continue;
-    const hasCardRow = m.subscriptions.some((s) => s.stripeSubscriptionId && s.billingType !== "MANUAL");
-    const customerId = m.stripeSetupCustomerId || m.stripeCustomerId || null;
-    const card = hasCardRow && customerId && club?.stripeAccountId
-      ? await resolveCardSnapshot(customerId, club.stripeAccountId)
-      : null;
-    const lastTx = await prisma.transaction.findFirst({
-      where: { memberId: m.id, type: "MEMBERSHIP", status: "SUCCEEDED", reconciliationStatus: { not: "VOID" } },
-      orderBy: { createdAt: "desc" },
-      select: { paymentMethod: true, paymentSource: true },
-    });
+  // Card labels and last payments for everyone at once: one Stripe read per
+  // distinct customer (siblings usually share one) and one ledger query for
+  // the whole family — this used to be 2–3 Stripe calls plus a query per
+  // athlete, one athlete after another.
+  const cardOf = cardSnapshotLookup(club?.stripeAccountId);
+  const shown = people
+    .map((person) => ({ person, m: members.find((x) => x.id === person.memberId) }))
+    .filter((x): x is { person: (typeof people)[number]; m: (typeof members)[number] } => !!x.m && x.m.subscriptions.length > 0);
+  const [cards, lastTxRows] = await Promise.all([
+    Promise.all(shown.map(({ m }) => {
+      const hasCardRow = m.subscriptions.some((s) => s.stripeSubscriptionId && s.billingType !== "MANUAL");
+      return hasCardRow ? cardOf(m.stripeSetupCustomerId || m.stripeCustomerId || null) : Promise.resolve(null);
+    })),
+    shown.length
+      ? prisma.transaction.findMany({
+          where: { memberId: { in: shown.map(({ m }) => m.id) }, type: "MEMBERSHIP", status: "SUCCEEDED", reconciliationStatus: { not: "VOID" } },
+          orderBy: { createdAt: "desc" },
+          distinct: ["memberId"],
+          select: { memberId: true, paymentMethod: true, paymentSource: true },
+        })
+      : Promise.resolve([]),
+  ]);
+  for (let i = 0; i < shown.length; i++) {
+    const { person, m } = shown[i];
+    const card = cards[i];
+    const lastTx = lastTxRows.find((t) => t.memberId === m.id) ?? null;
     for (const sub of m.subscriptions) {
       rows.push(
         describeForPortal({

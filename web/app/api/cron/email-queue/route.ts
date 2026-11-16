@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "crypto";
+import { queuePickupWhere } from "@/lib/emailQueue";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
@@ -62,8 +63,11 @@ async function handle(req: Request) {
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || DEFAULT_LIMIT), 1), MAX_LIMIT);
 
   // Oldest QUEUED first — a stuck row shouldn't jump the line indefinitely.
+  // Only rows past the grace period: a newer QUEUED row may be an inline send
+  // still talking to the provider (lib/emailQueue explains what went wrong).
+  const pickup = queuePickupWhere(new Date());
   const rows = await prisma.emailSend.findMany({
-    where: { status: "QUEUED" },
+    where: pickup,
     orderBy: { queuedAt: "asc" },
     take: limit,
     select: {
@@ -202,7 +206,7 @@ async function dispatchExistingRow(row: {
   // client, so the insert waited on the transaction's own uncommitted
   // delete until the 5-second transaction timeout — then every row failed
   // with "Transaction already closed" and nothing was sent.
-  const claimed = await prisma.emailSend.deleteMany({ where: { id: row.id, status: "QUEUED" } });
+  const claimed = await prisma.emailSend.deleteMany({ where: { id: row.id, ...queuePickupWhere(new Date()) } });
   if (claimed.count === 0) return { status: "skipped", error: "already taken by another worker" };
   const input = {
     clubId: row.clubId,

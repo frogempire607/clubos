@@ -156,14 +156,11 @@ export async function sendClubEmail(input: SendClubEmailInput): Promise<SendClub
   if (dispatcher === "none") {
     console.warn(`[sendClubEmail] No email provider configured. Skipping send to ${recipientEmail}. ` +
       `Set RESEND_API_KEY (preferred) or SMTP_HOST/USER/PASS.`);
-    await prisma.emailSend.update({
-      where: { id: row.id },
-      data: {
+    await settleEmailSend(row.id, {
         status: "SKIPPED",
         skippedReason: "NO_PROVIDER",
         updatedAt: new Date(),
-      },
-    });
+      });
     return { emailSendId: row.id, status: "SKIPPED", skippedReason: "NO_PROVIDER" };
   }
 
@@ -205,22 +202,16 @@ export async function sendClubEmail(input: SendClubEmailInput): Promise<SendClub
         result = await paced(sendOnce);
       }
       if (result.error) {
-        await prisma.emailSend.update({
-          where: { id: row.id },
-          data: { status: "FAILED", error: String(result.error.message || result.error), updatedAt: new Date() },
-        });
+        await settleEmailSend(row.id, { status: "FAILED", error: String(result.error.message || result.error), updatedAt: new Date() });
         return { emailSendId: row.id, status: "FAILED", error: String(result.error.message || result.error) };
       }
       const providerMessageId = result.data?.id ?? null;
-      await prisma.emailSend.update({
-        where: { id: row.id },
-        data: {
+      await settleEmailSend(row.id, {
           status: "SENT",
           sentAt: new Date(),
           providerMessageId,
           updatedAt: new Date(),
-        },
-      });
+        });
       return { emailSendId: row.id, status: "SENT", providerMessageId };
     }
 
@@ -237,19 +228,25 @@ export async function sendClubEmail(input: SendClubEmailInput): Promise<SendClub
       replyTo: input.replyTo ?? null,
       listUnsubscribeUrl: isMarketingKind ? (input.listUnsubscribeUrl ?? null) : null,
     });
-    await prisma.emailSend.update({
-      where: { id: row.id },
-      data: { status: "SENT", sentAt: new Date(), updatedAt: new Date() },
-    });
+    await settleEmailSend(row.id, { status: "SENT", sentAt: new Date(), updatedAt: new Date() });
     return { emailSendId: row.id, status: "SENT" };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await prisma.emailSend.update({
-      where: { id: row.id },
-      data: { status: "FAILED", error: msg, updatedAt: new Date() },
-    });
+    await settleEmailSend(row.id, { status: "FAILED", error: msg, updatedAt: new Date() });
     return { emailSendId: row.id, status: "FAILED", error: msg };
   }
+}
+
+/**
+ * Record how a send ended. `updateMany`, not `update`: if the row is gone
+ * (another worker took it — see lib/emailQueue) an `update` THROWS, and that
+ * exception used to escape the send loop and abandon every recipient after
+ * this one. The email itself has already been handed to the provider by the
+ * time this runs, so there is nothing to undo — only a status to record.
+ */
+async function settleEmailSend(id: string, data: Record<string, unknown>): Promise<void> {
+  const res = await prisma.emailSend.updateMany({ where: { id }, data });
+  if (res.count === 0) console.warn(`[sendClubEmail] email_sends row ${id} was gone when its status was recorded`);
 }
 
 // ── Internals ─────────────────────────────────────────────────────────────

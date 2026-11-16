@@ -144,7 +144,7 @@ function SetupForm() {
 
 export default function StaffSetupPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-stone-50 px-4 py-10">
+    <div className="min-h-dvh flex items-center justify-center bg-stone-50 px-4 py-10">
       <div className="w-full max-w-md">
         <div className="flex justify-center mb-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}

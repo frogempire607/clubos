@@ -1,5 +1,6 @@
 "use client";
 
+import { useSingleFlight } from "@/lib/useSingleFlight";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarRange, X } from "lucide-react";
@@ -282,7 +283,10 @@ export default function EventsPage() {
     if (res.ok) load();
   }
 
-  async function handleDuplicate(id: string) {
+  // A second tap while the copy is being made would make a second copy.
+  const flight = useSingleFlight();
+  const handleDuplicate = (id: string) => flight.run(`dup:${id}`, () => duplicateNow(id));
+  async function duplicateNow(id: string) {
     const res = await fetch(`/api/events/${id}/duplicate`, { method: "POST" });
     if (!res.ok) { alert("Could not duplicate this event."); return; }
     // Straight into the editor on the copy, flagged as a copy so the name,
@@ -308,9 +312,9 @@ export default function EventsPage() {
         description="Classes, privates, clinics, camps, tournaments"
         actions={
           <>
-            <a href="/dashboard/events/bundles" className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
+            <Link href="/dashboard/events/bundles" className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
               Bundles
-            </a>
+            </Link>
             <button onClick={() => setShowManageTypes(true)} className="text-sm px-3 py-2 rounded-lg border border-app-border text-text-primary hover:bg-app-bg">
               Manage event types
             </button>
@@ -828,7 +832,7 @@ function ManageTypesModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[90dvh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <div>
             <h2 className="text-lg font-semibold text-text-primary">Manage event types</h2>
@@ -1045,7 +1049,7 @@ function EventCompModal({ eventId, onClose }: { eventId: string; onClose: () => 
   const rev = data?.revenue;
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-app-border">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[90dvh] overflow-y-auto border border-app-border">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface z-10">
           <div>
             <h2 className="text-base font-semibold text-text-primary">Event payroll</h2>
@@ -1229,7 +1233,7 @@ function EventDocsModal({ eventId, onClose }: { eventId: string; onClose: () => 
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto border border-app-border">
+      <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-xl max-h-[90dvh] overflow-y-auto border border-app-border">
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface z-10">
           <h2 className="text-base font-semibold text-text-primary">Event documents</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-xl leading-none">×</button>

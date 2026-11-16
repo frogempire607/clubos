@@ -957,7 +957,7 @@ function DrillSheet({
       onClick={onClose}
     >
       <div
-        className="max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-t-2xl bg-surface sm:rounded-xl"
+        className="max-h-[85dvh] w-full max-w-3xl overflow-hidden rounded-t-2xl bg-surface sm:rounded-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-app-border px-4 py-3">
@@ -993,7 +993,7 @@ function DrillSheet({
             </button>
           </div>
         </div>
-        <div className="max-h-[70vh] overflow-auto">
+        <div className="max-h-[70dvh] overflow-auto">
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-10 text-sm text-text-muted">
               <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} /> Loading

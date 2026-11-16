@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getObject } from "@/lib/storage";
+import { fileResponseHeaders } from "@/lib/fileResponse";
 
 // PUBLIC, UNAUTHENTICATED — streams ONLY a club's own logo image.
 //
@@ -57,11 +58,9 @@ export async function GET(req: Request, context: { params: Promise<{ clubId: str
 
   return new NextResponse(new Uint8Array(bytes), {
     status: 200,
-    headers: {
-      "Content-Type": file.mimeType,
-      "Content-Length": String(bytes.length),
-      // Public and cacheable — a club logo is not sensitive.
-      "Cache-Control": "public, max-age=3600",
-    },
+    // Public and cacheable — a club logo is not sensitive. A logo that is not
+    // a plain raster image (an SVG) is still fine inside an <img>, but must
+    // never run as a page on our origin: see lib/fileResponse.
+    headers: fileResponseHeaders({ mimeType: file.mimeType, size: bytes.length, cacheControl: "public, max-age=3600" }),
   });
 }

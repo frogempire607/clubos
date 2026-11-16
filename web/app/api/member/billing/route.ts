@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { resolveCardSnapshot, type CardSnapshot } from "@/lib/memberCard";
+import { cardSnapshotLookup, type CardSnapshot } from "@/lib/memberCard";
 import { liveStripeFacts } from "@/lib/membershipMoneyServer";
 import { paidWithLine, type PaidWith } from "@/lib/membershipMoney";
 import { feeBreakdown, feePolicyFor, passesAnyFee } from "@/lib/fees";
@@ -198,26 +198,58 @@ export async function GET() {
     ).map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]),
   );
 
+  // One Stripe read per distinct customer however many athletes share it, and
+  // one ledger query for the whole family (was: per athlete, in sequence).
+  const cardOf = cardSnapshotLookup(stripeAccountId);
+  // ── Last payment comes from the LEDGER, not the Stripe snapshot ──────
+  //
+  // This used to read `stripeSnapshot.latestInvoice`, which is written only
+  // by reconcileClubBilling — a manual, owner-triggered sweep. For every
+  // member it has never been run on, the snapshot is null and the row
+  // simply did not render. Orson Chorba's $195.51 on 2026-07-23 was
+  // recorded, VERIFIED, and sitting on his member id the whole time; his
+  // profile showed nothing because the snapshot behind it was empty.
+  //
+  // Transactions are the authoritative record — written by invoice.paid as
+  // the money lands, needing no reconcile — so read those. VOID is excluded
+  // because a voided row is not money; REVIEW is deliberately NOT excluded,
+  // matching every revenue aggregate (the money really did arrive).
+  const lastTxRows = persons.length
+    ? await prisma.transaction.findMany({
+        where: {
+          memberId: { in: persons.map(({ m }) => m.id) },
+          type: "MEMBERSHIP",
+          status: "SUCCEEDED",
+          reconciliationStatus: { not: "VOID" },
+        },
+        orderBy: { createdAt: "desc" },
+        distinct: ["memberId"],
+        select: { memberId: true, amount: true, createdAt: true, txDate: true },
+      })
+    : [];
+
   const people = await Promise.all(
     persons.map(async ({ m, isSelf }) => {
       const active = pickActive(m.subscriptions);
-      // The card that actually pays THIS membership: read from the Stripe
-      // subscription itself, not from the athlete's card on file (which can be
-      // a different card, a different person's, or missing altogether).
+      const customerId = m.stripeSetupCustomerId || m.stripeCustomerId || null;
+      // The two Stripe reads for this person, side by side.
+      const [live, card] = await Promise.all([
+        // The card that actually pays THIS membership: read from the Stripe
+        // subscription itself, not from the athlete's card on file (which can
+        // be a different card, a different person's, or missing altogether).
+        active?.stripeSubscriptionId && stripeAccountId
+          ? liveStripeFacts(active.stripeSubscriptionId, stripeAccountId, 3000)
+          : Promise.resolve(null),
+        cardOf(customerId) as Promise<CardSnapshot | null>,
+      ]);
       let paidWith: PaidWith | null = null;
       if (active?.stripeSubscriptionId && stripeAccountId) {
-        const live = await liveStripeFacts(active.stripeSubscriptionId, stripeAccountId, 3000);
         const payerUserId = active.payerUserId ?? m.responsiblePayerUserId ?? null;
         paidWith = paidWithLine({
           pm: live?.pm ?? null, payerUserId,
           payerName: payerUserId ? subPayerNames.get(payerUserId) ?? null : null,
           viewerUserId: session.user.id,
         });
-      }
-      const customerId = m.stripeSetupCustomerId || m.stripeCustomerId || null;
-      let card: CardSnapshot | null = null;
-      if (customerId && stripeAccountId) {
-        card = await resolveCardSnapshot(customerId, stripeAccountId);
       }
       const rawPrice = active && active.price != null ? Number(active.price) : null;
       const price = rawPrice != null && Number.isFinite(rawPrice) ? rawPrice : null;
@@ -227,29 +259,7 @@ export async function GET() {
         club && passesAnyFee(feePolicyFor(club)) && active?.billingType === "RECURRING" && price != null && price > 0
           ? feeBreakdown(price, feePolicyFor(club))
           : null;
-      // ── Last payment comes from the LEDGER, not the Stripe snapshot ──────
-      //
-      // This used to read `stripeSnapshot.latestInvoice`, which is written only
-      // by reconcileClubBilling — a manual, owner-triggered sweep. For every
-      // member it has never been run on, the snapshot is null and the row
-      // simply did not render. Orson Chorba's $195.51 on 2026-07-23 was
-      // recorded, VERIFIED, and sitting on his member id the whole time; his
-      // profile showed nothing because the snapshot behind it was empty.
-      //
-      // Transactions are the authoritative record — written by invoice.paid as
-      // the money lands, needing no reconcile — so read those. VOID is excluded
-      // because a voided row is not money; REVIEW is deliberately NOT excluded,
-      // matching every revenue aggregate (the money really did arrive).
-      const lastTx = await prisma.transaction.findFirst({
-        where: {
-          memberId: m.id,
-          type: "MEMBERSHIP",
-          status: "SUCCEEDED",
-          reconciliationStatus: { not: "VOID" },
-        },
-        orderBy: { createdAt: "desc" },
-        select: { amount: true, createdAt: true, txDate: true },
-      });
+      const lastTx = lastTxRows.find((t) => t.memberId === m.id) ?? null;
       const lastPayment = lastTx
         ? {
             amount: Number(lastTx.amount),

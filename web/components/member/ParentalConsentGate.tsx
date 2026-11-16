@@ -74,7 +74,7 @@ export default function ParentalConsentGate() {
 
   return (
     <div className="fixed inset-0 z-[100] bg-stone-900/70 flex items-center justify-center p-4">
-      <div className="w-full max-w-lg bg-white rounded-2xl border border-stone-200 p-6 sm:p-8 shadow-xl max-h-[90vh] overflow-y-auto">
+      <div className="w-full max-w-lg bg-white rounded-2xl border border-stone-200 p-6 sm:p-8 shadow-xl max-h-[90dvh] overflow-y-auto">
         <p className="text-xs font-semibold uppercase tracking-wide text-[#534AB7]">Parental consent required</p>
         <h2 className="mt-1 text-xl font-semibold text-stone-900">Consent for {child.childName}</h2>
         <p className="mt-1 text-sm text-stone-500">

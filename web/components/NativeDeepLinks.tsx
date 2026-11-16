@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 // Inside the native app (Capacitor), a Universal Link / App Link — the door QR
 // (/c/...), a Stripe return (/member/checkin/...?paid=1), a portal email link —
@@ -28,6 +29,7 @@ export function pathForAppUrl(raw: string, currentHost: string): string | null {
 }
 
 export default function NativeDeepLinks() {
+  const router = useRouter();
   useEffect(() => {
     const w = window as CapWindow;
     if (!w.Capacitor?.isNativePlatform?.()) return;
@@ -37,10 +39,13 @@ export default function NativeDeepLinks() {
     Promise.resolve(
       App.addListener("appUrlOpen", (e) => {
         const path = e?.url ? pathForAppUrl(e.url, window.location.host) : null;
-        if (path && path !== `${window.location.pathname}${window.location.search}`) window.location.href = path;
+        // In-app navigation, not a page load: assigning window.location here
+        // restarted the whole app (blank screen, every script re-downloaded)
+        // each time a door QR, an emailed link or a Stripe return opened it.
+        if (path && path !== `${window.location.pathname}${window.location.search}`) router.push(path);
       }),
     ).then((h) => { handle = h; }).catch(() => {});
     return () => { handle?.remove(); };
-  }, []);
+  }, [router]);
   return null;
 }
