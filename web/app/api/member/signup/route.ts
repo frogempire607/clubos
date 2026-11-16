@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
+import { sendVerificationEmail } from "@/lib/emailLinkServer";
 import { z } from "zod";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
-import { requestGuardianLink, ensurePrimaryGuardian } from "@/lib/guardianLink";
+import { requestGuardianLink, ensurePrimaryGuardian, isOwnerVouched } from "@/lib/guardianLink";
 import { GUARDIAN_LINK_SOURCE } from "@/lib/familyAccess";
 import { missingRequiredDocumentIds, requiredDocumentSurfaceWhere } from "@/lib/documents";
 import { normalizeFreeTrialConfig, trialWindowDays } from "@/lib/freeTrial";
 import { createGuardianConsentRequest, recordParentalConsent } from "@/lib/parentalConsent";
 import { sendGuardianConsentRequestEmail } from "@/lib/email";
-import { getAppBaseUrl } from "@/lib/baseUrl";
+import { getAppBaseUrl, baseUrlFromRequest } from "@/lib/baseUrl";
 import { isMinorAge } from "@/lib/age";
 import { originForSignupPlan, MEMBER_ORIGIN } from "@/lib/memberOrigin";
 import {
@@ -226,7 +227,11 @@ export async function POST(req: Request) {
             resetExpires: null,
             ...(existingMember
               ? {
-                  memberProfile: { connect: { id: existingMember.id } },
+                  // A record with this email ALREADY EXISTS, made by the club.
+                  // It is not connected here: nothing has shown that the
+                  // person signing up owns the address. No second profile is
+                  // created beside it either. The link is made when they
+                  // confirm the email (lib/emailLinkServer.completeEmailLinks).
                 }
               : !plan.accountIsAthlete
                 ? {
@@ -276,7 +281,11 @@ export async function POST(req: Request) {
             role: "MEMBER",
             ...(existingMember
               ? {
-                  memberProfile: { connect: { id: existingMember.id } },
+                  // A record with this email ALREADY EXISTS, made by the club.
+                  // It is not connected here: nothing has shown that the
+                  // person signing up owns the address. No second profile is
+                  // created beside it either. The link is made when they
+                  // confirm the email (lib/emailLinkServer.completeEmailLinks).
                 }
               : !plan.accountIsAthlete
                 ? {
@@ -413,15 +422,27 @@ export async function POST(req: Request) {
     // signup from silently claiming any club-mate by email.
     let guardianLinkPending = false;
     let pendingGuardianConsent = false;
+    // Something the club already has under this email is waiting for the
+    // address to be confirmed (see lib/emailVerification.ts).
+    let emailLinkPending = !!existingMember;
     if (data.accountType === "PARENT" && data.childEmail) {
       const childMember = await prisma.member.findFirst({
         where: { clubId: club.id, email: data.childEmail.toLowerCase(), deletedAt: null },
       });
-      if (childMember) {
+      // The club already lists this email as that child's guardian. That
+      // would be an automatic link — once the address is proved. Until then
+      // nothing is linked and nothing is queued; confirming the email makes
+      // the link by itself.
+      if (childMember && isOwnerVouched(childMember, data.email.toLowerCase())) {
+        emailLinkPending = true;
+      } else if (childMember) {
         const linkResult = await requestGuardianLink({
           clubId: club.id,
           requestingUserId: user.id,
           requestingUserEmail: data.email.toLowerCase(),
+          // Just created, so not proved. Not vouched either (handled above),
+          // which means this goes to the owner's approval queue as before.
+          emailVerified: false,
           child: { id: childMember.id, isMinor: childMember.isMinor, guardianEmail: childMember.guardianEmail },
           relationship: data.relationship || null,
         });
@@ -497,47 +518,35 @@ export async function POST(req: Request) {
     // signing up their first child often already has an older sibling on the
     // roster from a CSV import, and that sibling should appear the moment the
     // account exists — not after they email the club asking why it doesn't.
-    let sweptChildren = 0;
+    // Not done at signup any more. Linking every child listed under an email
+    // to whoever TYPES that email was the hole: the address is unproven here.
+    // We only note that there is something to connect; confirming the email
+    // runs the same sweep (lib/emailLinkServer.completeEmailLinks).
+    const sweptChildren = 0;
     if (!plan.accountIsAthlete) {
-      const vouchedChildren = await prisma.member.findMany({
+      const waiting = await prisma.member.count({
         where: {
           clubId: club.id,
           deletedAt: null,
+          isMinor: true,
           guardianEmail: { equals: data.email.toLowerCase(), mode: "insensitive" },
           ...(createdChild ? { id: { not: createdChild.id } } : {}),
-          ...(data.childEmail ? { NOT: { email: data.childEmail.toLowerCase() } } : {}),
         },
-        select: { id: true, isMinor: true, guardianEmail: true },
       });
-      for (const child of vouchedChildren) {
-        try {
-          const swept = await requestGuardianLink({
-            clubId: club.id,
-            requestingUserId: user.id,
-            requestingUserEmail: data.email.toLowerCase(),
-            child: { id: child.id, isMinor: child.isMinor, guardianEmail: child.guardianEmail },
-            relationship: data.relationship || null,
-          });
-          if (swept.status === "linked") sweptChildren++;
-        } catch (e) {
-          console.error("Guardian sweep link failed for child", child.id, e);
-        }
-      }
+      if (waiting > 0) emailLinkPending = true;
     }
 
-    // Update existing member record with profile data if we linked it
-    if (existingMember) {
-      await prisma.member.update({
-        where: { id: existingMember.id },
-        data: {
-          isMinor,
-          guardianName: data.guardianName || existingMember.guardianName,
-          guardianEmail: data.guardianEmail || existingMember.guardianEmail,
-          guardianPhone: data.guardianPhone || existingMember.guardianPhone,
-          guardianRelationship: data.guardianRelationship || existingMember.guardianRelationship,
-        },
-      });
-    }
+    // (The existing record is no longer touched at signup. It used to have its
+    // guardian name, email and phone overwritten with whatever the person
+    // signing up typed — before anything showed they were that person.)
+
+    // Always: the confirmation email. It is what turns "typed an address" into
+    // "owns the address", now or whenever the club later adds a record for it.
+    const verificationEmailSent = await sendVerificationEmail(
+      { id: user.id, email: user.email, firstName: user.firstName },
+      club.name,
+      baseUrlFromRequest(req),
+    );
 
     // COPPA: a minor self-signup does NOT activate. Create a guardian consent
     // request and email the parent/guardian the consent link. The minor's own
@@ -782,6 +791,11 @@ export async function POST(req: Request) {
         intent: plan.kind,
         athlete: createdChild ? { firstName: createdChild.firstName } : null,
         sweptChildren,
+        // Records the club already has under this email are waiting for the
+        // address to be confirmed; the page says so instead of showing an
+        // account that looks unexpectedly empty.
+        emailLinkPending,
+        verificationEmailSent,
         trialGrantedTo,
         trialNote,
       },

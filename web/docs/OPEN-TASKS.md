@@ -88,7 +88,7 @@ Two branches, the second cut from the first. No migration in either.
 - [x] Speed: Stripe reads in parallel, no duplicate requests, slim dashboard cards, loading + error screens.
 - [x] Double-tap money bugs (cash payment, approvals, mark paid, payouts), email-queue double send, webhook receipts.
 - [x] Internal links no longer reload the app; phone screen heights fixed.
-- [ ] **DECIDE — signup email check (audit S2).** Anyone can claim a family by signing up with their email. Options in the audit §4.
+- [x] Signup email check (audit S2) — decided "verify first", built 2026-11-16 on branch 2. New signups get a "Confirm your email" message; records the club already has under that email connect when they tap it.
 - [ ] **CHECK in Netlify:** Functions region (should be `us-east-2`, where the database is) and whether `DATABASE_URL` has `connection_limit=1`. Tell Claude what they say.
 - [ ] Decide the "left: your call" rows in the audit (webhook retry on error, attendance double charge, discount expiry day, capacity).
 

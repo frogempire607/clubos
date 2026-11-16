@@ -329,7 +329,7 @@ Check on the phone: the same list as iPhone, plus:
 | # | What | Who |
 |---|---|---|
 | 1 | Merge and deploy both branches (the app talks to the live site; the scanner button, the dialogs and the deletion screens are web changes) | YOU |
-| 2 | Decide the signup email check (audit finding S2). Reviewers create accounts. | YOU decide, I build |
+| 2 | ~~Signup email check (audit S2)~~ **Built 2026-11-16.** Make sure confirmation emails actually arrive (Resend is configured in Netlify) before a reviewer signs up. | Done; YOU check delivery |
 | 3 | Confirm the account-deletion rules (plan §6.1 to §6.4). The public page says requests by email are handled within 30 days; change the number if that is not true. | YOU |
 | 4 | Google target audience 18+ or 13+ (plan §6.5) | YOU |
 | 5 | Support address or page | YOU |

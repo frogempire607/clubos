@@ -49,6 +49,10 @@ export const GATED = [
   // App-store policy (Apple 5.1.1(v), Google User Data): every account type
   // can delete itself in the app; what goes, what stays, children, and a
   // membership still being charged are all spelled out before confirming.
+  // Audit S2 (2026-11-15): an email address only links an account to a
+  // record somebody else created once the person has proved they receive
+  // mail there. Signup used to hand over a family on a typed address.
+  ["scripts/email-verification-tests.ts"],
   ["scripts/account-deletion-tests.ts"],
   // The native app shell: a store build ships no debug logging, cleartext,
   // mixed content or open navigation; Android back, scanned codes and the

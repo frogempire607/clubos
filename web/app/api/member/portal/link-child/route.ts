@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isEmailVerified } from "@/lib/emailVerification";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
     // Prevent linking yourself
     const self = await prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { email: true, memberProfile: { select: { id: true } } },
+      select: { email: true, emailVerified: true, createdAt: true, memberProfile: { select: { id: true } } },
     });
     if (self?.memberProfile?.id === childMember.id) {
       return NextResponse.json({ error: "You cannot link yourself as your own child." }, { status: 400 });
@@ -53,6 +54,9 @@ export async function POST(req: Request) {
       clubId: session.user.clubId,
       requestingUserId: session.user.id,
       requestingUserEmail: self?.email ?? null,
+      // An unproven address never auto-links, even when the club lists it as
+      // the guardian — it goes to the owner's queue like any other request.
+      emailVerified: !!self && isEmailVerified(self),
       child: { id: childMember.id, isMinor: childMember.isMinor, guardianEmail: childMember.guardianEmail },
       relationship: body.relationship || null,
     });

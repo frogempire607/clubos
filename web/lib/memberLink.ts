@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Member } from "@prisma/client";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
+import { isEmailVerified } from "@/lib/emailVerification";
 
 /**
  * Resolves the Member record for a portal session.
@@ -22,6 +23,13 @@ export async function findOrAutoLinkMember(
     where: { userId, clubId, deletedAt: null },
   });
   if (byUserId) return byUserId;
+
+  // The email fallback connects this login to a record SOMEBODY ELSE created,
+  // on the strength of the address alone. That is only safe once the person
+  // has proved the address is theirs — see lib/emailVerification.ts. Unproven:
+  // no link, and the portal shows them how to confirm it.
+  const account = await prisma.user.findUnique({ where: { id: userId }, select: { emailVerified: true, createdAt: true } });
+  if (!account || !isEmailVerified(account)) return null;
 
   // Fallback: unclaimed member with the same email.
   //

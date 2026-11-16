@@ -46,12 +46,21 @@ export async function requestGuardianLink(args: {
   clubId: string;
   requestingUserId: string;
   requestingUserEmail: string | null;
+  /**
+   * Has the requester PROVED they receive mail at that address
+   * (lib/emailVerification.ts)? Required, not optional, so no caller can
+   * forget it. "The owner listed this email as the guardian" only vouches for
+   * whoever really owns the address — an unproven address is just text
+   * somebody typed, and goes to the owner's approval queue like any other
+   * unvouched request.
+   */
+  emailVerified: boolean;
   child: ChildRef;
   relationship: string | null;
 }): Promise<GuardianLinkResult> {
-  const { clubId, requestingUserId, requestingUserEmail, child, relationship } = args;
+  const { clubId, requestingUserId, requestingUserEmail, emailVerified, child, relationship } = args;
 
-  if (isOwnerVouched(child, requestingUserEmail)) {
+  if (emailVerified && isOwnerVouched(child, requestingUserEmail)) {
     await prisma.memberGuardianUser.upsert({
       where: { userId_memberId: { userId: requestingUserId, memberId: child.id } },
       // Re-requesting an access that was revoked must not silently restore it —

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withoutLoginSecrets } from "@/lib/loginSecrets";
 import { cookies } from "next/headers";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -325,5 +326,9 @@ export async function GET() {
     if (summaries[g.member.id]) (g.member as { status: string }).status = summaries[g.member.id].membershipStatus;
   }
 
-  return NextResponse.json({ user, club, summaries });
+  // The user row is read whole (it carries the relations above), so take the
+  // secrets off before it leaves the server. It was going to the browser with
+  // the password hash and any live reset token in it.
+  const safeUser = user ? withoutLoginSecrets(user) : user;
+  return NextResponse.json({ user: safeUser, club, summaries });
 }

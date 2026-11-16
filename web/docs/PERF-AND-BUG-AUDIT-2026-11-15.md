@@ -105,7 +105,7 @@ family or staff member sees something broken. **Medium** = slow or confusing.
 | # | Where | What a person could see or do | Severity | Status |
 |---|---|---|---|---|
 | S1 | 39 handlers under `app/api/` (list in `scripts/staff-route-role-guard.ts` history; includes `export/members`, `members`, `members/[id]`, `attendance/*`, `export/transactions`, `export/attendance`, `discounts`, `messages/groups`, `events/[id]`) | Any signed-in parent or athlete could call staff data routes directly and download the whole roster: every family's emails, phones, birthdates, addresses and guardian contacts, minors included. The pages were hidden; the data routes were not. Self-signup needs only a club link, so this was open to anyone. | **Critical** | **Fixed** (`98afd7a`). New `requireStaff()` on all 39. Build fails if a staff route lacks a role check. |
-| S2 | `app/api/member/signup/route.ts`, `lib/memberLink.ts`, `lib/guardianLink.ts` | Signing up with someone else's email (no email check) claims that person's member profile and gets confirmed guardian access to every child listing that email. Works for any family that has not created a login yet (193 "Invited" members today). | **Critical** | **Not fixed. Needs your decision** (section 4). |
+| S2 | `app/api/member/signup/route.ts`, `lib/memberLink.ts`, `lib/guardianLink.ts` | Signing up with someone else's email (no email check) claims that person's member profile and gets confirmed guardian access to every child listing that email. Works for any family that has not created a login yet (193 "Invited" members today). | **Critical** | **Fixed 2026-11-16** on `claude/athletixos-mobile-app` (Julian chose "verify the email first"). See section 4. |
 | S3 | `app/api/upload`, `app/api/files/[id]`, `app/api/public/club-logo/[clubId]` | A member could upload an SVG image containing a script and send its link to an owner; opened directly it ran with the owner's login. The public logo route served such files with no login at all. | **Critical** | **Fixed** (`98afd7a`). Non-photo files are forced to download inside a sandbox. |
 | S4 | `app/api/files/[id]` | A member who obtained a file link could open a contractor's W-9 or a books attachment. | High | **Fixed**. Tax forms, receipts and books attachments never go to a member login. |
 | S5 | `app/api/member/privates/search-partners` | Any member could search the roster by email fragment and see other families' emails. | Medium | **Fixed**. Names only. |
@@ -200,6 +200,26 @@ Options:
 
 Activation links you send from the migration tool are not affected either way:
 those already prove the email.
+
+**Decided 2026-11-16: option 1, and built.** What families will notice:
+
+- Signing up now sends a "Confirm your email" message. The account works
+  straight away.
+- If the club already had records under that email (the person's own, or
+  children), the portal shows a yellow notice — "Confirm your email to see
+  your records" — with a button to send the link again. One tap in the email
+  connects everything.
+- Nothing changes for: accounts that already exist, anyone who came in
+  through an activation link, a staff setup link, a guardian invite or a
+  password reset (those already prove the address), and a parent adding a
+  brand-new child at signup.
+- "Link my child" from an unconfirmed account goes to your Approvals queue
+  instead of connecting by itself.
+
+Found while doing this, and fixed: the member portal's main data request was
+sending each member's own password hash and any live reset token to their
+browser. Their own data, not someone else's, but it should never leave the
+server.
 
 ## 5. What was not audited
 
