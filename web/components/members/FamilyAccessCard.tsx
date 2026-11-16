@@ -20,6 +20,7 @@
 // Every action is gated by server-resolved `capabilities`, never by a
 // client-side guess, so the UI can't offer something the API would refuse.
 
+import { confirmDialog } from "@/lib/dialogs";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
@@ -445,7 +446,7 @@ export default function FamilyAccessCard({
     const msg = pending
       ? `Withdraw the suggestion to give ${name} access to ${memberName}?`
       : `Remove ${name}'s access to ${memberName}?\n\nThey will no longer be able to book, pay, sign, or see this athlete. The record of the link is kept so the change stays auditable.`;
-    if (!confirm(msg)) return;
+    if (!(await confirmDialog(msg))) return;
     await call("DELETE", undefined, `?linkId=${linkId}`);
   }
 

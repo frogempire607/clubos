@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/lib/dialogs";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Package, ArrowLeft } from "lucide-react";
@@ -39,7 +40,7 @@ export default function EventBundlesPage() {
   useEffect(() => { load(); }, []);
 
   async function remove(id: string) {
-    if (!confirm("Delete this bundle? Members will no longer see it.")) return;
+    if (!(await confirmDialog("Delete this bundle? Members will no longer see it."))) return;
     await fetch(`/api/event-bundles/${id}`, { method: "DELETE" });
     load();
   }

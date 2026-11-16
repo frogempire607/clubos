@@ -18,6 +18,7 @@
 // tripping through PM JSON. Every other block (heading, button, image,
 // divider, spacer, contact, logo) has a plain form control.
 
+import { promptDialog } from "@/lib/dialogs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -1046,8 +1047,8 @@ function RichTextField(props: {
 function RichTextToolbar({ editor }: { editor: Editor }) {
   const btn = "p-1.5 rounded hover:bg-app-bg text-text-primary disabled:opacity-40";
   const active = "bg-charcoal text-white hover:bg-charcoal-hover";
-  function setLink() {
-    const url = window.prompt("Link URL", editor.getAttributes("link")?.href ?? "https://");
+  async function setLink() {
+    const url = (await promptDialog("Link URL", editor.getAttributes("link")?.href ?? "https://"));
     if (url === null) return;
     if (url === "") {
       editor.chain().focus().extendMarkRange("link").unsetLink().run();

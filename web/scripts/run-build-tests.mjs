@@ -54,6 +54,13 @@ export const GATED = [
   // mixed content or open navigation; Android back, scanned codes and the
   // offline schedule copy behave as written.
   ["scripts/native-shell-tests.ts"],
+  // Zero browser alert()/confirm()/prompt() in the product (they are what a
+  // wrapped website looks like to an app reviewer), and the in-app
+  // replacements keep the same meaning.
+  ["scripts/no-native-dialogs-guard.ts"],
+  // …and the one component all of those dialogs are drawn by, exercised as
+  // rendered (jsdom): what is on screen, and that each button answers.
+  ["scripts/dialog-host-tests.ts", RENDER],
   ["scripts/members-grep-guards.ts"],
   ["scripts/reports-mobile-guard.ts", [], { TZ: "America/New_York" }],
   ["scripts/ui-polish-guard.ts"],

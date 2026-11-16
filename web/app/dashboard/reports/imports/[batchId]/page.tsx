@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/lib/dialogs";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -528,7 +529,7 @@ function StepDone({ batch, onReload }: { batch: Batch; onReload: () => void }) {
   }, [batch.id, filter]);
 
   async function rollback() {
-    if (!confirm("Roll back this import? Members without activity are removed; members with activity are downgraded. Historical records + imported transactions are removed.")) return;
+    if (!(await confirmDialog("Roll back this import? Members without activity are removed; members with activity are downgraded. Historical records + imported transactions are removed."))) return;
     setRollingBack(true);
     setRollbackMsg(null);
     const res = await fetch(`/api/reports/imports/${batch.id}/rollback`, { method: "POST" });

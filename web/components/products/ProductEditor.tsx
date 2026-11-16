@@ -10,6 +10,7 @@
 // buy routes' stock checks keep working unchanged. Private lessons stay out
 // (they have /dashboard/privates).
 
+import { promptDialog } from "@/lib/dialogs";
 import { useMemo, useState, type ReactNode } from "react";
 import { X, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
@@ -421,7 +422,7 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div className={label}>Variants</div>
                       <div className="flex gap-3 text-[12px]">
-                        <button type="button" className="text-brand font-medium" onClick={() => { const n = Number(prompt("Set every variant's stock to:", "10")); if (Number.isFinite(n) && n >= 0) patch({ variants: s.variants.map((v) => ({ ...v, stock: Math.round(n) })) }); }}>Set all stock…</button>
+                        <button type="button" className="text-brand font-medium" onClick={async () => { const n = Number((await promptDialog("Set every variant's stock to:", "10"))); if (Number.isFinite(n) && n >= 0) patch({ variants: s.variants.map((v) => ({ ...v, stock: Math.round(n) })) }); }}>Set all stock…</button>
                         <button type="button" className="text-brand font-medium" onClick={() => patch({ variants: s.variants.map((v) => ({ ...v, price: null })) })}>Apply base price to all</button>
                       </div>
                     </div>

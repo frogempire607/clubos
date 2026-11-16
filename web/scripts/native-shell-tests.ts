@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { buildNativeConfig, allowedNavigation, isReleaseTarget, resolveServerUrl, PAYMENT_HOSTS, APP_ID } from "../lib/nativeConfig";
 import { backAction } from "../lib/nativeBack";
 import { checkInPathFromScan, pathForAppUrl, scanProblemMessage } from "../lib/nativeLinks";
+import { isNativeShellUserAgent, NATIVE_PLAN_NOTICE, NATIVE_SHELL_UA_MARKER } from "../lib/nativeUserAgent";
 import { buildOfflineSchedule, parseOfflineSchedule, isStale, OFFLINE_SCHEDULE_MAX, OFFLINE_SCHEDULE_KEY, OFFLINE_SCHEDULE_STALE_MS } from "../lib/offlineSchedule";
 
 const ROOT = join(__dirname, "..");
@@ -158,6 +159,21 @@ console.log("\n§7 the schedule kept for offline");
   check("the offline screen builds its list with textContent (a saved title cannot inject markup)", /textContent = e\.title/.test(page) && !/innerHTML/.test(page));
   check("the offline screen retries by itself when the connection returns", /networkStatusChange/.test(page));
   check("the offline screen says the copy may be out of date", /may have changed since/.test(page));
+}
+
+console.log("\n§8 AthletixOS's own plan is never sold inside the app");
+{
+  const c = buildNativeConfig({ CAPACITOR_SERVER_URL: "https://athletix-os.com" });
+  check("the app marks its requests with the marker the server looks for", c.appendUserAgent === NATIVE_SHELL_UA_MARKER);
+  check("the app's user agent is recognised", isNativeShellUserAgent(`Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 ${NATIVE_SHELL_UA_MARKER}`));
+  check("a browser's is not", !isNativeShellUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1") && !isNativeShellUserAgent(null) && !isNativeShellUserAgent(""));
+  const route = code("app/api/club/subscription/checkout/route.ts");
+  check("the plan checkout route refuses the app BEFORE creating anything in Stripe", route.indexOf("isNativeShellUserAgent(") > 0 && route.indexOf("isNativeShellUserAgent(") < route.indexOf("stripe.checkout.sessions.create"));
+  check("the in-app wording has no price, no link and no 'go to the website'", !/\$|https?:|\.com|website|browser|upgrade/i.test(NATIVE_PLAN_NOTICE), NATIVE_PLAN_NOTICE);
+  const settings = code("app/dashboard/settings/page.tsx");
+  check("the plan screen returns the notice before any plan picker in the app", settings.indexOf("if (native) {") > 0 && settings.indexOf("if (native) {") < settings.indexOf("{/* Current plan */}") || /if \(native\) \{[\s\S]{0,400}NATIVE_PLAN_NOTICE/.test(settings));
+  check("the upgrade prompt has no 'See plans' button in the app", /\{!native && \(\s*<Link/.test(code("components/UpgradeNotice.tsx")));
+  check("families paying a club is untouched (no native check on member payment routes)", !/isNativeShellUserAgent/.test(code("app/api/member/memberships/subscribe/route.ts")) && !/isNativeShellUserAgent/.test(code("app/api/member/events/[id]/register/route.ts")));
 }
 
 console.log(`\n${"─".repeat(70)}`);

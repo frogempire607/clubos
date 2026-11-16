@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/lib/dialogs";
 import type { AutoDiscountView } from "@/lib/eventAutoDiscounts";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -354,7 +355,7 @@ export default function MemberEventsPage() {
     // SIGN_REQUIRED docs are signed in Documents first (the message says which).
     if (res.status === 400 && d.error === "DOCUMENTS_ACKNOWLEDGE_REQUIRED") {
       const titles = (d.documents ?? []).map((x: { title: string }) => x.title).join(", ");
-      if (window.confirm(`This event requires acknowledging: ${titles}. Acknowledge and continue?`)) {
+      if ((await confirmDialog(`This event requires acknowledging: ${titles}. Acknowledge and continue?`))) {
         register(eventId, pricingType, payment, true, sessionIds);
       }
       return;

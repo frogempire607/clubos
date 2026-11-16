@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/lib/dialogs";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -155,12 +156,12 @@ export default function DuplicatesPage() {
   }
 
   async function remove(m: DupMember) {
-    if (!confirm(
+    if (!(await confirmDialog(
       `Remove "${m.name}"?\n\n` +
       `This archives the duplicate (soft delete — reversible) and frees its login slot. ` +
       `Only offered for records with no memberships, attendance, bookings or payments. ` +
       `Nothing is charged. To keep a record's data, use Merge instead.`,
-    )) return;
+    ))) return;
     setBusy(m.id); setMsg("");
     try {
       const res = await fetch(`/api/members/${m.id}`, { method: "DELETE" });

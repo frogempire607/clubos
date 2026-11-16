@@ -7,6 +7,7 @@
 // request, pending approvals, guardian info, family linking, add-self,
 // invites, sign-out and account deletion.
 
+import { confirmDialog } from "@/lib/dialogs";
 import DeleteAccountDialog from "@/components/DeleteAccountDialog";
 import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
@@ -412,7 +413,7 @@ export default function MemberAccountPage() {
   }
 
   async function requestCancellation(subscriptionId: string) {
-    if (!confirm("Request to cancel this membership? Your club has to approve it before billing stops.")) return;
+    if (!(await confirmDialog("Request to cancel this membership? Your club has to approve it before billing stops."))) return;
     setRequestingCancel(true);
     setError("");
     setCancelMsg("");

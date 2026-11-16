@@ -4,6 +4,7 @@
 // one browser's localStorage — invisible to anyone else, gone if you cleared
 // the browser, and with no record of who it was addressed to.
 
+import { confirmDialog } from "@/lib/dialogs";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FileEdit } from "lucide-react";
@@ -38,7 +39,7 @@ export default function EmailDraftsPage() {
   useEffect(load, []);
 
   const discard = async (d: Draft) => {
-    if (!confirm(`Discard "${d.title}"?\n\nThis cannot be undone.`)) return;
+    if (!(await confirmDialog(`Discard "${d.title}"?\n\nThis cannot be undone.`))) return;
     setBusy(d.id);
     const r = await fetch(`/api/emails/drafts/${d.id}`, { method: "DELETE" });
     setBusy(null);

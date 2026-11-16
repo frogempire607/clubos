@@ -1,5 +1,6 @@
 "use client";
 
+import { alertDialog, confirmDialog, promptDialog } from "@/lib/dialogs";
 import { useSingleFlight } from "@/lib/useSingleFlight";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -591,9 +592,9 @@ function MoneyInTab({ qs, entity, entities }: { qs: string; entity: string; enti
     });
   }
   async function del(id: string) {
-    if (!confirm("Delete this manual entry? Stripe records can't be deleted.")) return;
+    if (!(await confirmDialog("Delete this manual entry? Stripe records can't be deleted."))) return;
     const res = await fetch(`/api/transactions/${id}`, { method: "DELETE" });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(typeof d.error === "string" ? d.error : "Could not delete"); }
+    if (!res.ok) { const d = await res.json().catch(() => ({})); void alertDialog(typeof d.error === "string" ? d.error : "Could not delete"); }
     load();
   }
 
@@ -771,7 +772,7 @@ function MoneyOutTab({ entity, entities, bank, bankConnections }: { entity: stri
   useEffect(() => { load(); }, [load]);
 
   async function del(id: string) {
-    if (!confirm("Delete this expense?")) return;
+    if (!(await confirmDialog("Delete this expense?"))) return;
     await fetch(`/api/expenses/${id}`, { method: "DELETE" });
     load();
   }
@@ -959,7 +960,7 @@ function DonationsTab({ qs, entity, entities }: { qs: string; entity: string; en
   useEffect(() => { load(); }, [load]);
 
   async function del(id: string) {
-    if (!confirm("Delete this donation record?")) return;
+    if (!(await confirmDialog("Delete this donation record?"))) return;
     await fetch(`/api/donations/${id}`, { method: "DELETE" });
     load();
   }
@@ -1856,7 +1857,7 @@ function BankTab({ initialNeedsReviewOnly = false, entity = "all", canEdit = fal
   useEffect(() => { if (linkToken && plaidReady) openPlaid(); }, [linkToken, plaidReady, openPlaid]);
 
   async function disconnectAll() {
-    if (!confirm("Disconnect ALL bank accounts? Manual entry will still work.")) return;
+    if (!(await confirmDialog("Disconnect ALL bank accounts? Manual entry will still work."))) return;
     await fetch("/api/plaid/transactions", { method: "DELETE" });
     setBankData(null);
     setConnectionFilter(null);
@@ -1864,14 +1865,14 @@ function BankTab({ initialNeedsReviewOnly = false, entity = "all", canEdit = fal
   }
 
   async function disconnectOne(id: string, label: string) {
-    if (!confirm(`Disconnect "${label}"? Other bank accounts stay connected.`)) return;
+    if (!(await confirmDialog(`Disconnect "${label}"? Other bank accounts stay connected.`))) return;
     await fetch(`/api/plaid/connections/${id}`, { method: "DELETE" });
     if (connectionFilter === id) setConnectionFilter(null);
     loadBankData(connectionFilter === id ? null : connectionFilter, range, 1);
   }
 
   async function renameConnection(id: string, current: string) {
-    const next = window.prompt("Rename this bank account", current);
+    const next = (await promptDialog("Rename this bank account", current));
     if (next == null) return;
     await fetch(`/api/plaid/connections/${id}`, {
       method: "PATCH",

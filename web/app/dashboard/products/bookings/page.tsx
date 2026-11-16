@@ -6,6 +6,7 @@
 // length / add-on tables when it was made); pending counts come from the same
 // array the grid draws.
 
+import { confirmDialog, promptDialog } from "@/lib/dialogs";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ChevronLeft, ChevronRight, Plus } from "lucide-react";
@@ -51,7 +52,7 @@ export default function ProductBookingsPage() {
   const waiting = live.filter((b) => b.status === "PENDING").length;
 
   async function act(b: Booking, body: Record<string, unknown>, confirmText?: string) {
-    if (confirmText && !window.confirm(confirmText)) return;
+    if (confirmText && !(await confirmDialog(confirmText))) return;
     setBusy(b.id); setErr(""); setMsg("");
     const res = await fetch(`/api/products/bookings/${b.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const d = await res.json().catch(() => ({}));
@@ -136,14 +137,14 @@ export default function ProductBookingsPage() {
                     {b.status === "PENDING" && (
                       <>
                         <button type="button" disabled={busy === b.id} onClick={() => act(b, { action: "approve" })} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-brand text-white disabled:opacity-50">Approve</button>
-                        <button type="button" disabled={busy === b.id} onClick={() => { const reason = window.prompt("Reason (the family sees it):") ?? ""; act(b, { action: "decline", reason, refund: b.paidByCard && b.amountPaid > 0 && window.confirm(`Refund the ${money(b.amountPaid)} they paid by card?`) }); }} className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border disabled:opacity-50">Decline</button>
+                        <button type="button" disabled={busy === b.id} onClick={async () => { const reason = (await promptDialog("Reason (the family sees it):")) ?? ""; act(b, { action: "decline", reason, refund: b.paidByCard && b.amountPaid > 0 && (await confirmDialog(`Refund the ${money(b.amountPaid)} they paid by card?`)) }); }} className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border disabled:opacity-50">Decline</button>
                       </>
                     )}
                     {owed > 0 && b.status === "CONFIRMED" && (
-                      <button type="button" disabled={busy === b.id} onClick={() => { const v = window.prompt(`Cash / check received (up to ${money(owed)}):`, owed.toFixed(2)); if (v) act(b, { action: "record_payment", amount: Number(v) }); }} className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border disabled:opacity-50">Take payment</button>
+                      <button type="button" disabled={busy === b.id} onClick={async () => { const v = (await promptDialog(`Cash / check received (up to ${money(owed)}):`, owed.toFixed(2))); if (v) act(b, { action: "record_payment", amount: Number(v) }); }} className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border disabled:opacity-50">Take payment</button>
                     )}
                     {b.email && <a href={`mailto:${b.email}`} className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border">Message</a>}
-                    <button type="button" disabled={busy === b.id} onClick={() => act(b, { action: "cancel", refund: b.paidByCard && b.amountPaid > 0 && window.confirm(`Also refund the ${money(b.amountPaid)} paid by card? (Cancel = keep it)`) }, "Cancel this booking?")} className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-red-700 disabled:opacity-50">Cancel</button>
+                    <button type="button" disabled={busy === b.id} onClick={async () => act(b, { action: "cancel", refund: b.paidByCard && b.amountPaid > 0 && (await confirmDialog(`Also refund the ${money(b.amountPaid)} paid by card? (Cancel = keep it)`)) }, "Cancel this booking?")} className="text-xs px-2.5 py-1.5 rounded-lg border border-app-border text-red-700 disabled:opacity-50">Cancel</button>
                   </div>
                 )}
               </div>

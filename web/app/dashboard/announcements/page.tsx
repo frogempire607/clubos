@@ -1,5 +1,6 @@
 "use client";
 
+import { alertDialog, confirmDialog } from "@/lib/dialogs";
 import { useSingleFlight } from "@/lib/useSingleFlight";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -108,7 +109,7 @@ export default function AnnouncementsPage() {
   const filtered = items.filter((a) => filter === "ALL" || getStatus(a) === filter);
 
   async function handleDelete(id: string) {
-    if (!confirm("Archive this announcement?")) return;
+    if (!(await confirmDialog("Archive this announcement?"))) return;
     await fetch(`/api/announcements/${id}`, { method: "DELETE" });
     load();
   }
@@ -121,22 +122,22 @@ export default function AnnouncementsPage() {
   const handleSendNow = (a: Announcement) => flight.run(`ann:${a.id}`, () => sendNow(a));
   const handleCancel = (a: Announcement) => flight.run(`ann:${a.id}`, () => cancelNow(a));
   async function sendNow(a: Announcement) {
-    if (!confirm(`Send "${a.title}" now to every eligible recipient?\n\nThis cannot be undone once dispatched.`)) return;
+    if (!(await confirmDialog(`Send "${a.title}" now to every eligible recipient?\n\nThis cannot be undone once dispatched.`))) return;
     const res = await fetch(`/api/announcements/${a.id}/send`, { method: "POST" });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(err.error ?? "Send failed.");
+      void alertDialog(err.error ?? "Send failed.");
       return;
     }
     load();
   }
 
   async function cancelNow(a: Announcement) {
-    if (!confirm(`Cancel "${a.title}"?\n\nA scheduled send that hasn't fired yet will be dropped.`)) return;
+    if (!(await confirmDialog(`Cancel "${a.title}"?\n\nA scheduled send that hasn't fired yet will be dropped.`))) return;
     const res = await fetch(`/api/announcements/${a.id}/cancel`, { method: "POST" });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(err.error ?? "Cancel failed.");
+      void alertDialog(err.error ?? "Cancel failed.");
       return;
     }
     load();

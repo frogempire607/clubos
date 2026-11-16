@@ -19,6 +19,7 @@
 // (pricingModel, signupAccess, splitInvoiceWhen, sellIndividualSessions,
 // sessions[].price, sessions[].id). The API writes both vocabularies.
 
+import { promptDialog } from "@/lib/dialogs";
 import Link from "next/link";
 import { audienceProblem, describeAudience, normalizeAudience } from "@/lib/eventAudience";
 import AutoDiscountsEditor, { autoDiscountsLine } from "@/components/events/AutoDiscountsEditor";
@@ -1205,8 +1206,8 @@ export default function EventEditor({
             }} className="mt-1.5 text-xs px-3 py-1.5 rounded-lg border border-app-border text-text-primary">Add these</button>
           </details>
           {rosterRows.length > 1 && (
-            <button type="button" onClick={() => {
-              const v = window.prompt("Capacity for every position (blank = no limit)", "1");
+            <button type="button" onClick={async () => {
+              const v = (await promptDialog("Capacity for every position (blank = no limit)", "1"));
               if (v === null) return;
               const n = v.replace(/[^0-9]/g, "");
               editRoster(() => setRosterRows((c) => c.map((x) => ({ ...x, capacity: n }))));

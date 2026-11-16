@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/lib/dialogs";
 import { useEffect, useMemo, useState } from "react";
 import { Package } from "lucide-react";
 import Link from "next/link";
@@ -68,7 +69,7 @@ export default function ProductsPage() {
   useEffect(() => { load(); }, []);
 
   async function handleDelete(id: string) {
-    if (!confirm("Remove this product?")) return;
+    if (!(await confirmDialog("Remove this product?"))) return;
     await fetch(`/api/products/${id}`, { method: "DELETE" });
     load();
   }

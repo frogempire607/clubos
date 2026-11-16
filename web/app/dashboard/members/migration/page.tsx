@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/lib/dialogs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { MigrationFunnel, type FunnelPayload } from "@/components/members/MigrationFunnel";
@@ -1406,7 +1407,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
   }
 
   async function approve(acceptRequested: boolean, confirmImmediateCharge = false) {
-    if (!confirmImmediateCharge && !confirm("Approve this member? Billing is scheduled on the agreed date — you'll get a separate, explicit confirmation if the date means charging immediately.")) return;
+    if (!confirmImmediateCharge && !(await confirmDialog("Approve this member? Billing is scheduled on the agreed date — you'll get a separate, explicit confirmation if the date means charging immediately."))) return;
     setSaving(true); setMsg("");
     const res = await fetch(`/api/members/migration/${memberId}/approve`, {
       method: "POST",
@@ -1423,7 +1424,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
       // Surface an unmissable second confirmation with the exact amount.
       if (r.code === "IMMEDIATE_CHARGE_CONFIRM_REQUIRED") {
         const amount = typeof r.price === "number" ? `$${r.price.toFixed(2)}` : "the full cycle amount";
-        if (confirm(`⚠ The billing date is today or already passed.\n\nApproving will charge ${amount} to the saved card RIGHT NOW, and the cycle renews from today.\n\nPrefer a future date? Cancel and set one above.\n\nCharge ${amount} immediately?`)) {
+        if ((await confirmDialog(`⚠ The billing date is today or already passed.\n\nApproving will charge ${amount} to the saved card RIGHT NOW, and the cycle renews from today.\n\nPrefer a future date? Cancel and set one above.\n\nCharge ${amount} immediately?`))) {
           await approve(acceptRequested, true);
         }
         return;
