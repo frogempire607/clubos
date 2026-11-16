@@ -53,7 +53,7 @@ Google's pages were read the same day. Quotes are short on purpose.
 | Google account deletion | "an in-app path" **and** a web link that "loads without error" and names the app or developer | Slice 1: `/delete-account` |
 | Google Payments §3 | Play Billing "must not be used" for "physical services (such as ... gym memberships ... tickets for live events)" | Stripe is correct |
 | Google Data safety | data from "a webview" counts when "your app is in control" of it; data a payment processor collects directly need not be declared | Packet answers |
-| Google target audience | 18+ option = "Restrict Minor Access": under-18 accounts cannot find or download the app | **Decision for you, §6.** |
+| Google target audience | 18+ option = "Restrict Minor Access": under-18 accounts cannot find or download the app | **Decided 2026-11-16: 13 and over** (§6.5). |
 | Google sign-in details | credentials "accessible at all times, reusable", in English | Packet |
 
 Not confirmed from the pages I could read: Google's 16 KB page-size rule and
@@ -172,17 +172,14 @@ Submitting without push is safe; adding it is then a normal update.
 4. **The last owner of a club.** Proposal: an owner cannot delete their own
    account while they are the only owner; they must add another owner or
    close the club (that screen already exists).
-5. **Google target audience.** "18 and over" hides the app from anyone Google
-   believes is under 18, including a 16-year-old athlete who logs in for
-   themselves. Options: (a) 18+ as planned, and teen athletes use the website;
-   (b) "13 and over", which keeps teens but means Google reviews the listing
-   for child appeal more strictly. Minors have accounts today, so (b) matches
-   the product. Apple has no equivalent switch; the age rating questionnaire
-   decides. **My recommendation is (b)**, but this is a business and legal
-   call (COPPA applies under 13 either way; under-13s are already
-   parent-managed).
-6. **The signup email check** from the audit (S2). It should be decided before
-   submission: reviewers create accounts.
+5. **Google target audience. DECIDED 2026-11-16: 13 and over.** "18 and over"
+   would have hidden the app from a 16-year-old athlete who logs in for
+   themselves. Under-13s are not a target audience: they are managed from a
+   parent's account. COPPA applies under 13 either way and the consent flow
+   is unchanged. Apple has no equivalent switch; its age-rating questionnaire
+   decides.
+6. **The signup email check** from the audit (S2). **DECIDED and built
+   2026-11-16:** verify the email first.
 
 ## 7. Not blocking per-club apps later
 

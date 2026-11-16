@@ -97,6 +97,7 @@ Two branches, the second cut from the first. No migration in either.
 - [x] Native shell: 9 official plugins, release hardening, Android back, offline screen with saved schedule.
 - [x] Camera QR check-in, haptics. iOS simulator build succeeds and launches.
 - [x] All 78 browser pop-ups replaced with in-app dialogs. AthletixOS plans are not sold inside the app.
-- [ ] **DECIDE:** account-deletion rules (plan §6.1–6.4), Google audience 18+ vs 13+ (§6.5), support address.
+- [x] Google audience: **13 and over** (decided 2026-11-16).
+- [ ] **DECIDE:** account-deletion rules (plan §6.1–6.4), support address.
 - [ ] **YOU:** Apple + Google accounts, demo club + 3 demo logins, TestFlight / Play internal builds, phone checks (packet §3, §7, §8).
 - [ ] Next code: push notifications (needs a migration + APNs key + Firebase), text under 12px, stuck-spinner screens, event-email timezones.
