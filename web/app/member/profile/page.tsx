@@ -7,6 +7,7 @@
 // request, pending approvals, guardian info, family linking, add-self,
 // invites, sign-out and account deletion.
 
+import DeleteAccountDialog from "@/components/DeleteAccountDialog";
 import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -221,8 +222,6 @@ export default function MemberAccountPage() {
   const [requestingCancel, setRequestingCancel] = useState(false);
   const [cancelMsg, setCancelMsg] = useState("");
   const [showDelete, setShowDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState("");
   const [activeProfileId, setActiveProfileIdState] = useState<string | null>(null);
   const [childEmail, setChildEmail] = useState("");
   const [relationship, setRelationship] = useState("");
@@ -433,18 +432,6 @@ export default function MemberAccountPage() {
         ? d.message
         : "Your cancellation request was sent to your club.",
     );
-  }
-
-  async function deleteAccount() {
-    if (deleteConfirm.trim().toLowerCase() !== "delete") return;
-    setDeleting(true);
-    const res = await fetch("/api/member/me", { method: "DELETE" });
-    if (res.ok) {
-      signOut({ callbackUrl: "/login" });
-    } else {
-      setDeleting(false);
-      setError("Failed to delete account");
-    }
   }
 
   async function sendInvite(e: React.FormEvent) {
@@ -931,6 +918,11 @@ export default function MemberAccountPage() {
                   Delete account
                 </button>
               </div>
+              <p className="mt-3 text-xs text-stone-500">
+                <Link href="/privacy" className="underline">Privacy policy</Link>
+                {" · "}
+                <Link href="/terms" className="underline">Terms of service</Link>
+              </p>
             </div>
           </div>
 
@@ -1210,41 +1202,7 @@ export default function MemberAccountPage() {
           </div>
         </div>
 
-        {showDelete && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl w-full max-w-sm p-6">
-              <h3 className="text-base font-semibold text-stone-900 mb-1">Delete your account?</h3>
-              <p className="text-sm text-stone-600 mb-3">
-                This removes your access immediately. Your profile is retained by the club for record-keeping but you&apos;ll no longer be able to log in.
-                {member?.stripeCustomerId && (
-                  <> Active recurring subscriptions are <strong>not</strong> auto-canceled — open the billing portal first if you want to cancel.</>
-                )}
-              </p>
-              <p className="text-xs text-stone-600 mb-2">Type <strong>delete</strong> to confirm:</p>
-              <input
-                type="text"
-                value={deleteConfirm}
-                onChange={(e) => setDeleteConfirm(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-              <div className="flex gap-2 justify-end">
-                <button
-                  onClick={() => { setShowDelete(false); setDeleteConfirm(""); }}
-                  className="text-sm px-4 py-2 border border-stone-300 text-stone-700 rounded-lg hover:bg-stone-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={deleteAccount}
-                  disabled={deleteConfirm.trim().toLowerCase() !== "delete" || deleting}
-                  className="text-sm px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:opacity-50"
-                >
-                  {deleting ? "Deleting…" : "Delete forever"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <DeleteAccountDialog open={showDelete} onClose={() => setShowDelete(false)} />
       </div>
     </div>
   );

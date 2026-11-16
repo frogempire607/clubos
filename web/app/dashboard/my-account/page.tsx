@@ -6,6 +6,7 @@
 // needs a way to manage its own credentials. The route is unguarded in
 // PATH_PERMISSIONS so middleware always allows it.
 
+import DeleteAccountDialog from "@/components/DeleteAccountDialog";
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -23,6 +24,7 @@ type Me = {
 export default function MyAccountPage() {
   const { data: session } = useSession();
   const [me, setMe] = useState<Me | null>(null);
+  const [showDelete, setShowDelete] = useState(false);
 
   // Profile (name) state
   const [firstName, setFirstName] = useState("");
@@ -341,6 +343,28 @@ export default function MyAccountPage() {
         {/* Phase 12.1: a contractor fills in and signs their own W-9 here.
             Renders nothing for anybody who isn't set up as a contractor. */}
         <W9Card mode="self" />
+
+        {/* Privacy, terms and account deletion live here for staff and owners —
+            both app stores require all three to be reachable inside the app. */}
+        <div className="bg-surface border border-app-border rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-text-primary">Privacy and your account</h2>
+          <p className="mt-1 text-sm text-text-muted">
+            <Link href="/privacy" className="underline text-text-primary">Privacy policy</Link>
+            {" · "}
+            <Link href="/terms" className="underline text-text-primary">Terms of service</Link>
+          </p>
+          <p className="mt-3 text-sm text-text-muted">
+            Deleting your account removes your sign-in for good. You will see exactly what is removed and what the club keeps before anything happens.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowDelete(true)}
+            className="mt-3 min-h-[44px] rounded-lg border border-red-200 px-4 text-sm font-medium text-red-600 hover:bg-red-50"
+          >
+            Delete my account
+          </button>
+        </div>
+        <DeleteAccountDialog open={showDelete} onClose={() => setShowDelete(false)} />
 
         {me?.role === "STAFF" && (
           <div className="bg-app-bg border border-app-border rounded-xl p-4 text-xs text-text-muted">

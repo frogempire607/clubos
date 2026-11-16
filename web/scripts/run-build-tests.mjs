@@ -46,6 +46,10 @@ export const GATED = [
   // One payment counts once, one email goes once, one approval grants once,
   // one tap does one thing (2026-11 reliability pass).
   ["scripts/reliability-tests.ts"],
+  // App-store policy (Apple 5.1.1(v), Google User Data): every account type
+  // can delete itself in the app; what goes, what stays, children, and a
+  // membership still being charged are all spelled out before confirming.
+  ["scripts/account-deletion-tests.ts"],
   ["scripts/members-grep-guards.ts"],
   ["scripts/reports-mobile-guard.ts", [], { TZ: "America/New_York" }],
   ["scripts/ui-polish-guard.ts"],

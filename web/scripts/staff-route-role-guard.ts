@@ -93,6 +93,8 @@ const ROLE_GUARD = new RegExp(
 const NOT_STAFF_FACING = [
   /\/api\/(member|public|auth|stripe\/webhook|cron|webhooks|well-known|unsubscribe)\//,
   /\[token\]/,
+  // account/…  deleting YOUR OWN account — every signed-in person, by design
+  /\/api\/account\//,
 ];
 
 /**

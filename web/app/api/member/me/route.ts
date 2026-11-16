@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { deleteOwnAccount } from "@/lib/accountDeletionServer";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -132,20 +133,19 @@ export async function PATCH(req: Request) {
 }
 
 // DELETE /api/member/me — soft-delete the user + member profile
+// Kept for the member portal's existing delete button. One implementation for
+// every account type lives in lib/accountDeletionServer.ts (it also tells the
+// club about a membership that is still being charged, and ends guardian
+// access — the version that lived here did neither).
 export async function DELETE() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const now = new Date();
-  await prisma.$transaction(async (tx) => {
-    await tx.user.update({ where: { id: session.user.id }, data: { deletedAt: now } });
-    await tx.member.updateMany({
-      where: { userId: session.user.id, deletedAt: null },
-      // Release the unique members_userId slot (index is global / ignores
-      // deletedAt) so re-registration with the same email never collides.
-      data:  { deletedAt: now, userId: null },
-    });
+  const result = await deleteOwnAccount({
+    userId: session.user.id,
+    clubId: session.user.clubId,
+    actorName: session.user.name ?? null,
   });
-
-  return NextResponse.json({ ok: true });
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+  return NextResponse.json({ ok: true, cancelRequestsFiled: result.cancelRequestsFiled });
 }
