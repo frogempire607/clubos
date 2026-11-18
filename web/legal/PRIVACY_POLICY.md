@@ -22,6 +22,16 @@ This Privacy Policy explains how MC Technologies Group LLC ("we," "us," "Athleti
 - Member profile data the Club enters: names, contact details, membership and booking history, event participation, and any other fields the Club chooses to store.
 - For youth athletes, this may include a minor's information and a parent/guardian's contact details (see Section 7).
 
+> **ADDED 2026-11-18 — PENDING ATTORNEY REVIEW. NOT YET ON THE LIVE /privacy PAGE.** The four paragraphs below, down to the next heading, are new. They describe things the product already does. The live page, the "Last updated" date above and the version recorded at signup are unchanged until this text is approved.
+
+**Technical crash diagnostics:** When a screen in the Service stops working, we record a small technical report so we can fix the problem: which screen it was (with record identifiers and link tokens removed), the technical error message, the screen size and the type of browser or device, and — if you were signed in — your account identifier, your Club's identifier and your role. These reports do not include names, email addresses, phone numbers, Member profile details, payment details or your IP address. We keep them only for as long as they are useful for finding and fixing problems.
+
+**Mobile app:** The Service is also available as a mobile app for iOS and Android. The app shows the same Service you reach in a web browser and handles information in the same way as described in this policy. It asks for the device permissions described below only when you use the feature that needs them, and you can turn them off at any time in your device settings.
+
+**Camera:** If you allow it, the mobile app uses your device's camera to scan the check-in code at your Club's door, and to take a profile photo or photograph a document that you choose to upload. Scanning a check-in code reads the code only; no photo or video of the scan is saved. A photo you choose to upload is stored like any other file you add to the Service.
+
+**Push notifications:** If you allow notifications, we store an identifier for your device (a "push token") with your account so we can send notifications about activity in your Club — for example approvals, messages and membership reminders. Notifications are delivered through Apple's and Google's notification services. You can turn off individual kinds of notification in the app, or all of them in your device settings, and signing out stops notifications to that device.
+
 ## 3. How we use information
 
 We use Club account and usage data to: provide and maintain the Service, process payments, provide support, secure the platform, communicate with you, and improve our product. We use Member data only to provide the Service to the Club that controls it — we do not use Member data for our own marketing.
