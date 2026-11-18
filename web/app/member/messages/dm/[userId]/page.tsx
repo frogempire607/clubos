@@ -138,7 +138,7 @@ function MemberDmThreadInner() {
             <h1 className="text-base font-semibold text-stone-900 truncate">{other.firstName} {other.lastName}</h1>
             {forName && (
               <span
-                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full"
+                className="inline-flex items-center gap-1 text-[12px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full"
                 style={{
                   background: "rgba(163, 230, 53, 0.18)",
                   color: "#3F6212",
@@ -166,7 +166,7 @@ function MemberDmThreadInner() {
         ) : (
           groups.map((g) => (
             <div key={g.date} className="space-y-2">
-              <div className="text-center text-[11px] text-stone-400 my-2">{g.date}</div>
+              <div className="text-center text-[12px] text-stone-400 my-2">{g.date}</div>
               {g.items.map((m) => {
                 const mine = m.senderId === myId;
                 return (
@@ -177,7 +177,7 @@ function MemberDmThreadInner() {
                       }`}
                     >
                       <div className="whitespace-pre-wrap">{m.body}</div>
-                      <div className={`text-[10px] mt-0.5 ${mine ? "text-stone-300" : "text-stone-500"}`}>
+                      <div className={`text-[12px] mt-0.5 ${mine ? "text-stone-300" : "text-stone-500"}`}>
                         {fmtTime(m.createdAt)}
                         {mine
                           ? ` · ${

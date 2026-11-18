@@ -276,7 +276,7 @@ export default function MemberBookPage() {
 
           {/* Browse categories */}
           <div className="order-1 md:order-2">
-            <p className="text-[10.5px] font-bold uppercase tracking-[0.06em] text-stone-400 mb-2 px-0.5">
+            <p className="text-[12px] font-bold uppercase tracking-[0.06em] text-stone-400 mb-2 px-0.5">
               Browse categories
             </p>
             <CategoryGrid>
@@ -288,7 +288,7 @@ export default function MemberBookPage() {
 
           {/* Popular right now */}
           <div className="order-3">
-            <p className="text-[10.5px] font-bold uppercase tracking-[0.06em] text-stone-400 mb-2 px-0.5">
+            <p className="text-[12px] font-bold uppercase tracking-[0.06em] text-stone-400 mb-2 px-0.5">
               Popular right now
             </p>
             {loading ? (
@@ -320,7 +320,7 @@ export default function MemberBookPage() {
             )}
           </div>
 
-          <p className="order-4 text-[11.5px] leading-relaxed text-stone-500 bg-stone-50 border border-stone-200 border-l-[3px] border-l-[var(--club-accent)] rounded-[10px] px-3.5 py-3">
+          <p className="order-4 text-[12px] leading-relaxed text-stone-500 bg-stone-50 border border-stone-200 border-l-[3px] border-l-[var(--club-accent)] rounded-[10px] px-3.5 py-3">
             <strong className="text-stone-700">Browse</strong> to see what&apos;s bookable, or{" "}
             <strong className="text-stone-700">search</strong> to jump straight to it — one feed
             for classes, plans, events, privates &amp; gear. Store lives here as a category.

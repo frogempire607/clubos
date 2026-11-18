@@ -604,7 +604,7 @@ export default function MemberAccountPage() {
                   <label className="block text-xs font-medium text-stone-600 mb-1">
                     Date of birth
                     {me?.memberProfile?.birthdayLockedAt && (
-                      <span className="ml-1 text-[10px] uppercase tracking-wider text-amber-700 font-semibold">
+                      <span className="ml-1 text-[12px] uppercase tracking-wider text-amber-700 font-semibold">
                         Locked
                       </span>
                     )}
@@ -621,7 +621,7 @@ export default function MemberAccountPage() {
                     }`}
                   />
                   {me?.memberProfile?.birthdayLockedAt && (
-                    <p className="text-[11px] text-amber-700 mt-1">
+                    <p className="text-[12px] text-amber-700 mt-1">
                       Your guardian has locked your date of birth. Ask them to update it for you.
                     </p>
                   )}
@@ -771,7 +771,7 @@ export default function MemberAccountPage() {
                                     : null}
                               </span>
                             </p>
-                            <p className="text-[11.5px] text-stone-500 truncate">
+                            <p className="text-[12px] text-stone-500 truncate">
                               {[
                                 summary?.activeMembershipName ?? null,
                                 g.kind === "child" ? (g.member.user?.id ? "own login" : showsAsMinor(g.member) ? "minor" : null) : null,
@@ -808,7 +808,7 @@ export default function MemberAccountPage() {
                           </div>
                         </div>
                         {g.kind === "child" && names.length > 1 && (
-                          <p className="sm:hidden text-[11px] text-stone-400 mt-1 ml-[48px]">
+                          <p className="sm:hidden text-[12px] text-stone-400 mt-1 ml-[48px]">
                             Guardians: You +{names.length - 1}
                           </p>
                         )}
@@ -959,7 +959,7 @@ export default function MemberAccountPage() {
                         <p className="text-[12.5px] font-semibold text-stone-900 truncate">
                           {g.kind === "self" ? "You" : `${g.member.firstName} ${g.member.lastName}`}
                         </p>
-                        <p className="text-[11.5px] text-stone-500">
+                        <p className="text-[12px] text-stone-500">
                           {d
                             ? `${d.total} file${d.total === 1 ? "" : "s"} · ${outstanding > 0 ? `${outstanding} needs signature` : "all signed"}`
                             : "…"}
@@ -976,7 +976,7 @@ export default function MemberAccountPage() {
                     </div>
                   );
                 })}
-                <p className="text-[11px] text-stone-400 mt-2">
+                <p className="text-[12px] text-stone-400 mt-2">
                   Each athlete&apos;s waivers &amp; forms, scoped to them.
                 </p>
               </div>
@@ -1000,14 +1000,14 @@ export default function MemberAccountPage() {
               return (
                 <div className="pcard p-5">
                   <h2 className="text-sm font-semibold text-stone-900">Payment &amp; billing</h2>
-                  <p className="text-[11.5px] text-stone-500 mt-0.5 mb-1">
+                  <p className="text-[12px] text-stone-500 mt-0.5 mb-1">
                     Each person keeps their own cards — you never spend another guardian&apos;s saved card.
                   </p>
 
                   {billing === null ? (
-                    <p className="text-[11.5px] text-stone-400 py-3">Loading billing…</p>
+                    <p className="text-[12px] text-stone-400 py-3">Loading billing…</p>
                   ) : people.length === 0 ? (
-                    <p className="text-[11.5px] text-stone-400 py-3">No billing on file yet.</p>
+                    <p className="text-[12px] text-stone-400 py-3">No billing on file yet.</p>
                   ) : (
                     people.map((p) => {
                       const cardLine = p.card
@@ -1089,7 +1089,7 @@ export default function MemberAccountPage() {
                               {showPrice && p.feeBreakdown && (
                                 <div className="flex items-start gap-4">
                                   <dt className="w-24 flex-shrink-0" aria-hidden />
-                                  <dd className="text-[11px] text-stone-500">
+                                  <dd className="text-[12px] text-stone-500">
                                     ${p.feeBreakdown.total.toFixed(2)}
                                     {p.period ? `/${p.period.toLowerCase()}` : ""} charged incl. $
                                     {p.feeBreakdown.fee.toFixed(2)} card processing fee
@@ -1188,7 +1188,7 @@ export default function MemberAccountPage() {
                       {billingMsg}
                     </div>
                   )}
-                  <p className="text-[11px] text-stone-400 mt-3">
+                  <p className="text-[12px] text-stone-400 mt-3">
                     Update payment methods and view invoices per person. Cancellations are
                     reviewed by your club before billing stops. Athletes paying by cash or
                     check are billed at the club.
@@ -1330,7 +1330,7 @@ function PendingApprovalsCard() {
                 {APPROVAL_KIND_LABEL[r.kind] || r.kind}
                 {r.amount && r.amount > 0 ? ` · $${r.amount.toFixed(2)}` : ""}
               </p>
-              <p className="text-[11px] text-stone-500">
+              <p className="text-[12px] text-stone-500">
                 Requested {new Date(r.requestedAt).toLocaleString("en-US", {
                   month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
                 })}

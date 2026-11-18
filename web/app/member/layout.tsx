@@ -329,7 +329,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                       <Icon size={14} />
                       {item.label}
                       {badge > 0 && (
-                        <span className="ml-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center">
+                        <span className="ml-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[12px] leading-none font-bold inline-flex items-center justify-center">
                           {badge > 9 ? "9+" : badge}
                         </span>
                       )}
@@ -348,7 +348,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                     <Icon size={14} />
                     {item.label}
                     {badge > 0 && (
-                      <span className="ml-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center">
+                      <span className="ml-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[12px] leading-none font-bold inline-flex items-center justify-center">
                         {badge > 9 ? "9+" : badge}
                       </span>
                     )}
@@ -451,19 +451,19 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                 >
                   <Icon size={20} />
                   {"href" in item && item.href === "/member/messages" && unread > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[12px] leading-none font-bold flex items-center justify-center">
                       {unread > 9 ? "9+" : unread}
                     </span>
                   )}
                   {/* Unseen announcements (and unread DMs when Messages isn't
                       a top-level tab) live behind More. */}
                   {"kind" in item && item.kind === "more" && moreBadge > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[12px] leading-none font-bold flex items-center justify-center">
                       {moreBadge > 9 ? "9+" : moreBadge}
                     </span>
                   )}
                 </span>
-                <span className="text-[10px] font-medium leading-none">{item.label}</span>
+                <span className="text-[12px] font-medium leading-none max-w-full truncate px-0.5">{item.label}</span>
               </>
             );
             if ("kind" in item && item.kind === "more") {
@@ -530,10 +530,10 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
               {moreGroups.map((group) => (
                 <div key={group.label} className="md:rounded-2xl md:border md:border-stone-200 md:p-1.5">
                   <div className="px-2 pt-3 pb-1 md:pt-2">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.05em] text-stone-400">
+                    <p className="text-[12px] font-bold uppercase tracking-[0.05em] text-stone-400">
                       {group.label}
                     </p>
-                    <p className="text-[11px] text-stone-500 hidden md:block">{group.blurb}</p>
+                    <p className="text-[12px] text-stone-500 hidden md:block">{group.blurb}</p>
                   </div>
                   {group.items.map((it) => {
                     const Icon = it.icon;
@@ -556,7 +556,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
                           <div className="text-xs text-stone-500">{it.desc}</div>
                         </div>
                         {rowBadge > 0 && (
-                          <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center flex-shrink-0">
+                          <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[12px] font-bold inline-flex items-center justify-center flex-shrink-0">
                             {rowBadge > 9 ? "9+" : rowBadge}
                           </span>
                         )}
@@ -636,7 +636,7 @@ function ClubLogo({
     .toUpperCase();
   return (
     <span
-      className="rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+      className="rounded-lg flex items-center justify-center text-[12px] font-bold flex-shrink-0"
       style={{
         width: size,
         height: size,

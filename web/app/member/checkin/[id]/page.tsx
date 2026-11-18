@@ -224,7 +224,7 @@ export default function MemberCheckinPage({ params }: { params: { id: string } }
                 >
                   <span className="text-sm font-medium text-stone-900">
                     {p.firstName} {p.lastName}
-                    {p.kind === "self" && <span className="ml-1.5 text-[11px] text-stone-400">you</span>}
+                    {p.kind === "self" && <span className="ml-1.5 text-[12px] text-stone-400">you</span>}
                   </span>
                   <span className="text-xs text-stone-500">
                     {busyId === p.id ? "Checking in…" : p.alreadyCheckedIn ? "Checked in ✓" : "Check in"}

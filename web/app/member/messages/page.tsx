@@ -50,7 +50,7 @@ type ChildGroup = {
 function ChildBadge({ name }: { name: string }) {
   return (
     <span
-      className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+      className="inline-flex items-center gap-1 text-[12px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
       style={{
         background: LIME_BG,
         color: LIME_TEXT,
@@ -238,13 +238,13 @@ export default function MemberMessagesPage() {
                         <div className="flex items-center gap-2 min-w-0">
                           <h3 className="text-sm font-semibold text-stone-900 truncate">{g.name}</h3>
                           {g.type === "BROADCAST" && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-stone-100 text-stone-600 font-medium flex-shrink-0">
+                            <span className="text-[12px] px-1.5 py-0.5 rounded-full bg-stone-100 text-stone-600 font-medium flex-shrink-0">
                               Read-only
                             </span>
                           )}
                         </div>
                         {last && (
-                          <span className="text-[11px] text-stone-400 flex-shrink-0">{relTime(last.createdAt)}</span>
+                          <span className="text-[12px] text-stone-400 flex-shrink-0">{relTime(last.createdAt)}</span>
                         )}
                       </div>
                       {last ? (
@@ -269,7 +269,7 @@ export default function MemberMessagesPage() {
                   Messages for your athletes
                 </h2>
               </div>
-              <p className="text-[11px] text-stone-400 mb-3">
+              <p className="text-[12px] text-stone-400 mb-3">
                 Threads sent to or from your linked children. Each row has a lime stripe and a "For {linkedChildren[0]?.firstName || "child"}" pill so you always know which kid the message is about.
               </p>
               {childConversations.length === 0 && childGroups.length === 0 ? (
@@ -303,7 +303,7 @@ export default function MemberMessagesPage() {
                           <ChildBadge name={g.forMember.firstName} />
                         </div>
                         {g.lastMessage && (
-                          <span className="text-[11px] text-stone-400 flex-shrink-0 tabular-nums">{relTime(g.lastMessage.createdAt)}</span>
+                          <span className="text-[12px] text-stone-400 flex-shrink-0 tabular-nums">{relTime(g.lastMessage.createdAt)}</span>
                         )}
                       </div>
                       {g.lastMessage ? (
@@ -341,18 +341,18 @@ export default function MemberMessagesPage() {
                               </p>
                               {c.forMember && <ChildBadge name={c.forMember.firstName} />}
                             </div>
-                            <p className="text-[11px] text-stone-400">
+                            <p className="text-[12px] text-stone-400">
                               {c.user.role === "OWNER" ? "Owner" : c.user.role === "STAFF" ? "Staff" : "Member"}
                             </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
                           {c.unread > 0 && (
-                            <span className="text-[10px] bg-stone-900 text-white px-1.5 py-0.5 rounded-full font-semibold tabular-nums">
+                            <span className="text-[12px] bg-stone-900 text-white px-1.5 py-0.5 rounded-full font-semibold tabular-nums">
                               {c.unread}
                             </span>
                           )}
-                          <span className="text-[11px] text-stone-400 tabular-nums">{relTime(c.lastMessage.createdAt)}</span>
+                          <span className="text-[12px] text-stone-400 tabular-nums">{relTime(c.lastMessage.createdAt)}</span>
                         </div>
                       </div>
                       <p className="text-sm text-stone-600 line-clamp-1">{c.lastMessage.body}</p>
@@ -382,18 +382,18 @@ export default function MemberMessagesPage() {
                           <p className="text-sm font-semibold text-stone-900 truncate">
                             {c.user.firstName} {c.user.lastName}
                           </p>
-                          <p className="text-[11px] text-stone-400">
+                          <p className="text-[12px] text-stone-400">
                             {c.user.role === "OWNER" ? "Owner" : c.user.role === "STAFF" ? "Staff" : "Member"}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {c.unread > 0 && (
-                          <span className="text-[10px] bg-stone-900 text-white px-1.5 py-0.5 rounded-full font-semibold">
+                          <span className="text-[12px] bg-stone-900 text-white px-1.5 py-0.5 rounded-full font-semibold">
                             {c.unread}
                           </span>
                         )}
-                        <span className="text-[11px] text-stone-400">{relTime(c.lastMessage.createdAt)}</span>
+                        <span className="text-[12px] text-stone-400">{relTime(c.lastMessage.createdAt)}</span>
                       </div>
                     </div>
                     <p className="text-sm text-stone-600 line-clamp-1">{c.lastMessage.body}</p>
@@ -500,7 +500,7 @@ function NewMessageModal({
                   </option>
                 ))}
               </select>
-              <p className="text-[11px] text-stone-400 mt-1">
+              <p className="text-[12px] text-stone-400 mt-1">
                 The coach sees which athlete this conversation is about.
               </p>
             </div>

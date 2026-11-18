@@ -247,7 +247,7 @@ export default function MemberMembershipsPage() {
                     )}
                   </div>
                   {activeForThis && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-50 text-green-700 font-medium flex-shrink-0">
+                    <span className="text-[12px] px-2 py-0.5 rounded-full bg-green-50 text-green-700 font-medium flex-shrink-0">
                       Current
                     </span>
                   )}
@@ -383,7 +383,7 @@ export default function MemberMembershipsPage() {
                                   </div>
                                 );
                               })()}
-                              <p className="text-[11px] text-stone-500 mb-1.5">How will you pay?</p>
+                              <p className="text-[12px] text-stone-500 mb-1.5">How will you pay?</p>
                               <div className="grid grid-cols-3 gap-2">
                                 <button
                                   disabled={submitting === key || (o.billingPeriod !== "ONE_TIME" && !!selectedMemberId && !!trialByMember[selectedMemberId]?.[m.id] && !chargeTiming)}
@@ -408,7 +408,7 @@ export default function MemberMembershipsPage() {
                                   Check
                                 </button>
                               </div>
-                              <p className="text-[11px] text-stone-400 mt-1.5">
+                              <p className="text-[12px] text-stone-400 mt-1.5">
                                 Card checks out securely online. Cash/check sends a request — your club
                                 activates the membership and collects payment in person.
                               </p>
@@ -438,7 +438,7 @@ function OptionDetails({ option, plan }: { option: MembershipOption; plan: { con
       {facts.length > 0 && (
         <ul className="mt-1 flex flex-wrap gap-1">
           {facts.map((f) => (
-            <li key={f} className="text-[10.5px] text-stone-600 bg-stone-100 rounded-full px-2 py-0.5">{f}</li>
+            <li key={f} className="text-[12px] text-stone-600 bg-stone-100 rounded-full px-2 py-0.5">{f}</li>
           ))}
         </ul>
       )}

@@ -27,6 +27,10 @@ import { join, relative, sep } from "node:path";
 
 const ROOT = join(__dirname, "..");
 const SCAN_DIRS = ["app/dashboard", "components"];
+// The member portal is held to RULE 2 only (2026-11-17: its 116 sub-12px
+// sizes were raised; families read it on a phone). Its page titles are its
+// own design, so RULE 1 does not apply there.
+const SMALL_TEXT_ONLY_DIRS = ["app/member"];
 
 // ── RULE 1 allowlist: file → how many <h1 it may contain, and why ──────────
 const H1_ALLOW: Record<string, { max: number; reason: string }> = {
@@ -143,14 +147,14 @@ function stripComments(src: string): string {
 
 const failures: string[] = [];
 let files = 0;
-for (const d of SCAN_DIRS) {
+for (const d of [...SCAN_DIRS, ...SMALL_TEXT_ONLY_DIRS]) {
   for (const abs of walk(join(ROOT, d))) {
     files++;
     const rel = relative(ROOT, abs).split(sep).join("/");
     const src = stripComments(readFileSync(abs, "utf8"));
 
     // Rule 1
-    const h1 = (src.match(/<h1\b/g) ?? []).length;
+    const h1 = SMALL_TEXT_ONLY_DIRS.includes(d) ? 0 : (src.match(/<h1\b/g) ?? []).length;
     if (h1 > 0) {
       const allow = H1_ALLOW[rel];
       if (!allow) failures.push(`${rel}: hand-rolled <h1> (${h1}) — use components/PageHeader.tsx`);

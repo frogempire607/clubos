@@ -736,13 +736,13 @@ function ScheduleInner() {
                               style={c}
                             >
                               {datePillParts(item.startsAt, kindIsWallClockUTC(item.kind)).day}
-                              <span className="text-[8px] font-extrabold tracking-wide mt-0.5">
+                              <span className="text-[12px] font-extrabold tracking-wide mt-0.5">
                                 {datePillParts(item.startsAt, kindIsWallClockUTC(item.kind)).month}
                               </span>
                             </span>
                             <span className="min-w-0">
                               <span className={`block text-[12.5px] font-semibold truncate ${item.canceled ? "text-stone-500 line-through" : "text-stone-900"}`}>{item.title}</span>
-                              <span className="block text-[11.5px] text-stone-500 truncate">
+                              <span className="block text-[12px] text-stone-500 truncate">
                                 {friendlyDate(item.startsAt, { relative: true }, kindIsWallClockUTC(item.kind))}
                                 {" "}
                                 {friendlyTime(item.startsAt, kindIsWallClockUTC(item.kind))}

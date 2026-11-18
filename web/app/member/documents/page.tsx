@@ -225,21 +225,21 @@ function DocCard({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-1">
           <h3 className="text-sm font-semibold text-stone-900">{doc.title}</h3>
-          <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
+          <span className="text-[12px] px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
             {doc.type}
           </span>
           {guardianBadge && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700">
+            <span className="text-[12px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700">
               Guardian signature required
             </span>
           )}
           {signed && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-green-50 text-green-700">
+            <span className="text-[12px] px-2 py-0.5 rounded-full font-medium bg-green-50 text-green-700">
               ✓ Signed
             </span>
           )}
           {expired && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700">
+            <span className="text-[12px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700">
               Signature expired
             </span>
           )}
@@ -260,7 +260,7 @@ function DocCard({
           <p className="text-xs text-stone-400">Expires {formatDate(doc.expiresAt)}</p>
         )}
         {!doc.signature && doc.signatureValidForDays && (
-          <p className="text-[11px] text-stone-400">
+          <p className="text-[12px] text-stone-400">
             Re-signature required every {doc.signatureValidForDays === 365 ? "year" : `${doc.signatureValidForDays} days`}
           </p>
         )}
@@ -305,11 +305,11 @@ function DocViewer({
         <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between sticky top-0 bg-white z-10">
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-base font-semibold text-stone-900">{doc.title}</h2>
-            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
+            <span className="text-[12px] px-2 py-0.5 rounded-full font-medium" style={{ background: c.bg, color: c.fg }}>
               {doc.type}
             </span>
             {doc.required && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-red-50 text-red-700">Required</span>
+              <span className="text-[12px] px-2 py-0.5 rounded-full font-medium bg-red-50 text-red-700">Required</span>
             )}
           </div>
           <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-lg hover:bg-stone-100">×</button>
@@ -382,7 +382,7 @@ function DocViewer({
                       ? "Sign as guardian"
                       : "Agree & sign"}
               </button>
-              {!sig && <p className="text-[11px] text-stone-400 mt-2">Draw your signature above to enable the button.</p>}
+              {!sig && <p className="text-[12px] text-stone-400 mt-2">Draw your signature above to enable the button.</p>}
             </div>
           )}
         </div>

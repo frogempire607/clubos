@@ -660,7 +660,7 @@ export default function MemberSignupPage() {
                       <div key={doc.id} className="rounded-lg border border-stone-200 bg-stone-50 p-3">
                         <div className="mb-2 flex items-center justify-between gap-2">
                           <p className="text-sm font-medium text-stone-900">{doc.title}</p>
-                          <span className="text-[10px] uppercase tracking-wide text-stone-500">{doc.type}</span>
+                          <span className="text-[12px] uppercase tracking-wide text-stone-500">{doc.type}</span>
                         </div>
                         {doc.body ? (
                           <div

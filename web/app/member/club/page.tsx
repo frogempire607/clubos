@@ -91,7 +91,7 @@ export default function MemberClubProfilePage() {
               <h1 className="text-xl font-semibold text-stone-900 truncate">{club.name}</h1>
               {club.tagline && <p className="text-sm text-stone-500">{club.tagline}</p>}
               {club.sport && (
-                <span className="inline-block mt-1 text-[11px] px-2 py-0.5 rounded-full bg-stone-100 text-stone-600">
+                <span className="inline-block mt-1 text-[12px] px-2 py-0.5 rounded-full bg-stone-100 text-stone-600">
                   {club.sport}
                 </span>
               )}
@@ -108,7 +108,7 @@ export default function MemberClubProfilePage() {
         <div className="pcard p-5 mb-4 grid grid-cols-1 sm:grid-cols-2 gap-5">
           {(club.contactEmail || club.contactPhone || club.websiteUrl || socials.length > 0) && (
             <div>
-              <p className="text-[11px] uppercase tracking-wider text-stone-500 font-medium mb-2">Contact</p>
+              <p className="text-[12px] uppercase tracking-wider text-stone-500 font-medium mb-2">Contact</p>
               <div className="space-y-1.5 text-sm text-stone-700">
                 {club.contactEmail && (
                   <div className="flex items-center gap-2">
@@ -144,7 +144,7 @@ export default function MemberClubProfilePage() {
           )}
           {hoursEntries.length > 0 && (
             <div>
-              <p className="text-[11px] uppercase tracking-wider text-stone-500 font-medium mb-2 flex items-center gap-1.5">
+              <p className="text-[12px] uppercase tracking-wider text-stone-500 font-medium mb-2 flex items-center gap-1.5">
                 <Clock size={12} strokeWidth={2} /> Hours
               </p>
               <div className="space-y-1 text-sm text-stone-700">
@@ -163,7 +163,7 @@ export default function MemberClubProfilePage() {
       {/* Donation / support links */}
       {club.donationLinks.length > 0 && (
         <div className="pcard p-5 mb-4">
-          <p className="text-[11px] uppercase tracking-wider text-stone-500 font-medium mb-3 flex items-center gap-1.5">
+          <p className="text-[12px] uppercase tracking-wider text-stone-500 font-medium mb-3 flex items-center gap-1.5">
             <Heart size={12} strokeWidth={2} /> Support {club.name}
           </p>
           <div className="space-y-2">

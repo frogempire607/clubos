@@ -717,7 +717,7 @@ export default function MemberPrivatesPage() {
                   <p className="text-sm font-semibold text-stone-900">
                     {t.title}
                     {t.maxAthletes > 1 && (
-                      <span className="ml-1 text-[11px] font-medium text-stone-500 align-middle">
+                      <span className="ml-1 text-[12px] font-medium text-stone-500 align-middle">
                         · up to {t.maxAthletes} athletes
                       </span>
                     )}
@@ -897,7 +897,7 @@ export default function MemberPrivatesPage() {
                           )}
                         </p>
                         {priceable && totalCredits > 0 && (
-                          <p className="text-[11px] text-stone-400 tabular-nums">
+                          <p className="text-[12px] text-stone-400 tabular-nums">
                             About ${perLesson.toFixed(2)} per lesson
                             {p.expiresAfterDays
                               ? ` · expires ${p.expiresAfterDays} day${p.expiresAfterDays === 1 ? "" : "s"} after purchase`
@@ -905,7 +905,7 @@ export default function MemberPrivatesPage() {
                           </p>
                         )}
                         {tierBased && !priceable && (
-                          <p className="text-[11px] text-stone-400 mt-1">Pick a pricing option above to see this pack&apos;s price.</p>
+                          <p className="text-[12px] text-stone-400 mt-1">Pick a pricing option above to see this pack&apos;s price.</p>
                         )}
                         <button
                           type="button"
@@ -925,13 +925,13 @@ export default function MemberPrivatesPage() {
                             onClick={() => buyPackage(p.id, "CASH")}
                             disabled={buyingPackageId === p.id || !hasProfile}
                             title="No online payment — your club approves the request and collects cash or check in person."
-                            className="mt-1.5 w-full px-3 py-1.5 rounded-md text-[11px] font-medium border border-stone-300 text-stone-600 hover:bg-stone-50 disabled:opacity-50"
+                            className="mt-1.5 w-full px-3 py-1.5 rounded-md text-[12px] font-medium border border-stone-300 text-stone-600 hover:bg-stone-50 disabled:opacity-50"
                           >
                             Request with cash/check instead
                           </button>
                         )}
                         {priceable && (
-                          <p className="text-[10px] text-stone-400 mt-1">
+                          <p className="text-[12px] text-stone-400 mt-1">
                             Cash/check requests include your chosen lesson, coach and the
                             requested times below — fill those in first.
                           </p>
@@ -1005,7 +1005,7 @@ export default function MemberPrivatesPage() {
                           than the old flex-wrap. */}
                       <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto] gap-2 items-end">
                         <div>
-                          <label className="block text-[11px] text-stone-500 mb-0.5">Date</label>
+                          <label className="block text-[12px] text-stone-500 mb-0.5">Date</label>
                           <input
                             type="date"
                             value={s.date}
@@ -1014,7 +1014,7 @@ export default function MemberPrivatesPage() {
                           />
                         </div>
                         <div>
-                          <label className="block text-[11px] text-stone-500 mb-0.5">Start time</label>
+                          <label className="block text-[12px] text-stone-500 mb-0.5">Start time</label>
                           <input
                             type="time"
                             value={s.startTime}
@@ -1023,7 +1023,7 @@ export default function MemberPrivatesPage() {
                           />
                         </div>
                         <div>
-                          <label className="block text-[11px] text-stone-500 mb-0.5">Duration</label>
+                          <label className="block text-[12px] text-stone-500 mb-0.5">Duration</label>
                           <div className="px-3 py-2 border border-stone-200 rounded-lg text-sm text-stone-500 bg-white whitespace-nowrap">
                             {privateDurationLabel(type.durationMin)}
                           </div>
@@ -1044,7 +1044,7 @@ export default function MemberPrivatesPage() {
                           preview row at once. */}
                       {coachId && s.date && suggestions.length > 0 && (
                         <div className="mt-3">
-                          <p className="text-[11px] text-stone-500 mb-1">
+                          <p className="text-[12px] text-stone-500 mb-1">
                             Coach typically available:
                           </p>
                           <div className="flex flex-wrap gap-1.5">
@@ -1053,7 +1053,7 @@ export default function MemberPrivatesPage() {
                                 key={t}
                                 type="button"
                                 onClick={() => setSlot(i, { startTime: t })}
-                                className={`px-2 py-1 rounded-md text-[11px] border transition ${
+                                className={`px-2 py-1 rounded-md text-[12px] border transition ${
                                   s.startTime === t
                                     ? "border-stone-900 bg-stone-900 text-white"
                                     : "border-stone-200 bg-white text-stone-700 hover:bg-stone-100"
@@ -1071,7 +1071,7 @@ export default function MemberPrivatesPage() {
                           impressions of "any time works" when in fact
                           we have no signal. */}
                       {coachId && s.date && suggestions.length === 0 && (
-                        <p className="mt-3 text-[11px] text-stone-500">
+                        <p className="mt-3 text-[12px] text-stone-500">
                           No recurring availability on file for that day — the coach
                           will confirm or propose another time.
                         </p>
@@ -1100,7 +1100,7 @@ export default function MemberPrivatesPage() {
               )}
 
               <div className="mt-4">
-                <label className="block text-[11px] text-stone-500 mb-0.5">
+                <label className="block text-[12px] text-stone-500 mb-0.5">
                   Note for your coach (optional)
                 </label>
                 <textarea
@@ -1115,7 +1115,7 @@ export default function MemberPrivatesPage() {
 
               {!usableCredit && (
                 <div className="mt-4">
-                  <label className="block text-[11px] text-stone-500 mb-1">How will you pay?</label>
+                  <label className="block text-[12px] text-stone-500 mb-1">How will you pay?</label>
                   <div className="grid grid-cols-3 gap-2">
                     {(["CARD", "CASH", "CHECK"] as const).map((m) => (
                       <button key={m} type="button" onClick={() => setPayMethod(m)}
@@ -1124,7 +1124,7 @@ export default function MemberPrivatesPage() {
                       </button>
                     ))}
                   </div>
-                  <p className="text-[11px] text-stone-400 mt-1">
+                  <p className="text-[12px] text-stone-400 mt-1">
                     {payMethod === "CARD"
                       ? "Your club bills you after the lesson is confirmed."
                       : `Pay your coach by ${payMethod.toLowerCase()} — they confirm it when collected.`}
@@ -1200,7 +1200,7 @@ export default function MemberPrivatesPage() {
                     </p>
                   </div>
                   <span
-                    className={`text-[11px] px-2 py-1 rounded-full font-medium flex-shrink-0 ${
+                    className={`text-[12px] px-2 py-1 rounded-full font-medium flex-shrink-0 ${
                       STATUS_STYLE[b.status] || "bg-stone-100 text-stone-600"
                     }`}
                   >
@@ -1224,12 +1224,12 @@ export default function MemberPrivatesPage() {
                             <input
                               readOnly
                               value={inviteUrl(p.inviteToken)}
-                              className="flex-1 px-2 py-1 text-[11px] border border-stone-200 rounded bg-stone-50 text-stone-600"
+                              className="flex-1 px-2 py-1 text-[12px] border border-stone-200 rounded bg-stone-50 text-stone-600"
                               onFocus={(e) => e.currentTarget.select()}
                             />
                             <button
                               onClick={() => navigator.clipboard?.writeText(inviteUrl(p.inviteToken!))}
-                              className="px-2 py-1 text-[11px] border border-stone-200 rounded hover:bg-stone-50"
+                              className="px-2 py-1 text-[12px] border border-stone-200 rounded hover:bg-stone-50"
                             >
                               Copy
                             </button>
@@ -1311,7 +1311,7 @@ function PartnerPicker({
                 placeholder="Search by name"
                 className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
               />
-              {searching && <p className="text-[11px] text-stone-400 mt-1">Searching…</p>}
+              {searching && <p className="text-[12px] text-stone-400 mt-1">Searching…</p>}
               {results.length > 0 && (
                 <ul className="mt-1 border border-stone-200 rounded-lg divide-y divide-stone-100 max-h-44 overflow-y-auto">
                   {results.map((r) => (
@@ -1340,7 +1340,7 @@ function PartnerPicker({
         <div className="space-y-2">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
-              <label className="block text-[11px] text-stone-500 mb-0.5">
+              <label className="block text-[12px] text-stone-500 mb-0.5">
                 Partner name <span className="text-stone-400">(optional)</span>
               </label>
               <input
@@ -1353,7 +1353,7 @@ function PartnerPicker({
               />
             </div>
             <div>
-              <label className="block text-[11px] text-stone-500 mb-0.5">
+              <label className="block text-[12px] text-stone-500 mb-0.5">
                 Partner email <span className="text-stone-400">(optional)</span>
               </label>
               <input

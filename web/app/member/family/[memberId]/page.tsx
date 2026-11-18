@@ -553,7 +553,7 @@ export default function FamilyControlsPage() {
                       className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900 disabled:bg-stone-100"
                     />
                     {birthdayLocked && (
-                      <p className="text-[11px] text-stone-400 mt-1">
+                      <p className="text-[12px] text-stone-400 mt-1">
                         Locked for {first} — you can still update it here.
                       </p>
                     )}
@@ -662,7 +662,7 @@ export default function FamilyControlsPage() {
                     <option value="Other">Other</option>
                   </select>
                 </div>
-                <p className="text-[11px] text-stone-400">
+                <p className="text-[12px] text-stone-400">
                   They need their own club account first. Your club approves new guardians before they get access.
                 </p>
                 {guardianMsg && (
@@ -678,7 +678,7 @@ export default function FamilyControlsPage() {
                 exists to split with. */}
             <InvoiceSplit memberId={params.memberId} childName={first} />
 
-            <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-stone-400 px-1 !mt-5 -mb-1">
+            <p className="text-[12px] font-bold uppercase tracking-[0.06em] text-stone-400 px-1 !mt-5 -mb-1">
               Everything else — preserved
             </p>
 
@@ -746,7 +746,7 @@ export default function FamilyControlsPage() {
                   {invitingLogin ? "Sending…" : ownLogin.hasLogin ? "Resend invite" : "Send login invite"}
                 </button>
               </div>
-              <p className="text-[11px] text-stone-400 mt-2">
+              <p className="text-[12px] text-stone-400 mt-2">
                 They&apos;ll get an email to set their own password. Save the controls first if you
                 changed them — the invite uses your current settings.
               </p>
@@ -775,7 +775,7 @@ export default function FamilyControlsPage() {
                       <div key={key} className="flex flex-col sm:flex-row sm:items-center gap-2 border border-stone-200 rounded-lg px-3 py-2">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-stone-800 truncate">{p.label}</p>
-                          <p className="text-[11px] text-stone-400">{p.type === "subscription" ? "Membership" : "Product"} · {p.status}</p>
+                          <p className="text-[12px] text-stone-400">{p.type === "subscription" ? "Membership" : "Product"} · {p.status}</p>
                         </div>
                         {/* Memberships go through the transfer flow: it shows
                             what happens to the payment, takes an explicit
@@ -876,7 +876,7 @@ function CollapsedSection({
         </span>
         <span className="flex-1 min-w-0">
           <span className="block text-[13px] font-semibold text-stone-900">{title}</span>
-          <span className="block text-[11.5px] text-stone-500 truncate">{sub}</span>
+          <span className="block text-[12px] text-stone-500 truncate">{sub}</span>
         </span>
         <svg
           width="16"
