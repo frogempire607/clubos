@@ -94,6 +94,13 @@ server and a database that should be in the same building.
    at a time. The local `.env` has no such setting; I could not see Netlify's.
    Tell me what both say and I will advise.
 
+**Answered 2026-11-17.** Functions region is `us-east-1` (Virginia); the plan
+cannot change it, and the database is in `us-east-2`. The cross-region hop
+stays, so the work is fewer database calls per request. `DATABASE_URL` has
+`pgbouncer=true` and no `connection_limit`: leave it. `connection_limit=1`
+would serialize every parallel read this audit introduced. If Prisma `P2024`
+errors ever appear, use `connection_limit=5&pool_timeout=20`, not 1.
+
 ## 3. Findings
 
 Severity: **Critical** = data exposure or money counted wrong. **High** = a
@@ -151,10 +158,10 @@ family or staff member sees something broken. **Medium** = slow or confusing.
 | R6 | `financials/page.tsx` Mark paid, `staff/payouts/page.tsx`, announcements Send now, events Duplicate, staff Setup link | Double tap does it twice | High/Medium | **Fixed** (`useSingleFlight`) |
 | R7 | webhook returns 200 on every error | A temporary database blip during a payment event is never retried | High | **Fixed 2026-11-16** (your decision) on `claude/athletixos-mobile-app`. Connection failures are retried; anything that would fail every time is not. |
 | R8 | `app/api/attendance/charge/route.ts` | A second submit of "Cash $20" writes a second $20 row | High | **Fixed 2026-11-16** (your decision) on `claude/athletixos-mobile-app`. One payment per person per class or event; a second is refused. |
-| R9 | `app/api/events/[id]/charge/route.ts:296` (cash at the door), `events/[id]/comp/generate-payouts` | Double tap books cash twice / creates two payout records | High | **Left**. Same claim-first fix; each touches a money path I did not have time to trace end to end. Next on the list. |
+| R9 | `app/api/events/[id]/charge/route.ts:296` (cash at the door), `events/[id]/comp/generate-payouts` | Double tap books cash twice / creates two payout records | High | **Fixed 2026-11-17** (`cec90d1`). The door path and pay-later-by-link find or create the registration behind the per-member advisory lock; payout records are created and claimed in one transaction. |
 | R10 | An announcement cut off mid-send stays "Sending" forever with no retry | High | **Partly fixed** (R2 removes the main cause). A recovery sweep is still needed. |
 | R11 | `announcements/route.ts` legacy send, `members/migration/send` (150 at a time), `events/[id]/bill-registrants` loop with no time limit | Large sends can be cut off part-way | Medium | **Left**. Needs batching with a "remaining" count. |
-| R12 | Last event spot can be sold twice (`public/events/[slug]/register`); class capacity is not enforced on member booking | Medium | **Event half fixed 2026-11-16**: the last spot is sold once. Class capacity on member booking is still not enforced (not decided). |
+| R12 | Last event spot can be sold twice (`public/events/[slug]/register`); class capacity is not enforced on member booking | Medium | **Event half fixed 2026-11-16**: the last spot is sold once. **Class half fixed 2026-11-17** (`8d0b98b`): a full class day cannot be booked by a member, and the last spot is taken once. |
 | R13 | Private-lesson credit can be used twice on a double accept; product stock can oversell | Medium | **Left**. |
 
 ### Dates and timezones
@@ -165,7 +172,7 @@ Frog Empire's timezone is set (`America/New_York`); the three other clubs have n
 |---|---|---|---|---|
 | D1 | `lib/discounts.ts:63` | A code that "expires Nov 15" stops working at 7 pm on Nov 14 | High | **Fixed 2026-11-16** (your decision) on `claude/athletixos-mobile-app`. Good through the end of the day shown, club time. |
 | D2 | `lib/reportsRange.ts` vs date-only money | An expense dated the 1st lands in the previous month's report | High | **Left**. Report-boundary change; no amounts move, but every monthly figure shifts, so you should see it first. |
-| D3 | `lib/email.ts:421`, `:911`, check-in page | Event emails print UTC times: a 6:00 pm event emails as "11:00 PM" | High | **Left**. Fixable with the club timezone; touches every event email template, next on the list. |
+| D3 | `lib/email.ts:421`, `:911`, check-in page | Event emails print UTC times: a 6:00 pm event emails as "11:00 PM" | High | **Fixed 2026-11-17** (`81b96f5`). Emails state which kind of time they print (`lib/emailTime.ts`); events and lessons use the club's timezone with the zone named. |
 | D4 | `app/api/dashboard/summary/route.ts`, `app/api/attendance/route.ts` | Today's evening class drops off the dashboard at lunchtime; a 7:30 pm event shows under tomorrow | Medium | **Left**. Next on the list. |
 | D5 | `lib/parentalControls.ts:184` | A minor's daily spending limit resets at 7 pm | Medium | **Fixed 2026-11-16** (your decision) on `claude/athletixos-mobile-app`. Resets at the club's midnight. |
 | D6 | `lib/memberStatus.ts:170`, `lib/chargeDate.ts` | Manual memberships end, and scheduled charges fire, at 7 pm the evening before the date shown | Low | **Fixed 2026-11-16** (your decision) on `claude/athletixos-mobile-app`. Both happen when that day starts at the club. Applies to memberships created from now on; existing Stripe subscriptions keep the time of day they already renew at. Stripe cancel-at dates were not changed. |
@@ -177,9 +184,9 @@ Frog Empire's timezone is set (`America/New_York`); the three other clubs have n
 | U1 | 25 internal `<a href>` links; `components/NativeDeepLinks.tsx`; attendance "open event" | Full app reload where a tap should be instant | High | **Fixed** (`1dae831`) |
 | U2 | `100vh` / `min-h-screen` in 67 files | Bottom of the page and the message box hidden under phone browser bars | High | **Fixed** |
 | U3 | 10 pages where a failed request leaves "Loading…" forever or crashes (`settings/email`, `products/[id]/tags`, `reports/imports/*`, `ReceiptsTab`, `ReconcileTab`, `settings/page.tsx:1272`, `settings/member-form`, `MemberModals.tsx:1427`) | Stuck spinner, or a white screen | High | **Partly fixed**: a crash is now contained by the new error screens. The per-page fixes are left for the app's "feels native" slice. |
-| U4 | ~60 places where a dropped connection leaves a spinner forever | Common on a phone | Medium | **Left** for the same slice: one shared fetch helper plus a Retry state. |
+| U4 | ~60 places where a dropped connection leaves a spinner forever | Common on a phone | Medium | **Fixed 2026-11-17** (`1122aab`) with one shared guard instead of per-screen edits: a 30 s limit on every data load, a "Can't reach the server" bar, and Try again (`lib/connectionGuard.ts`). Individual screens still have no inline error message of their own. |
 | U5 | 78 browser `alert()` / `confirm()` / `prompt()` dialogs, including ones that guard a card charge | Blocks the screen; titled with the web address; Apple reviewers look for these | Medium | **Left** for the app work (planned slice). |
-| U6 | 246 places with text under 12 px (115 in the member portal) | Hard to read on a phone | Low | **Left** for the app work. |
+| U6 | 246 places with text under 12 px (115 in the member portal) | Hard to read on a phone | Low | **Member portal fixed 2026-11-17** (`c175a8f`): 116 places raised to 12px and the build guard now covers `app/member`. The dashboard's remaining sub-12px text is tracked by the same guard's baseline. |
 
 ## 4. The decision I need from you (S2)
 
