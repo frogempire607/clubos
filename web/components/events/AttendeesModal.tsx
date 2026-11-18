@@ -44,6 +44,7 @@
 // policy) comes from GET /api/events/[id]/registrations. Neither read charges
 // a card or sends an email (owner decision 2026-11-16).
 
+import { backdropDismiss } from "@/lib/overlay";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClipboardList, Download, Mail, UserCheck, X } from "lucide-react";
 import { PRIVATE_LINK_BADGE, type AttendeeFilter, type AttendeeRow } from "@/lib/eventAttendees";
@@ -569,7 +570,7 @@ export default function AttendeesModal({
   const sheetRow = sheet && "row" in sheet ? sheet.row : null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center sm:p-4" onClick={() => onClose(changed)}>
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center sm:p-4" {...backdropDismiss(() => onClose(changed))}>
       <div
         className="w-full sm:max-w-[1120px] bg-surface sm:rounded-[14px] rounded-t-2xl shadow-2xl max-h-[92dvh] flex flex-col"
         onClick={(e) => e.stopPropagation()}

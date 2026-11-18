@@ -6,6 +6,7 @@
 // length / add-on tables when it was made); pending counts come from the same
 // array the grid draws.
 
+import { backdropDismiss } from "@/lib/overlay";
 import { confirmDialog, promptDialog } from "@/lib/dialogs";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -188,7 +189,7 @@ function AddBooking({ data, onClose, onDone }: { data: Payload; onClose: () => v
     onDone(`Booked ${p?.name} for ${name}.`);
   }
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" {...backdropDismiss(onClose)}>
       <div className="w-full sm:max-w-md bg-surface rounded-t-2xl sm:rounded-2xl p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-base font-semibold text-text-primary">Add booking</h2>
         <p className="text-[12px] text-text-muted">A phone or walk-in booking — confirmed now. Times are in your computer's time zone.</p>

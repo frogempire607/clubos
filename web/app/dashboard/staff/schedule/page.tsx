@@ -19,6 +19,7 @@
 // alone. Below md the week becomes one day at a time.
 // A club that is not switched on keeps the screen it always had.
 // Deep link: ?date=YYYY-MM-DD&class=<classId>&session=<sessionId> (Action Items, emails).
+import { useFirstLoad } from "@/lib/firstLoad";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
@@ -155,7 +156,7 @@ async function errorOf(res: Response, fallback: string): Promise<string> {
 export default function StaffSchedulePage() {
   const [weekStart, setWeekStart] = useState(() => weekDates(localYmd(new Date()))[0]);
   const [feed, setFeed] = useState<Feed | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useFirstLoad();
   const [flash, setFlash] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
   const { data: session } = useSession();

@@ -1,5 +1,7 @@
 "use client";
 
+import { useFirstLoad } from "@/lib/firstLoad";
+import { backdropDismiss } from "@/lib/overlay";
 import { alertDialog, confirmDialog } from "@/lib/dialogs";
 import { useSingleFlight } from "@/lib/useSingleFlight";
 import { useEffect, useState } from "react";
@@ -185,7 +187,7 @@ export default function EventsPage() {
   const [clubEventTypes, setClubEventTypes] = useState<ClubEventType[]>([]);
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [staffList, setStaffList] = useState<Staff[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useFirstLoad();
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Event | null>(null);
   // B11 slice 3 — Attendees is the one roster + money screen. The old
@@ -389,7 +391,7 @@ export default function EventsPage() {
                 {actionMenuFor === e.id && (
                   <div
                     className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center"
-                    onClick={() => setActionMenuFor(null)}
+                    {...backdropDismiss(() => setActionMenuFor(null))}
                   >
                     <div
                       className="w-full sm:max-w-sm bg-surface rounded-t-2xl sm:rounded-2xl p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:pb-2 shadow-2xl"

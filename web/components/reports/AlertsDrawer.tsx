@@ -1,5 +1,6 @@
 "use client";
 
+import { useEscapeToClose } from "@/lib/overlay";
 import { useBodyScrollLock } from "@/components/reports/responsive";
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -67,14 +68,7 @@ export default function AlertsDrawer({ open, onClose }: { open: boolean; onClose
     if (open) load();
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    function onEsc(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onEsc);
-    return () => document.removeEventListener("keydown", onEsc);
-  }, [open, onClose]);
+  useEscapeToClose(onClose, open);
 
   useBodyScrollLock(open);
   if (!open) return null;

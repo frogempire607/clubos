@@ -10,6 +10,7 @@
 // buy routes' stock checks keep working unchanged. Private lessons stay out
 // (they have /dashboard/privates).
 
+import { backdropDismiss } from "@/lib/overlay";
 import { promptDialog } from "@/lib/dialogs";
 import { useMemo, useState, type ReactNode } from "react";
 import { X, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
@@ -257,7 +258,7 @@ export default function ProductEditor({ product, onClose, onSaved }: { product: 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" {...backdropDismiss(onClose)}>
       <div className="w-full sm:max-w-[940px] max-h-[92dvh] flex flex-col rounded-t-2xl sm:rounded-2xl shadow-2xl" style={{ background: "var(--color-bg)" }} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={isEdit ? "Edit product" : "Add product"}>
         <div className="px-4 sm:px-5 py-3 flex items-center justify-between gap-3 border-b border-app-border bg-surface rounded-t-2xl">
           <div className="min-w-0">

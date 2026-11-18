@@ -7,6 +7,7 @@
 // quantity, note, discount, the two real payment paths, and a CTA that says
 // which one it is. One line per sale — a multi-line cart is a later slice.
 
+import { backdropDismiss } from "@/lib/overlay";
 import { useEffect, useMemo, useState } from "react";
 import StaffDiscountPicker from "@/components/StaffDiscountPicker";
 import {
@@ -69,7 +70,7 @@ export default function SellModal({ product, onClose, onSold }: { product: Sella
 
   if (done) {
     return (
-      <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onSold}>
+      <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" {...backdropDismiss(onSold)}>
         <div className="bg-surface rounded-t-2xl sm:rounded-2xl w-full max-w-sm p-8 text-center" onClick={(e) => e.stopPropagation()}>
           <div className="mx-auto mb-3 h-11 w-11 rounded-full flex items-center justify-center text-lg font-bold" style={{ background: "rgba(163,230,53,.25)", color: "#3F6212" }}>✓</div>
           <h3 className="text-lg font-semibold text-text-primary mb-1">Sale recorded</h3>
@@ -83,7 +84,7 @@ export default function SellModal({ product, onClose, onSold }: { product: Sella
   const input = "w-full px-3 py-2 border border-app-border rounded-lg text-sm bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-brand min-h-[44px] md:min-h-0";
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" {...backdropDismiss(onClose)}>
       <div className={`bg-surface rounded-t-2xl sm:rounded-2xl w-full ${hasVariants ? "sm:max-w-3xl" : "sm:max-w-md"} max-h-[92dvh] flex flex-col`} onClick={(e) => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-app-border flex items-center justify-between">
           <div>

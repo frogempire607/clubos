@@ -245,7 +245,7 @@ export default function ClubSettingsPage() {
                 value={slug}
                 onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
                 required
-                pattern="[a-z0-9-]+"
+                pattern="[a-z0-9\-]+"
                 className="flex-1 px-3 py-2 border border-app-border rounded-r-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand"
               />
             </div>

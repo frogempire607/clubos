@@ -91,6 +91,32 @@ export const GATED = [
   // …and the one component all of those dialogs are drawn by, exercised as
   // rendered (jsdom): what is on screen, and that each button answers.
   ["scripts/dialog-host-tests.ts", RENDER],
+  // Crash audit 2026-11-18: a sheet closes when the person closes it. The
+  // guard reads every screen for the four shapes that closed sheets by
+  // themselves (blank-on-reload around a sheet, backdrop click on the
+  // container, a private Escape listener, a private scroll lock); the tests
+  // exercise the shared pieces as rendered, including the reported case —
+  // editing a guardian's name in the member drawer.
+  ["scripts/sheet-stability-guard.ts"],
+  ["scripts/sheet-stability-tests.ts", RENDER],
+  // …and the one production 500 the audit found in Netlify's logs: the
+  // audience preview with a status rule not yet filled in.
+  ["scripts/audience-status-filter-tests.ts"],
+  // …and the hole the audit's own crawl fell into: scripts/dev-local.sh is a
+  // default-deny environment now, and this asks it what a local server would
+  // see for every variable the app reads. Nothing real, by name.
+  ["scripts/dev-local-env-tests.ts"],
+  // The staff profile and "My profile" crashed on every open: a hook written
+  // under the loading returns. Every component and custom hook is parsed for
+  // a hook call below an early return.
+  ["scripts/hooks-order-guard.ts"],
+  // The pages the crawl found crashing, pinned as rendered / as source.
+  ["scripts/crash-audit-tests.ts"],
+  // First-party client error reporting: a crashed screen is recorded (which
+  // screen, the error, who by id and role) and nothing about a person is —
+  // addresses lose ids and tokens, text loses emails, the server re-scrubs
+  // everything and takes identity only from the session.
+  ["scripts/client-errors-tests.ts"],
   ["scripts/members-grep-guards.ts"],
   ["scripts/reports-mobile-guard.ts", [], { TZ: "America/New_York" }],
   ["scripts/ui-polish-guard.ts"],
@@ -301,6 +327,9 @@ function run([file, args = [], env = {}]) {
         // query fail here instead of reaching production during a deploy.
         DATABASE_URL: "postgresql://build-tests-no-db@127.0.0.1:1/none",
         DIRECT_URL: "postgresql://build-tests-no-db@127.0.0.1:1/none",
+        // The SECOND database address (lib/tenantPrisma.ts). Left unset, the
+        // database client fills it in from a developer's .env — production.
+        APP_DATABASE_URL: "postgresql://build-tests-no-db@127.0.0.1:1/none",
         ...env,
       },
     });

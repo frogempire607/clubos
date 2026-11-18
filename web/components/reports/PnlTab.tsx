@@ -1,5 +1,7 @@
 "use client";
 
+import { useFirstLoad } from "@/lib/firstLoad";
+import { useEscapeToClose } from "@/lib/overlay";
 import { useEffect, useRef, useState } from "react";
 import { ScrollTable, useBodyScrollLock } from "@/components/reports/responsive";
 import { AlertTriangle, Download, FileText, X } from "lucide-react";
@@ -37,7 +39,7 @@ export default function PnlTab({ range, customFrom, customTo }: { range: RangeKe
   const [period, setPeriod] = useState<"monthly" | "weekly">("monthly");
   const [basis, setBasis] = useState<"cash" | "accrual">("cash");
   const [data, setData] = useState<PnlResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useFirstLoad();
   const [drill, setDrill] = useState<{ lineKey: string; columnKey: string | null; lineLabel: string; columnLabel: string } | null>(null);
 
   useEffect(() => {
@@ -50,7 +52,7 @@ export default function PnlTab({ range, customFrom, customTo }: { range: RangeKe
     fetch(`/api/reports/pnl?${params}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        setData(d);
+        setData((prev) => d ?? prev);
         setLoading(false);
       });
   }, [range, period, basis, customFrom, customTo]);
@@ -356,11 +358,7 @@ function DrillSheet({
   const [data, setData] = useState<DrillResponse | null>(null);
   const [loading, setLoading] = useState(true);
   useBodyScrollLock(true);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeToClose(onClose);
 
   useEffect(() => {
     const params = new URLSearchParams({ line: lineKey, period, range });

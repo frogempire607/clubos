@@ -14,6 +14,7 @@
 // combinations.
 //
 // Mobile: the register becomes one card per asset; the form stacks.
+import { backdropDismiss } from "@/lib/overlay";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, PackageOpen, Plus, Trash2, X } from "lucide-react";
 import { SkeletonList } from "@/components/LoadingSkeleton";
@@ -654,7 +655,7 @@ function Field({ label, children, className }: { label: string; children: React.
 
 function Sheet({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" {...backdropDismiss(onClose)}>
       <div
         className="max-h-[90dvh] w-full max-w-2xl overflow-auto rounded-t-2xl bg-surface p-4 sm:rounded-xl"
         onClick={(e) => e.stopPropagation()}

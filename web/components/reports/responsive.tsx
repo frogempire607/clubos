@@ -9,6 +9,7 @@
 //                   FIRST column pinned, and shows a fade on the edge that still
 //                   has more columns
 
+import { useScrollLock } from "@/lib/overlay";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export function useMediaQuery(query: string, initial = false): boolean {
@@ -28,12 +29,9 @@ export function useMediaQuery(query: string, initial = false): boolean {
 export const usePhone = () => useMediaQuery("(max-width: 639.98px)");
 
 export function useBodyScrollLock(active: boolean) {
-  useEffect(() => {
-    if (!active || typeof document === "undefined") return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-  }, [active]);
+  // Counted with every sheet's lock (lib/overlay.ts), so a drawer and a dialog
+  // closing in either order give the page its scrolling back.
+  useScrollLock(active);
 }
 
 /**

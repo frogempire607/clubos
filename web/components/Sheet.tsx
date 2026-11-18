@@ -5,7 +5,19 @@
 // dialog. Phones (<md): bottom sheet with a grab handle and 22px top radius.
 // role="dialog" + aria-modal + aria-labelledby, Escape and backdrop close,
 // body scroll locked while open. Swipe-to-dismiss is a B22 follow-up.
-import { useEffect, useId } from "react";
+//
+// Crash audit 2026-11-18 — a Sheet closes when the person closes it:
+//   · Escape only reaches the TOP sheet (a confirm dialog over an edit sheet
+//     used to close both with one key press);
+//   · the backdrop closes on a press that starts and ends on the backdrop,
+//     never on a text selection dragged out of the panel;
+//   · the scroll lock is counted, so sheets closing in any order give the
+//     page its scrolling back;
+//   · `onClose` may be a new function every render — nothing re-subscribes,
+//     so a parent that re-renders or reloads leaves the sheet alone.
+// All of that lives in lib/overlay.ts and is shared with the older modals.
+import { useId } from "react";
+import { backdropDismiss, useOverlayLayer } from "@/lib/overlay";
 
 export default function Sheet({
   open,
@@ -28,24 +40,14 @@ export default function Sheet({
   dismissable?: boolean;
 }) {
   const titleId = useId();
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && dismissable) onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = prev;
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open, onClose, dismissable]);
+  // Registered even when not dismissable: it is still the top layer, so
+  // Escape stops here instead of reaching whatever is open underneath.
+  useOverlayLayer(open, { onEscape: dismissable ? onClose : null, lockScroll: true });
 
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center md:items-center">
-      <div className="absolute inset-0 bg-black/50" onClick={dismissable ? onClose : undefined} />
+      <div className="absolute inset-0 bg-black/50" {...backdropDismiss(dismissable ? onClose : null)} />
       <div
         role="dialog"
         aria-modal="true"

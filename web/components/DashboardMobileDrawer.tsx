@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useOverlayLayer } from "@/lib/overlay";
 
 // Slide-in drawer that wraps DashboardSidebar for mobile. Renders a
 // dimmed backdrop + a left-aligned column that holds children. Escape
@@ -15,19 +15,7 @@ export default function DashboardMobileDrawer({
   onClose: () => void;
   children: React.ReactNode;
 }) {
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = prev;
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open, onClose]);
+  useOverlayLayer(open, { onEscape: onClose, lockScroll: true });
 
   return (
     <div

@@ -17,6 +17,7 @@
 //
 // Mobile: the filter bar and every table scroll horizontally, the statement
 // picker wraps, and the drill-down is a sheet rather than a centred dialog.
+import { backdropDismiss } from "@/lib/overlay";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -954,7 +955,7 @@ function DrillSheet({
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
-      onClick={onClose}
+      {...backdropDismiss(onClose)}
     >
       <div
         className="max-h-[85dvh] w-full max-w-3xl overflow-hidden rounded-t-2xl bg-surface sm:rounded-xl"

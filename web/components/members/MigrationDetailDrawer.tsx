@@ -17,6 +17,7 @@
 
 "use client";
 
+import { backdropDismiss, useEscapeToClose } from "@/lib/overlay";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Copy, ExternalLink, Lock, Send, X } from "lucide-react";
@@ -101,13 +102,7 @@ export function MigrationDetailDrawer({
 
   useEffect(() => load(), [load]);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeToClose(onClose);
 
   async function resend() {
     setBusy(true);
@@ -152,7 +147,7 @@ export function MigrationDetailDrawer({
     : [];
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose} role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" {...backdropDismiss(onClose)} role="dialog" aria-modal="true">
       <div
         onClick={(e) => e.stopPropagation()}
         className="flex h-full w-full flex-col bg-surface md:max-w-[664px] md:rounded-l-[14px]"

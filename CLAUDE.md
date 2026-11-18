@@ -132,8 +132,26 @@ never remove one, and never hand-roll a partial override in its place**:
 | `STRIPE_SECRET_KEY` | **Charge a real card, cancel a real subscription, create a real Stripe object on the club's connected account** | Every Stripe call throws, loudly and locally |
 | `STRIPE_WEBHOOK_SECRET` / `STRIPE_CONNECT_WEBHOOK_SECRET` | Verify and act on real webhook payloads replayed locally | Signature verification fails |
 | `APNS_KEY_ID` / `APNS_PRIVATE_KEY` / `FIREBASE_SERVICE_ACCOUNT_JSON` | Put a real push notification on a real family's or coach's phone (a local approval request or message triggers one) | `lib/pushServer.ts` treats both platforms as not configured; every send returns before its first query |
+| `APP_DATABASE_URL` → `127.0.0.1:55432` | **A second production database connection.** `lib/tenantPrisma.ts` opens its own client from this (document signatures list, the ledger) — `DATABASE_URL` being local does not cover it | Talks to the throwaway Postgres |
+| `PLAID_CLIENT_ID` / `PLAID_SECRET` | Ask the real Plaid API for a link token / pull real bank transactions | Bank tab reads "not set up" |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | Write an upload into the production storage bucket | `lib/storage.ts` writes to local disk |
+| `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` / `CRON_SECRET` | Report local noise as production errors; accept a cron call | Off |
+| **everything else** (default-deny) | Any name defined in an env file that the script has not given a local value | Exported blank, with a line saying so |
 
 It also binds `127.0.0.1` (not `0.0.0.0`) and sets `NEXTAUTH_URL` to match.
+
+**There does not have to be a `.env` in the worktree for production values to
+load.** `@prisma/client` reads the `.env` beside the `node_modules` it was
+installed into — for a worktree, the **main checkout's** — the moment it is
+imported, and fills in every variable not already set. A worktree with no
+`.env` at all (2026-11-18) still handed a local server `APP_DATABASE_URL`,
+the Plaid keys and the field-encryption key. That is why the script is now
+**default-deny**: after its own exports it blanks every name any of those files
+defines. `sh scripts/dev-local.sh env` prints what a server would see (names
+only), and `scripts/dev-local-env-tests.ts` checks it on every build.
+
+`sh scripts/dev-local.sh built` serves a production build with the same
+environment (for crawls — `scripts/browser-crash-audit.ts`).
 
 **Blanking is not belt-and-braces — it is the only thing standing between a
 local click and a real side effect, and twice now "nothing happened" has been
@@ -151,7 +169,16 @@ luck rather than a property of the setup:**
   guard fired before the API call. That is the club fixture saving it, not the
   test setup. Fixed the same day.
 
-The pattern in both: the *database* was handled, a *different* credential was
+- **2026-11-18** — the crash audit's crawl clicked "Signatures" on a document.
+  That one route reads through `lib/tenantPrisma.ts`, which connects with
+  `APP_DATABASE_URL` — never blanked, and loaded from the main checkout's
+  `.env` by the database client. Two connection attempts reached the
+  production pooler. Both were refused at sign-in ("no tenant identifier"),
+  because the local copy of that address is malformed. Nothing was read or
+  written. That is the address being wrong, not the setup being safe. Fixed
+  the same day by making the script default-deny.
+
+The pattern in all three: the *database* was handled, a *different* credential was
 not, and the escape was a property of the data rather than of the configuration.
 When adding any new outbound integration, add its key to `dev-local.sh` and to
 this table in the same commit.

@@ -1043,11 +1043,15 @@ export default function MemberHome() {
   function load() {
     sharedGet<any>("/api/member/portal")
       .then((r) => (r.ok ? r.data : null))
-      .then((d) => { setData(d); setLoading(false); })
+      // A reload that fails (it runs after linking a child, a booking, a
+      // payment) keeps the home screen that is already drawn. Emptying the
+      // data here replaced the whole page — and any pop-up open on it — with
+      // "Could not load your profile."
+      .then((d) => { setData((prev: PortalData | null) => d ?? prev); setLoading(false); })
       // Without this, a rejected fetch (dropped connection, offline WebView)
       // leaves `loading` true forever and the portal renders its skeleton
       // permanently — no error, no retry, just a page that never arrives.
-      .catch(() => { setData(null); setLoading(false); });
+      .catch(() => { setData((prev: PortalData | null) => prev); setLoading(false); });
   }
 
   useEffect(() => { load(); }, []);

@@ -12,6 +12,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import { reportClientError } from "@/lib/clientErrorReporter";
 
 export default function RouteError({
   error,
@@ -26,6 +27,10 @@ export default function RouteError({
 }) {
   useEffect(() => {
     console.error("[route error]", error);
+    // Record it (first-party, lib/clientErrorReporter.ts). Until 2026-11-18 a
+    // screen that reached this page left no trace anywhere: the staff profile
+    // crashed on every open for two days and nobody was told.
+    reportClientError(error, "SCREEN", { digest: error.digest ?? null });
     // Report it when error reporting is configured. Loaded on demand so the
     // reporting library is not part of every screen's download.
     if (process.env.NEXT_PUBLIC_SENTRY_DSN) {

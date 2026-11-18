@@ -188,6 +188,10 @@ export default function StripeDiagnosticsPage() {
         )}
       </Card>
 
+      <div className="mt-4">
+        <ScreenErrorsCard />
+      </div>
+
       <p className="text-[12px] text-text-muted mt-4">
         Webhook URL: <code className="bg-app-bg px-1 py-0.5 rounded">{env.nextAuthUrl ?? "<NEXTAUTH_URL>"}/api/stripe/webhook</code>
         {" — "}point your Stripe webhook endpoint here and copy the signing secret into <code className="bg-app-bg px-1 py-0.5 rounded">STRIPE_WEBHOOK_SECRET</code>.
@@ -222,5 +226,79 @@ function KeyVal({ label, value, mono }: { label: string; value: string; mono?: b
         {value}
       </span>
     </div>
+  );
+}
+
+// Screens that crashed in someone's browser (crash audit 2026-11-18). Before
+// this card a crash left no trace: the staff profile showed the error screen
+// on every open and the only way to know was to be told.
+type ScreenErrorGroup = { fingerprint: string; source: string; path: string; message: string; count: number; people: number; firstAt: string; lastAt: string; lastStack: string | null };
+
+function ScreenErrorsCard() {
+  const [state, setState] = useState<{ ready: boolean; days: number; total: number; capped: boolean; groups: ScreenErrorGroup[] } | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [openKey, setOpenKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/client-errors")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d) => { if (alive) setState(d); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, []);
+
+  const when = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+  return (
+    <Card title="Screen errors">
+      <p className="text-[13px] text-text-muted mb-3">
+        Each time a screen crashes for someone at your club, it is recorded here: which screen, the error, and how many people it happened to.
+        No names or member details are stored.
+      </p>
+      {failed ? (
+        <p className="text-sm text-text-muted">Couldn&rsquo;t load screen errors.</p>
+      ) : !state ? (
+        <p className="text-sm text-text-muted">Loading…</p>
+      ) : !state.ready ? (
+        <p className="text-sm text-text-muted">Not recording yet — the database update for this has not been applied.</p>
+      ) : state.groups.length === 0 ? (
+        <p className="text-sm text-text-primary">No screen has crashed in the last {state.days} days.</p>
+      ) : (
+        <>
+          <p className="text-[13px] text-text-primary mb-2">
+            {state.capped ? "500+" : state.total} crash{state.total === 1 ? "" : "es"} in the last {state.days} days, {state.groups.length} distinct.
+          </p>
+          <ul className="divide-y divide-app-border">
+            {state.groups.map((g) => (
+              <li key={g.fingerprint} className="py-2.5">
+                <button
+                  type="button"
+                  onClick={() => setOpenKey(openKey === g.fingerprint ? null : g.fingerprint)}
+                  aria-expanded={openKey === g.fingerprint}
+                  className="w-full min-h-[44px] text-left"
+                >
+                  <span className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                    <code className="text-[13px] text-text-primary break-all">{g.path}</code>
+                    <span className="text-[12px] text-text-muted whitespace-nowrap">
+                      {g.count}× · {g.people} {g.people === 1 ? "person" : "people"} · last {when(g.lastAt)}
+                    </span>
+                  </span>
+                  <span className="mt-0.5 block text-[13px] text-text-muted break-words">{g.message}</span>
+                </button>
+                {openKey === g.fingerprint && (
+                  <div className="mt-2">
+                    <p className="text-[12px] text-text-muted mb-1">First seen {when(g.firstAt)}</p>
+                    <pre className="max-h-64 overflow-auto rounded-lg bg-app-bg p-3 text-[12px] leading-relaxed text-text-primary whitespace-pre-wrap break-all">
+                      {g.lastStack ?? "No further detail was reported."}
+                    </pre>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Card>
   );
 }

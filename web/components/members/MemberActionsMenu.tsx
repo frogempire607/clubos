@@ -15,6 +15,7 @@
 
 "use client";
 
+import { useEscapeToClose, useScrollLock } from "@/lib/overlay";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -108,14 +109,8 @@ export function MemberActionsMenu({
   }, []);
 
   // The sheet covers the page, so the page must not scroll underneath it.
-  useEffect(() => {
-    if (!open || !sheet) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open, sheet]);
+  useScrollLock(open && sheet);
+  useEscapeToClose(() => setOpen(false), open);
   const place = useCallback(() => {
     const b = btnRef.current?.getBoundingClientRect();
     if (!b) return;
@@ -139,20 +134,15 @@ export function MemberActionsMenu({
       if (ref.current?.contains(t) || menuRef.current?.contains(t)) return;
       setOpen(false);
     }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
     // A fixed menu doesn't travel with its row, so follow the button rather
     // than closing. Closing on scroll looked tidier but broke the common case:
     // clicking a ⋯ near the fold scrolls it into view, which fired the handler
     // and dismissed the menu the same gesture had just opened.
     document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
     window.addEventListener("scroll", place, true);
     window.addEventListener("resize", place);
     return () => {
       document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
       window.removeEventListener("scroll", place, true);
       window.removeEventListener("resize", place);
     };

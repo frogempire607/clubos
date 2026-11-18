@@ -1,5 +1,6 @@
 "use client";
 
+import { backdropDismiss } from "@/lib/overlay";
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 
@@ -67,7 +68,7 @@ export default function QRModal({
   return (
     <div
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-      onClick={onClose}
+      {...backdropDismiss(onClose)}
     >
       <div
         className="bg-white rounded-xl w-full max-w-sm overflow-hidden"

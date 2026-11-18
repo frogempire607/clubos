@@ -10,6 +10,7 @@
 
 "use client";
 
+import { backdropDismiss, useEscapeToClose } from "@/lib/overlay";
 import { alertDialog, confirmDialog, promptDialog } from "@/lib/dialogs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -1703,13 +1704,7 @@ function FiltersSheet({
   const [cf, setCf] = useState(q.cf);
   const [cfv, setCfv] = useState(q.cfv);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeToClose(onClose);
 
   const bracketKey =
     AGE_BRACKETS.find(
@@ -1740,7 +1735,7 @@ function FiltersSheet({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" {...backdropDismiss(onClose)}>
       <div
         className="max-h-[90dvh] w-full overflow-y-auto rounded-t-2xl bg-surface p-5 sm:max-w-md sm:rounded-[14px]"
         onClick={(e) => e.stopPropagation()}

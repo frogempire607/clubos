@@ -1,5 +1,6 @@
 "use client";
 
+import { useFirstLoad } from "@/lib/firstLoad";
 import { ScrollTable } from "@/components/reports/responsive";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -37,7 +38,7 @@ const moneyExact = (n: number) => `$${n.toLocaleString("en-US", { minimumFractio
 
 export default function CostsTab({ range, customFrom, customTo }: { range: RangeKey; customFrom?: string; customTo?: string }) {
   const [data, setData] = useState<Response | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useFirstLoad();
   const [editing, setEditing] = useState<TopCat | null>(null);
 
   async function load() {
@@ -49,7 +50,9 @@ export default function CostsTab({ range, customFrom, customTo }: { range: Range
     }
     const res = await fetch(`/api/reports/costs?${params}`);
     const d = res.ok ? await res.json() : null;
-    setData(d);
+    // A failed refresh keeps the report that is on screen (and the editor
+    // open over it) rather than blanking to the skeleton.
+    setData((prev) => d ?? prev);
     setLoading(false);
   }
 
