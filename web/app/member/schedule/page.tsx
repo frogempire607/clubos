@@ -223,7 +223,7 @@ function ItemCard({ item, onClick, family = false, contextFirstName = null }: { 
             {span ?? `${formatLongDate(item)} · ${formatTimeRange(item)}`}
             {multi ? ` · ${item.sessions!.length} sessions` : ""}
             {item.location ? ` · ${item.location}` : ""}
-            {item.capacity ? ` · ${Math.max(item.capacity - item.filled, 0)} spots left` : ""}
+            {item.capacity ? (item.capacity - item.filled <= 0 ? " · Full" : ` · ${item.capacity - item.filled} ${item.capacity - item.filled === 1 ? "spot" : "spots"} left`) : ""}
           </p>
           {reg && (
             <span className="mt-1.5 inline-flex items-center rounded-full border border-green-200 bg-green-50 px-2.5 py-0.5 text-[13px] font-semibold text-green-800">

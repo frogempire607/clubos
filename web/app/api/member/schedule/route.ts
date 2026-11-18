@@ -1,3 +1,4 @@
+import { classIsFull, fullDayOffer } from "@/lib/classCapacity";
 import { NextResponse } from "next/server";
 import { eventLinksForRead } from "@/lib/eventLinks";
 import { athleteMatches, describeAudience, normalizeAudience } from "@/lib/eventAudience";
@@ -587,8 +588,14 @@ export async function GET(req: Request) {
           a.bookingLabel = null;
         }
       }
+      // Class limit: a full day reads "Full" and offers nothing to tap, for
+      // everyone who is not already booked on it.
+      const dayFull = classIsFull(sessionItem.recurringClass.capacity, sessionItem._count.attendance);
+      if (dayFull && !isCanceled) {
+        for (let i = 0; i < athletes.length; i++) athletes[i] = fullDayOffer(athletes[i], true);
+      }
       const rawEval = ctxState ? evalFor(ctxState) : null;
-      const ctxEval = rawEval ? canceledDayOffer(rawEval, isCanceled) : null;
+      const ctxEval = rawEval ? fullDayOffer(canceledDayOffer(rawEval, isCanceled), dayFull && !isCanceled) : null;
       const price = ctxEval?.price ?? null;
       const coachNames = staffNames(
         staffOn.forSession(sessionItem, sessionItem.recurringClass.assignedStaffIds).staffIds,
@@ -611,6 +618,7 @@ export async function GET(req: Request) {
         statusText: isCanceled ? "Canceled" : ctxEval?.statusText ?? "Ask staff to book",
         canceled: isCanceled,
         cancelReason: isCanceled ? cancelNote : null,
+        full: dayFull,
         canBook: !isCanceled && !!ctxEval && ctxEval.canBook,
         bookingStatus: ctxEval?.bookingStatus ?? null,
         athletes,

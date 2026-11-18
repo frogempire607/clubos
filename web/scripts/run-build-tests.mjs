@@ -64,6 +64,10 @@ export const GATED = [
   // unsubscribe rules). Also: the "Registered for event" audience no longer
   // includes cancelled registrations.
   ["scripts/event-attendee-answers-tests.ts"],
+  // Class limits (2026-11-17): a class day with a capacity takes that many;
+  // a full day reads "Full" to members and cannot be booked; staff are warned
+  // and can still add; the last spot is taken once; no capacity = unlimited.
+  ["scripts/class-capacity-tests.ts"],
   ["scripts/account-deletion-tests.ts"],
   // The native app shell: a store build ships no debug logging, cleartext,
   // mixed content or open navigation; Android back, scanned codes and the

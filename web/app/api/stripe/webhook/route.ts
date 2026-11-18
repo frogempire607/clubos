@@ -1,3 +1,4 @@
+import { classIsFull } from "@/lib/classCapacity";
 import { addBillingPeriod } from "@/lib/billingAdmin";
 import { webhookFailureStatus } from "@/lib/webhookRetry";
 import { createTransactionOnce } from "@/lib/transactionOnce";
@@ -784,6 +785,17 @@ export async function POST(req: Request) {
               data: { status: "DROP_IN", checkedInAt: existing.checkedInAt ?? new Date() },
             });
           } else {
+            // Class limit: the booking route refuses a full class BEFORE
+            // sending anyone to pay, but a card checkout holds no spot while
+            // the family types their card. If the class filled in those
+            // minutes, the money has still arrived: seat them (a confirmed
+            // payment never produces nothing) and say so on the row, so staff
+            // see why the class is one over.
+            const limitRow = await prisma.classSession.findUnique({
+              where: { id: classSessionId },
+              select: { recurringClass: { select: { capacity: true } }, _count: { select: { attendance: true } } },
+            });
+            const paidIntoFull = !!limitRow && classIsFull(limitRow.recurringClass.capacity, limitRow._count.attendance);
             await prisma.attendanceRecord.create({
               data: {
                 clubId,
@@ -791,6 +803,7 @@ export async function POST(req: Request) {
                 memberId,
                 status: "DROP_IN",
                 checkedInAt: new Date(),
+                ...(paidIntoFull ? { notes: "Paid online after the class filled — over the class limit." } : {}),
               },
             });
           }

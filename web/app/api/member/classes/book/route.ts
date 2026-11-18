@@ -17,6 +17,8 @@ import { classHasStarted } from "@/lib/datetime";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
+import { CLASS_FULL_BODY, classIsFull } from "@/lib/classCapacity";
+import { countClassSpotsTaken, withClassCapacityLock } from "@/lib/classCapacityServer";
 
 // POST /api/member/classes/book
 // Member-self booking for a class session. The price tier (member / non-member
@@ -119,6 +121,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "You're already booked for this class." }, { status: 409 });
     }
 
+    // Class limit (2026-11-17). A full day cannot be booked by a member, on
+    // any path: covered, trial, discounted to $0, or paid. This early answer
+    // spares a family the Stripe page for a spot that is gone; the free paths
+    // below ALSO take the spot under a lock (bookSpot), so two people tapping
+    // the last spot at the same moment cannot both get it. No capacity set =
+    // unlimited: no count, no lock.
+    const capacityArgs = { classSessionId, capacity: cls.capacity };
+    if (cls.capacity != null && classIsFull(cls.capacity, await countClassSpotsTaken(classSessionId))) {
+      return NextResponse.json(CLASS_FULL_BODY, { status: 409 });
+    }
+    const classFull = () => NextResponse.json(CLASS_FULL_BODY, { status: 409 });
+
     const options = ((cls.pricingOptions as unknown as PricingOption[] | null) || []);
     const acceptedMembershipIds = options
       .filter((o): o is Extract<PricingOption, { type: "membership" }> => o?.type === "membership" && !!o.membershipId)
@@ -143,7 +157,7 @@ export async function POST(req: Request) {
               where: { memberId: member.id, membershipId: { in: acceptedMembershipIds }, status: "active" },
             });
       if (activeSub) {
-        const record = await prisma.attendanceRecord.create({
+        const spot = await withClassCapacityLock(capacityArgs, (db) => db.attendanceRecord.create({
           data: {
             clubId: session.user.clubId,
             classSessionId,
@@ -153,7 +167,9 @@ export async function POST(req: Request) {
             // self check-in (QR or My Bookings) or staff stamps it.
             addedById: session.user.id,
           },
-        });
+        }));
+        if (spot.full) return classFull();
+        const record = spot.value;
         const club = await prisma.club.findUnique({
           where: { id: session.user.clubId },
           select: { name: true },
@@ -208,7 +224,7 @@ export async function POST(req: Request) {
         )?.freeTrialConfig
       : null;
     if (trialWindowRunning && trialCoversClass(trialClubConfig, acceptedMembershipIds)) {
-      const record = await prisma.attendanceRecord.create({
+      const spot = await withClassCapacityLock(capacityArgs, (db) => db.attendanceRecord.create({
         data: {
           clubId: session.user.clubId,
           classSessionId,
@@ -216,7 +232,9 @@ export async function POST(req: Request) {
           status: "TRIAL",
           addedById: session.user.id,
         },
-      });
+      }));
+      if (spot.full) return classFull();
+      const record = spot.value;
       const club = await prisma.club.findUnique({
         where: { id: session.user.clubId },
         select: { name: true },
@@ -280,7 +298,7 @@ export async function POST(req: Request) {
     // so this row keeps showing its chip until the class is fixed.
     if (dayMismatch && (!priced || !priced.price)) {
       const days = verdict?.entitledDays?.length ? describeDays(verdict.entitledDays) : "their plan days";
-      const record = await prisma.attendanceRecord.create({
+      const spot = await withClassCapacityLock(capacityArgs, (db) => db.attendanceRecord.create({
         data: {
           clubId: session.user.clubId,
           classSessionId,
@@ -289,7 +307,9 @@ export async function POST(req: Request) {
           addedById: session.user.id,
           notes: `Booked outside plan days (covers ${days}) — this class has no drop-in or non-member price to charge.`,
         },
-      });
+      }));
+      if (spot.full) return classFull();
+      const record = spot.value;
       return NextResponse.json({
         coveredByMembership: false,
         bookedOutsidePlanDays: true,
@@ -362,16 +382,20 @@ export async function POST(req: Request) {
 
     // A discount that zeroes the price books directly — no Stripe round-trip.
     if (discount && finalPrice <= 0) {
-      const record = await prisma.attendanceRecord.create({
+      const pricingType = priced.pricingType;
+      const code = discount.code;
+      const spot = await withClassCapacityLock(capacityArgs, (db) => db.attendanceRecord.create({
         data: {
           clubId: session.user.clubId,
           classSessionId,
           memberId: member.id,
-          status: priced.pricingType === "DROP_IN" ? "DROP_IN" : "PRESENT",
+          status: pricingType === "DROP_IN" ? "DROP_IN" : "PRESENT",
           addedById: session.user.id,
-          notes: `Discount code ${discount.code} (100% off)`,
+          notes: `Discount code ${code} (100% off)`,
         },
-      });
+      }));
+      if (spot.full) return classFull();
+      const record = spot.value;
       await recordDiscountUse(discount.id);
       return NextResponse.json({ coveredByMembership: false, free: true, attendanceRecordId: record.id });
     }
