@@ -291,20 +291,6 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
       const amount = quote.finalPrice;
 
-      // Find or create the registration this money belongs to. A member who
-      // was already registered (and owes) settles that row rather than
-      // spawning a second one.
-      let reg = await prisma.eventRegistration.findFirst({
-        where: { eventId: event.id, memberId, status: { not: "CANCELED" } },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, status: true },
-      });
-      if (reg?.status === "PAID") {
-        return NextResponse.json(
-          { error: "This member's registration is already paid — resend their receipt instead." },
-          { status: 409 },
-        );
-      }
       // The discount RULE goes on the registration, not just the Transaction —
       // the roster, a later reprice, and any re-invoice all read it from here.
       const regDiscount = {
@@ -314,34 +300,61 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         discountValue: discount?.value ?? null,
         discountAmount: discount ? quote.discountAmount : null,
       };
-      if (!reg) {
-        reg = await prisma.eventRegistration.create({
-          data: {
-            eventId: event.id,
-            clubId: club.id,
-            memberId,
-            name: `${member.firstName} ${member.lastName}`.trim(),
-            email: member.email ?? member.guardianEmail ?? "",
-            status: "REGISTERED",
-            amountDue: amount,
-            sessionIds: purchasedSessionIds,
-            ...regDiscount,
-          },
+
+      // Find or create the registration this money belongs to, ONE REQUEST AT
+      // A TIME per member per event. A double tap on "Record cash" used to run
+      // this twice side by side: both saw no registration, both created one,
+      // and each then settled its own — cash booked twice for one payment,
+      // followed by a crash on the second Booking (audit R9). Behind the same
+      // advisory lock the member route uses (evreg:<event>:<member>) the
+      // second tap finds the first tap's registration instead. From there the
+      // settle below claims the row before writing money, so only one of the
+      // two can record the payment; the other is told it is already paid.
+      const claimed = await prisma.$transaction(async (db) => {
+        await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`evreg:${event.id}:${memberId}`}, 0))`;
+        const found = await db.eventRegistration.findFirst({
+          where: { eventId: event.id, memberId, status: { not: "CANCELED" } },
+          orderBy: { createdAt: "desc" },
           select: { id: true, status: true },
         });
-      } else {
+        if (found?.status === "PAID") return { paid: true as const };
+        if (!found) {
+          const created = await db.eventRegistration.create({
+            data: {
+              eventId: event.id,
+              clubId: club.id,
+              memberId,
+              name: `${member.firstName} ${member.lastName}`.trim(),
+              email: member.email ?? member.guardianEmail ?? "",
+              status: "REGISTERED",
+              amountDue: amount,
+              sessionIds: purchasedSessionIds,
+              ...regDiscount,
+            },
+            select: { id: true, status: true },
+          });
+          return { paid: false as const, reg: created };
+        }
         // Settle at the price quoted at the door (discount included). Staff
         // applying a code to an existing registration replaces whatever was
         // there — one discount per registration, never two stacked.
-        await prisma.eventRegistration.update({
-          where: { id: reg.id },
+        await db.eventRegistration.update({
+          where: { id: found.id },
           data: {
             amountDue: amount,
             ...(purchasedSessionIds.length > 0 ? { sessionIds: purchasedSessionIds } : {}),
             ...regDiscount,
           },
         });
+        return { paid: false as const, reg: found };
+      });
+      if (claimed.paid) {
+        return NextResponse.json(
+          { error: "This member's registration is already paid — resend their receipt instead." },
+          { status: 409 },
+        );
       }
+      const reg = claimed.reg;
 
       const settled = await settleEventRegistrationOffline({
         clubId: club.id,
@@ -357,7 +370,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         return NextResponse.json({ error: settled.error }, { status: settled.status });
       }
 
-      await prisma.booking.create({ data: { eventId: event.id, memberId, status } });
+      // The spot. Unique per (event, member): if a second request got here
+      // first there is already one, and that is fine.
+      await prisma.booking.upsert({
+        where: { eventId_memberId: { eventId: event.id, memberId } },
+        create: { eventId: event.id, memberId, status },
+        update: {},
+      });
 
       // Discount identity lives on the settled Transaction so receipts and
       // reports still say which discount applied.
@@ -415,16 +434,6 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         where: { eventId_memberId: { eventId: event.id, memberId } },
       });
       if (existing) return NextResponse.json({ error: "Already booked" }, { status: 409 });
-      const prior = await prisma.eventRegistration.findFirst({
-        where: { eventId: event.id, memberId, status: { not: "CANCELED" } },
-        select: { id: true },
-      });
-      if (prior) {
-        return NextResponse.json(
-          { error: "They're already on this event's billing list — email their payment link from Attendees instead." },
-          { status: 409 },
-        );
-      }
       if (quote.finalPrice <= 0) {
         return NextResponse.json(
           { error: "The discount brings the total to $0 — there's nothing to email a link for." },
@@ -433,25 +442,45 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       }
       const status =
         event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
-      const reg = await prisma.eventRegistration.create({
-        data: {
-          eventId: event.id,
-          clubId: club.id,
-          memberId,
-          name: `${member.firstName} ${member.lastName}`.trim(),
-          email: member.email ?? member.guardianEmail ?? "",
-          status: "REGISTERED",
-          amountDue: quote.finalPrice,
-          sessionIds: purchasedSessionIds,
-          discountId: discount?.id ?? null,
-          discountCode: discount?.code ?? null,
-          discountType: discount?.type ?? null,
-          discountValue: discount?.value ?? null,
-          discountAmount: discount ? quote.discountAmount : null,
-        },
-        select: { id: true },
+      // Same lock as the door branch above: a double tap must not leave the
+      // family with two registrations that each owe the full price.
+      const reg = await prisma.$transaction(async (db) => {
+        await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`evreg:${event.id}:${memberId}`}, 0))`;
+        const prior = await db.eventRegistration.findFirst({
+          where: { eventId: event.id, memberId, status: { not: "CANCELED" } },
+          select: { id: true },
+        });
+        if (prior) return null;
+        return db.eventRegistration.create({
+          data: {
+            eventId: event.id,
+            clubId: club.id,
+            memberId,
+            name: `${member.firstName} ${member.lastName}`.trim(),
+            email: member.email ?? member.guardianEmail ?? "",
+            status: "REGISTERED",
+            amountDue: quote.finalPrice,
+            sessionIds: purchasedSessionIds,
+            discountId: discount?.id ?? null,
+            discountCode: discount?.code ?? null,
+            discountType: discount?.type ?? null,
+            discountValue: discount?.value ?? null,
+            discountAmount: discount ? quote.discountAmount : null,
+          },
+          select: { id: true },
+        });
       });
-      await prisma.booking.create({ data: { eventId: event.id, memberId, status } });
+      if (!reg) {
+        return NextResponse.json(
+          { error: "They're already on this event's billing list — email their payment link from Attendees instead." },
+          { status: 409 },
+        );
+      }
+      await prisma.booking.upsert({
+        where: { eventId_memberId: { eventId: event.id, memberId } },
+        create: { eventId: event.id, memberId, status },
+        update: {},
+      });
       if (discount) await recordDiscountUse(discount.id);
       return NextResponse.json({
         billedLater: true,

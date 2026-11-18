@@ -76,6 +76,9 @@ export const GATED = [
   // "can't reach the server" bar, and Try again re-runs the screen's loads.
   // Saves are never timed out or replayed.
   ["scripts/connection-guard-tests.ts"],
+  // Audit R9: a double tap on cash-at-the-door books one payment, and on
+  // "Create payout records" makes one payable per coach.
+  ["scripts/double-tap-tests.ts"],
   ["scripts/account-deletion-tests.ts"],
   // The native app shell: a store build ships no debug logging, cleartext,
   // mixed content or open navigation; Android back, scanned codes and the

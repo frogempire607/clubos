@@ -111,6 +111,7 @@ function userMatches(u: U, where: any): boolean {
   return true;
 }
 
+const CLAIM_LOST: string[] = [];
 const HANDLERS: Record<string, (args: any) => unknown> = {
   "user.findUnique": (a) => {
     if (DB_DOWN) throw new Error("db down");
@@ -146,6 +147,12 @@ const HANDLERS: Record<string, (args: any) => unknown> = {
   "eventStaffAssignment.findFirst": (a) => (EVENT_ROSTER.includes(a?.where?.userId) ? { userId: a.where.userId } : null),
   "eventStaffAssignment.upsert": (a) => ({ id: "esa", ...a.create, user: { id: a.create.userId, firstName: "x", lastName: "y" } }),
   "eventCompAssignment.findMany": () => COMP_ROWS.map((r) => ({ ...r })),
+  // The conditional claim in generate-payouts: it wins only while the
+  // assignment is unclaimed. CLAIM_LOST names a row another request "just" took.
+  "eventCompAssignment.updateMany": (a) => {
+    const r = COMP_ROWS.find((x) => x.id === a?.where?.id);
+    return { count: r && !r.payoutId && a?.where?.payoutId === null && !CLAIM_LOST.includes(r.id) ? 1 : 0 };
+  },
   "payout.findFirst": () => (PAYOUT ? { ...PAYOUT } : null),
   "payout.create": (a) => ({ id: `po_${CALLS.length}`, ...a.data }),
   "payout.update": (a) => ({ ...(PAYOUT ?? {}), ...a.data }),
@@ -764,8 +771,17 @@ async function main() {
     const made = wrote("payout", "create").map((c) => c.args.data.payeeUserId);
     check("a finances:full manager generates the others' payouts", is(o, 200) && o.body.created === 1 && JSON.stringify(made) === JSON.stringify(["coachA"]), `${why(o)} made=${JSON.stringify(made)}`);
     check("…their own row is skipped and reported", o.body?.skippedSelf === 1 && !made.includes("finMgr"));
-    check("…and stays unclaimed for an owner to generate", !wrote("eventCompAssignment", "update").some((c) => c.args.where.id === "comp_fin"));
+    check("…and stays unclaimed for an owner to generate", !wrote("eventCompAssignment", "updateMany").some((c) => c.args.where.id === "comp_fin"));
+    check("the claim is conditional on the row still being unclaimed", wrote("eventCompAssignment", "updateMany").every((c) => c.args.where.payoutId === null));
   }
+  // A second tap landing at the same moment: the other request claimed every
+  // row first. This one must record nothing as created.
+  resetDb();
+  CLAIM_LOST.push(...COMP_ROWS.map((r) => r.id));
+  o = await call(EVENT_PAYOUTS, "POST", sess("owner1"), { params: { id: "ev1" } });
+  check("a second tap that loses the claim creates no payout record", is(o, 200) && o.body.created === 0 && o.body.skippedExisting === 2 && wrote("billingAuditLog", "create").length === 0, why(o));
+  CLAIM_LOST.length = 0;
+  resetDb();
   o = await call(EVENT_PAYOUTS, "POST", sess("owner1"), { params: { id: "ev1" } });
   check("an owner generates every row", is(o, 200) && o.body.created === 2 && o.body.skippedSelf === 0, why(o));
   o = await call(EVENT_PAYOUTS, "POST", sess("mgr"), { params: { id: "ev1" } });
