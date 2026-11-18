@@ -94,6 +94,7 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
           slug: true,
           logoUrl: true,
           primaryColor: true,
+          timezone: true,
           stripeAccountId: true,
           stripeChargesEnabled: true,
         },
@@ -190,6 +191,8 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       slug: event.club.slug,
       primaryColor: event.club.primaryColor,
       logoUrl: publicClubLogoUrl(event.club.id, event.club.logoUrl),
+      // Event times are shown in the club's own timezone (components/events/EventInfoBlock).
+      timezone: event.club.timezone ?? null,
     },
     isTournament: event.isTournament,
     tournamentMode: event.tournamentMode,

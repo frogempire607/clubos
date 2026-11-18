@@ -1,4 +1,5 @@
 import { classIsFull, dayCapacity } from "@/lib/classCapacity";
+import { eventDetailsPath } from "@/lib/memberErrorText";
 import { addBillingPeriod } from "@/lib/billingAdmin";
 import { webhookFailureStatus } from "@/lib/webhookRetry";
 import { createTransactionOnce } from "@/lib/transactionOnce";
@@ -732,7 +733,7 @@ export async function POST(req: Request) {
                       startsAt: event.startsAt,
                       endsAt: event.endsAt,
                       amountPaid: amountStr,
-                      portalUrl: `${BASE_URL}/member/bookings`,
+                      portalUrl: `${BASE_URL}${eventDetailsPath(event.id)}`,
                       clock: { kind: "moment", timeZone: contact.timeZone },
                     })
                   );

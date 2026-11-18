@@ -8,6 +8,7 @@
 // approval behave exactly as before.
 
 import { useEffect, useMemo, useState } from "react";
+import { eventDetailsPath } from "@/lib/memberErrorText";
 import {
   Ticket,
   CalendarRange,
@@ -136,7 +137,7 @@ export default function MemberBookPage() {
           meta: friendlyDate(ev.startsAt, { relative: true, weekday: true }),
           price: money(ev.memberPrice),
           cta: "View",
-          href: "/member/events",
+          href: eventDetailsPath(ev.id),
           color: ev.customEventType?.color ?? null,
           textColor: ev.customEventType?.textColor ?? null,
         })),

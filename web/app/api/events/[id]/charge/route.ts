@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { eventDetailsPath } from "@/lib/memberErrorText";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -142,7 +143,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
               startsAt: event.startsAt,
               endsAt: event.endsAt,
               coveredByMembership: true,
-              portalUrl: `${baseUrl}/member/bookings`,
+              portalUrl: `${baseUrl}${eventDetailsPath(event.id)}`,
               clock: { kind: "moment", timeZone: club.timezone },
             }).catch((e) => console.error("Booking email failed:", e));
           }
@@ -406,7 +407,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             startsAt: event.startsAt,
             endsAt: event.endsAt,
             amountPaid: amount.toFixed(2),
-            portalUrl: `${baseUrl}/member/bookings`,
+            portalUrl: `${baseUrl}${eventDetailsPath(event.id)}`,
             clock: { kind: "moment", timeZone: club.timezone },
           }).catch((e) => console.error("Booking email failed:", e));
         }

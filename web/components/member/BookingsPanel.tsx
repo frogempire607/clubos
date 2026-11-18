@@ -1,5 +1,5 @@
 "use client";
-import { memberErrorText } from "@/lib/memberErrorText";
+import { memberErrorText, eventDetailsPath } from "@/lib/memberErrorText";
 
 // Bookings — every reservation for the selected athlete (events, classes,
 // privates) with check-in, event chat, cancel and change-request. Extracted
@@ -588,6 +588,14 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
               {checkinBusy === b.id ? "Checking in…" : "Check in"}
             </button>
           ))}
+        {b.kind === "event" && (
+          <Link
+            href={eventDetailsPath(b.event.id, b.memberId)}
+            className="text-xs px-3 py-1.5 rounded-md border border-stone-300 text-stone-700 hover:bg-stone-50 inline-flex items-center whitespace-nowrap"
+          >
+            Details
+          </Link>
+        )}
         {b.kind === "event" && (
           <button
             disabled={chatBusy === b.event.id}

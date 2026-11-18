@@ -4,13 +4,14 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { AlertOctagon, MapPin, CheckCircle2, PartyPopper, ArrowRight } from "lucide-react";
+import { AlertOctagon, CheckCircle2, PartyPopper, ArrowRight } from "lucide-react";
 import { mapsDirectionsUrl } from "@/lib/maps";
 import type { SignupRoster } from "@/components/events/SpotPicker";
 import EntriesEditor, { entriesPayload, emptyEntry, type EntryDraft } from "@/components/events/EntriesEditor";
 import { eventFormFields } from "@/lib/eventForm";
 import { entriesTotalCents } from "@/lib/eventEntries";
-import EventLinks from "@/components/events/EventLinks";
+import EventInfoBlock from "@/components/events/EventInfoBlock";
+import { eventDetailsPath } from "@/lib/memberErrorText";
 
 type FormField = {
   id: string;
@@ -31,7 +32,7 @@ type PublicEvent = {
   imagePositionX: number;
   imagePositionY: number;
   location: { name: string; address: string | null; latitude: number | null; longitude: number | null } | null;
-  club: { name: string; slug?: string | null; logoUrl: string | null; primaryColor: string | null };
+  club: { name: string; slug?: string | null; logoUrl: string | null; primaryColor: string | null; timezone?: string | null };
   isTournament: boolean;
   tournamentMode: string | null;
   publicFormIntro: string | null;
@@ -358,7 +359,7 @@ export default function PublicEventPage() {
   // event (the login page only honours /member paths — a /e/ callback was
   // dropped, which is why signing in used to strand families on the portal
   // home). When the portal can't register for it, sign-in comes back here.
-  const portalHref = event?.portalAvailable ? `/member/events?event=${encodeURIComponent(event.id)}` : null;
+  const portalHref = event?.portalAvailable ? eventDetailsPath(event.id) : null;
   const signInHref = `/login?role=member${event?.club.slug ? `&club=${encodeURIComponent(event.club.slug)}` : ""}&callbackUrl=${encodeURIComponent(portalHref ?? `/e/${slug}`)}`;
   const signedInMember = session?.user?.role === "MEMBER";
   const chargeDayLabel = event?.autoChargeDate
@@ -426,62 +427,28 @@ export default function PublicEventPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6">
-        {event.imageUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={event.imageUrl}
-            alt={event.name}
-            className="w-full aspect-[16/9] object-cover rounded-xl border border-stone-200 mb-4"
-            style={{ objectPosition: `${event.imagePositionX ?? 50}% ${event.imagePositionY ?? 50}%` }}
-          />
-        )}
+        {/* The same block the member details screen shows (components/events/EventInfoBlock). */}
+        <EventInfoBlock
+          name={event.name}
+          badge={event.isTournament ? (
+            <span className="text-[12px] px-2 py-0.5 rounded-full font-medium text-white" style={{ background: accent }}>
+              {event.tournamentMode === "HOST" ? "Tournament" : "Tournament Trip"}
+            </span>
+          ) : null}
+          imageUrl={event.imageUrl}
+          imagePositionX={event.imagePositionX}
+          imagePositionY={event.imagePositionY}
+          startsAt={event.startsAt}
+          endsAt={event.endsAt}
+          timeZone={event.club.timezone ?? null}
+          location={event.location ? { name: event.location.name, address: event.location.address, mapUrl: mapsDirectionsUrl(event.location) } : null}
+          description={event.description}
+          links={event.links}
+          accent={event.club.primaryColor}
+        />
 
         <div className="bg-white rounded-xl border border-stone-200 p-6 mb-4">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            {event.isTournament && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full font-medium text-white" style={{ background: accent }}>
-                {event.tournamentMode === "HOST" ? "Tournament" : "Tournament Trip"}
-              </span>
-            )}
-          </div>
-          <h1 className="text-2xl font-semibold text-stone-900">{event.name}</h1>
-          <p className="text-sm text-stone-500 mt-1">
-            {new Date(event.startsAt).toLocaleString("en-US", {
-              weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit",
-            })}
-            {" – "}
-            {new Date(event.endsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-          </p>
-          {event.location && (
-            <p className="text-sm text-stone-500 mt-0.5 inline-flex items-center gap-1">
-              <MapPin className="h-4 w-4 inline" strokeWidth={2} />
-              {event.location.name}{event.location.address ? ` · ${event.location.address}` : ""}
-              {(() => {
-                // Coordinates when set, address otherwise — either way the
-                // visitor gets a Directions link.
-                const href = mapsDirectionsUrl(event.location!);
-                return href ? (
-                  <>
-                    {" · "}
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline"
-                      style={{ color: event.club.primaryColor ?? undefined }}
-                    >
-                      Directions
-                    </a>
-                  </>
-                ) : null;
-              })()}
-            </p>
-          )}
-          {event.description && (
-            <p className="text-sm text-stone-700 mt-3 whitespace-pre-wrap leading-relaxed">{event.description}</p>
-          )}
-          <EventLinks links={event.links} className="mt-4" />
-          <div className="mt-4 pt-4 border-t border-stone-100 flex items-center justify-between">
+          <div className="flex items-center justify-between">
             <span className="text-xs uppercase tracking-wider text-stone-400 font-medium">Cost</span>
             <span className="text-sm font-semibold text-stone-900">{event.priceLabel}</span>
           </div>

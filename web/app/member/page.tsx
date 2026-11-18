@@ -1,5 +1,5 @@
 "use client";
-import { memberErrorText } from "@/lib/memberErrorText";
+import { memberErrorText, eventDetailsPath } from "@/lib/memberErrorText";
 
 import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
@@ -369,6 +369,12 @@ const UPCOMING_STATUSES = new Set([
   "PENDING_COACH",
 ]);
 
+// An event row opens the event's details screen; a private lesson row stays text.
+function UpcomingRow({ href, children }: { href: string | null; children: React.ReactNode }) {
+  const cls = "flex items-center gap-3 py-2 border-b border-stone-100 last:border-0";
+  return href ? <Link href={href} className={`${cls} min-h-11 hover:bg-stone-50 -mx-2 px-2 rounded`}>{children}</Link> : <div className={cls}>{children}</div>;
+}
+
 function UpcomingBookings({
   bookings,
   label,
@@ -393,7 +399,7 @@ function UpcomingBookings({
             const c = getEventColor(b);
             const isPending = b.status === "REQUESTED" || b.status === "PENDING_COACH";
             return (
-              <div key={b.id} className="flex items-center gap-3 py-2 border-b border-stone-100 last:border-0">
+              <UpcomingRow key={b.id} href={b.kind === "private" ? null : eventDetailsPath(b.event.id)}>
                 <div className="flex-shrink-0 w-2 h-2 rounded-full" style={{ background: c.fg }} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-stone-900 truncate">{b.event.name}</p>
@@ -418,7 +424,7 @@ function UpcomingBookings({
                     Pending
                   </span>
                 )}
-              </div>
+              </UpcomingRow>
             );
           })}
         </div>

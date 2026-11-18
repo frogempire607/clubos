@@ -1,5 +1,6 @@
 "use client";
-import { memberErrorText, EVENT_REGISTER_FLOW_CODES, eventRegisterFlowPath } from "@/lib/memberErrorText";
+import { memberErrorText, eventRegisterFlowPath, eventDetailsPath } from "@/lib/memberErrorText";
+import { rememberScroll, restoreScroll } from "@/lib/scrollMemory";
 
 // Schedule — My Schedule + My Bookings merged into one destination
 // (design 2c / 1e). Page-level tabs: Schedule (Agenda | Calendar with
@@ -349,6 +350,7 @@ function ScheduleInner() {
     setData(next);
     setActiveId(memberId || resolved);
     setLoading(false);
+    restoreScroll("schedule");
   }
 
   useEffect(() => {
@@ -538,48 +540,25 @@ function ScheduleInner() {
     setError(`${who}We couldn't confirm this booking. Contact your club if this keeps happening.`);
   }
 
-  async function register(item: ScheduleItem, target: { memberId: string; firstName: string }) {
-    const who = family ? `${target.firstName} — ` : "";
-    setBusy(`${item.id}:${target.memberId}`);
-    setError("");
-    setInfo("");
-    const res = await fetch(`/api/member/events/${item.refId}/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        pricingType: "MEMBER",
-        memberId: target.memberId,
-        discountCode: discountCode.trim() || null,
-      }),
-    });
-    const d = await res.json().catch(() => ({}));
-    if (!res.ok && typeof d.error === "string" && EVENT_REGISTER_FLOW_CODES.has(d.error)) {
-      // The event has questions, a roster spot to pick, a payment choice or
-      // documents. This quick button can't ask for those; the Events page can,
-      // so hand over to its register flow for the same athlete. (This used to
-      // print the code — "ROSTER_REQUIRED" — onto the screen.)
-      router.push(eventRegisterFlowPath(item.refId, target.memberId));
+  // Registering for an event always happens on its details screen, after the
+  // family has read it, and ends on a confirm step (2026-11-18). This button
+  // opens that screen for this athlete with the register flow started — the
+  // same flow, the same confirm. It used to POST from here and could register
+  // (or print "ROSTER_REQUIRED") on one tap.
+  // An event opens its details screen (the same one everywhere); a class keeps
+  // its quick sheet here.
+  function openItem(item: ScheduleItem) {
+    if (item.kind === "event") {
+      rememberScroll("schedule");
+      router.push(eventDetailsPath(item.refId, family ? null : data?.contextMember?.id ?? null));
       return;
     }
-    setBusy(null);
-    if (!res.ok) {
-      setError(`${who}${memberErrorText(d, "Could not register for this event.")}`);
-      return;
-    }
-    // Same P4 parental gate handling as bookClass — 202 + pendingApproval
-    // means the registration is on hold, not done.
-    if (d.pendingApproval) {
-      if (!family) setSelected(null);
-      setInfo(`${who}${d.message || "Sent to your guardian for approval."}`);
-      return;
-    }
-    if (d.url) {
-      window.location.href = d.url;
-      return;
-    }
-    if (!family) setSelected(null);
-    setInfo(`${who}${d.status === "WAITLISTED" ? "On the waitlist." : "Registered."}`);
-    await load(activeId);
+    setSelected(item);
+  }
+
+  function register(item: ScheduleItem, target: { memberId: string; firstName: string }) {
+    rememberScroll("schedule");
+    router.push(eventRegisterFlowPath(item.refId, target.memberId));
   }
 
   const activeMember = data?.contextMember;
@@ -724,7 +703,7 @@ function ScheduleInner() {
                     items={calItems}
                     onSelect={(ci) => {
                       const item = calendarItems.find((x) => x.id === ci.id.split("::")[0]);
-                      if (item) setSelected(item);
+                      if (item) openItem(item);
                     }}
                   />
                   <div className="pcard p-4">
@@ -738,7 +717,7 @@ function ScheduleInner() {
                           <button
                             key={item.id}
                             type="button"
-                            onClick={() => setSelected(item)}
+                            onClick={() => openItem(item)}
                             className="w-full flex items-center gap-2.5 py-2 border-t border-stone-100 first:border-t-0 text-left hover:bg-stone-50 rounded-lg px-1 -mx-1"
                           >
                             <span
@@ -778,7 +757,7 @@ function ScheduleInner() {
                         <p className="text-sm text-stone-400 px-0.5 pb-2">Nothing on this day.</p>
                       ) : (
                         calDayItems.map((item) => (
-                          <ItemCard key={item.id} item={item} family={family} contextFirstName={data?.contextMember?.firstName ?? null} onClick={() => setSelected(item)} />
+                          <ItemCard key={item.id} item={item} family={family} contextFirstName={data?.contextMember?.firstName ?? null} onClick={() => openItem(item)} />
                         ))
                       )}
                     </>
@@ -795,7 +774,7 @@ function ScheduleInner() {
                     <div className="space-y-3">
                       {bookedUpcoming.map((item) => (
                         <div key={item.id}>
-                          <ItemCard item={item} family={family} contextFirstName={data?.contextMember?.firstName ?? null} onClick={() => setSelected(item)} />
+                          <ItemCard item={item} family={family} contextFirstName={data?.contextMember?.firstName ?? null} onClick={() => openItem(item)} />
                           {/* A cancelled class day has no check-in. */}
                           {!item.canceled && withinCheckinWindow(item) && (
                             <div className="mt-1.5 flex justify-end">
@@ -839,7 +818,7 @@ function ScheduleInner() {
                         <h2 className="text-xs uppercase tracking-wider text-stone-500 font-medium mb-2">{group.label}</h2>
                         <div className="space-y-3">
                           {group.items.map((item) => (
-                            <ItemCard key={item.id} item={item} family={family} contextFirstName={data?.contextMember?.firstName ?? null} onClick={() => setSelected(item)} />
+                            <ItemCard key={item.id} item={item} family={family} contextFirstName={data?.contextMember?.firstName ?? null} onClick={() => openItem(item)} />
                           ))}
                         </div>
                       </section>

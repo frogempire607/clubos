@@ -58,9 +58,22 @@ export const EVENT_REGISTER_FLOW_CODES = new Set([
   "UNKNOWN_SPOT",
 ]);
 
-/** Where the Schedule page sends a registration that needs those prompts: the Events page opens that event's register flow for that athlete. */
-export function eventRegisterFlowPath(eventId: string, memberId: string | null | undefined): string {
-  const q = new URLSearchParams({ event: eventId });
+/**
+ * The event details screen: everything about one event, and the only place
+ * registering starts (2026-11-18). Every event link in the portal (Events,
+ * Schedule, Home, bundles, emails, the public page, the app) uses this.
+ * `register` opens the register flow on arrival; it still ends on the
+ * confirm step before anything is saved.
+ */
+export function eventDetailsPath(eventId: string, memberId?: string | null, register = false): string {
+  const q = new URLSearchParams();
   if (memberId) q.set("memberId", memberId);
-  return `/member/events?${q.toString()}`;
+  if (register) q.set("register", "1");
+  const qs = q.toString();
+  return `/member/events/${encodeURIComponent(eventId)}${qs ? `?${qs}` : ""}`;
+}
+
+/** The Schedule page's hand-off: the same details screen, with the register flow opened. */
+export function eventRegisterFlowPath(eventId: string, memberId: string | null | undefined): string {
+  return eventDetailsPath(eventId, memberId, true);
 }
