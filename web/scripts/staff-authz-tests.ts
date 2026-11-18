@@ -151,7 +151,7 @@ const HANDLERS: Record<string, (args: any) => unknown> = {
   // assignment is unclaimed. CLAIM_LOST names a row another request "just" took.
   "eventCompAssignment.updateMany": (a) => {
     const r = COMP_ROWS.find((x) => x.id === a?.where?.id);
-    return { count: r && !r.payoutId && a?.where?.payoutId === null && !CLAIM_LOST.includes(r.id) ? 1 : 0 };
+    return { count: r && !r.payoutId && a?.where?.payoutId === null && !CLAIM_LOST.includes(String(r.id)) ? 1 : 0 };
   },
   "payout.findFirst": () => (PAYOUT ? { ...PAYOUT } : null),
   "payout.create": (a) => ({ id: `po_${CALLS.length}`, ...a.data }),
@@ -777,7 +777,7 @@ async function main() {
   // A second tap landing at the same moment: the other request claimed every
   // row first. This one must record nothing as created.
   resetDb();
-  CLAIM_LOST.push(...COMP_ROWS.map((r) => r.id));
+  CLAIM_LOST.push(...COMP_ROWS.map((r) => String(r.id)));
   o = await call(EVENT_PAYOUTS, "POST", sess("owner1"), { params: { id: "ev1" } });
   check("a second tap that loses the claim creates no payout record", is(o, 200) && o.body.created === 0 && o.body.skippedExisting === 2 && wrote("billingAuditLog", "create").length === 0, why(o));
   CLAIM_LOST.length = 0;
