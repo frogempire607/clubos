@@ -59,6 +59,7 @@ async function emailBookingConfirmation(args: {
       isMinor: true,
       guardianEmail: true,
       guardian: { select: { email: true } },
+      club: { select: { timezone: true } },
     },
   });
   if (!m) return;
@@ -77,6 +78,8 @@ async function emailBookingConfirmation(args: {
       endsAt: args.endsAt,
       coveredByMembership: args.coveredByMembership,
       portalUrl: `${baseUrl}/member/bookings`,
+      // An event start is a real moment: print it in the club's timezone.
+      clock: { kind: "moment", timeZone: m.club?.timezone },
     });
   } catch (e) {
     console.error("Booking email failed:", e);

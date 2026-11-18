@@ -132,6 +132,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             endsAt: classSession.endsAt,
             coveredByMembership: true,
             portalUrl: `${baseUrl}/member/bookings`,
+            clock: { kind: "class" },
           }).catch((e) => console.error("Class booking email failed:", e));
         }
         return NextResponse.json({ coveredByMembership: true, attendanceRecordId: record.id });

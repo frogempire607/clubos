@@ -189,6 +189,7 @@ export async function POST(req: Request) {
             endsAt: classSession.endsAt,
             coveredByMembership: true,
             portalUrl: `${baseUrl}/member/bookings`,
+            clock: { kind: "class" },
           }).catch((e) => console.error("Class booking email failed:", e));
         }
         return NextResponse.json({ coveredByMembership: true, attendanceRecordId: record.id });
@@ -254,6 +255,7 @@ export async function POST(req: Request) {
           endsAt: classSession.endsAt,
           coveredByMembership: true,
           portalUrl: `${baseUrl}/member/bookings`,
+          clock: { kind: "class" },
         }).catch((e) => console.error("Trial class booking email failed:", e));
       }
       return NextResponse.json({ coveredByTrial: true, attendanceRecordId: record.id });

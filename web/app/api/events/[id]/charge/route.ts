@@ -143,6 +143,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
               endsAt: event.endsAt,
               coveredByMembership: true,
               portalUrl: `${baseUrl}/member/bookings`,
+              clock: { kind: "moment", timeZone: club.timezone },
             }).catch((e) => console.error("Booking email failed:", e));
           }
         }
@@ -387,6 +388,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             endsAt: event.endsAt,
             amountPaid: amount.toFixed(2),
             portalUrl: `${baseUrl}/member/bookings`,
+            clock: { kind: "moment", timeZone: club.timezone },
           }).catch((e) => console.error("Booking email failed:", e));
         }
       }

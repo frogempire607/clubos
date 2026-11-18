@@ -37,7 +37,7 @@ import {
 
 // Resolve the best email + first name for a member. Falls back to guardian email
 // for minors, then to the linked User account.
-async function memberContact(memberId: string): Promise<{ email: string | null; firstName: string; clubName: string }> {
+async function memberContact(memberId: string): Promise<{ email: string | null; firstName: string; clubName: string; timeZone: string | null }> {
   const m = await prisma.member.findUnique({
     where: { id: memberId },
     select: {
@@ -47,14 +47,14 @@ async function memberContact(memberId: string): Promise<{ email: string | null; 
       guardianEmail: true,
       guardian: { select: { email: true } },
       user: { select: { email: true } },
-      club: { select: { name: true } },
+      club: { select: { name: true, timezone: true } },
     },
   });
-  if (!m) return { email: null, firstName: "", clubName: "" };
+  if (!m) return { email: null, firstName: "", clubName: "", timeZone: null };
   const email = m.isMinor
     ? (m.guardian?.email || m.guardianEmail || m.email || m.user?.email || null)
     : (m.email || m.user?.email || m.guardianEmail || null);
-  return { email, firstName: m.firstName, clubName: m.club?.name ?? "your club" };
+  return { email, firstName: m.firstName, clubName: m.club?.name ?? "your club", timeZone: m.club?.timezone ?? null };
 }
 
 // AWAITED. This used to fire the email and return at once; on serverless the
@@ -725,6 +725,7 @@ export async function POST(req: Request) {
                       endsAt: event.endsAt,
                       amountPaid: amountStr,
                       portalUrl: `${BASE_URL}/member/bookings`,
+                      clock: { kind: "moment", timeZone: contact.timeZone },
                     })
                   );
                 }
@@ -756,6 +757,7 @@ export async function POST(req: Request) {
                   endsAt: sessionRow.endsAt,
                   amountPaid: amountStr,
                   portalUrl: `${BASE_URL}/member/bookings`,
+                  clock: { kind: "class" },
                 })
               );
             }

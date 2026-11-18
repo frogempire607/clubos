@@ -41,6 +41,7 @@ export async function activatePartnersOnAccept(params: {
         primaryColor: true,
         emailFromName: true,
         emailReplyTo: true,
+        timezone: true,
       },
     }),
   ]);
@@ -76,6 +77,7 @@ export async function activatePartnersOnAccept(params: {
             inviteUrl: `${getAppBaseUrl()}/privates/partner/${token}`,
             fromName: club.emailFromName || club.name,
             replyTo: club.emailReplyTo || null,
+            timeZone: club.timezone,
           });
         } catch (err) {
           console.error("[partner-invite] email failed", err);

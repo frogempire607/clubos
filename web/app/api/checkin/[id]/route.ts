@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
+import { emailDate, emailTimeRange } from "@/lib/emailTime";
 
 // GET /api/checkin/[id] — PUBLIC (no auth). Minimal display data for the
 // walk-in QR landing page. `id` is a ClassSession id or an Event id.
@@ -38,22 +39,21 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
     select: {
       name: true,
       startsAt: true,
-      club: { select: { id: true, name: true, slug: true, logoUrl: true, primaryColor: true } },
+      club: { select: { id: true, name: true, slug: true, logoUrl: true, primaryColor: true, timezone: true } },
     },
   });
 
   if (ev) {
+    const { timezone, ...club } = ev.club;
+    const clock = { kind: "moment" as const, timeZone: timezone };
     return NextResponse.json({
       kind: "event",
       title: ev.name,
-      // Events are true instants — local time.
-      dateLabel: ev.startsAt.toLocaleDateString("en-US", {
-        weekday: "long", month: "long", day: "numeric",
-      }),
-      timeLabel: ev.startsAt.toLocaleTimeString("en-US", {
-        hour: "numeric", minute: "2-digit",
-      }),
-      club: { ...ev.club, logoUrl: publicClubLogoUrl(ev.club.id, ev.club.logoUrl) },
+      // An event start is a real moment. This runs on the server (UTC), so
+      // it is formatted in the CLUB's timezone; it used to print the UTC hour.
+      dateLabel: emailDate(ev.startsAt, clock, { year: false }),
+      timeLabel: emailTimeRange(ev.startsAt, null, clock),
+      club: { ...club, logoUrl: publicClubLogoUrl(club.id, club.logoUrl) },
     });
   }
 

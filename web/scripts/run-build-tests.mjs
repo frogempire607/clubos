@@ -68,6 +68,10 @@ export const GATED = [
   // a full day reads "Full" to members and cannot be booked; staff are warned
   // and can still add; the last spot is taken once; no capacity = unlimited.
   ["scripts/class-capacity-tests.ts"],
+  // Audit D3: event and lesson emails print the club's time with the zone
+  // named ("6:00 PM EST"), never the server's UTC hour; class emails print the
+  // class's own wall clock. The clock is a required argument.
+  ["scripts/email-time-tests.ts"],
   ["scripts/account-deletion-tests.ts"],
   // The native app shell: a store build ships no debug logging, cleartext,
   // mixed content or open navigation; Android back, scanned codes and the
