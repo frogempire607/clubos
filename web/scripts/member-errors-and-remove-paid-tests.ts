@@ -48,16 +48,17 @@ console.log("\nA. memberErrorText never returns a code:");
     check(`${c} sends the person to the full register flow`, EVENT_REGISTER_FLOW_CODES.has(c));
   }
   const p = eventRegisterFlowPath("evt_1", "mem_2");
-  check("hand-off path names the event and the athlete", p === "/member/events?event=evt_1&memberId=mem_2", p);
+  // 2026-11-18: the hand-off now opens the event's details screen with the register flow started.
+  check("hand-off path names the event and the athlete", p === "/member/events/evt_1?memberId=mem_2&register=1", p);
   check("hand-off path stays inside the portal", p.startsWith("/member/"));
 }
 
 console.log("\nA. Source guards:");
 {
   const sched = code("app/member/schedule/page.tsx");
-  check("Schedule register hands flow codes to the Events page", /EVENT_REGISTER_FLOW_CODES\.has\(d\.error\)/.test(sched) && /eventRegisterFlowPath\(item\.refId, target\.memberId\)/.test(sched));
+  check("Schedule register hands over to the details screen's register flow (never posts itself)", /eventRegisterFlowPath\(item\.refId, target\.memberId\)/.test(sched) && !/\/register`/.test(sched));
   const events = code("app/member/events/page.tsx");
-  check("Events page reads ?memberId= before its first load", /new URLSearchParams\(window\.location\.search\)\.get\("memberId"\)/.test(events));
+  check("old ?event=&memberId= links forward to the details screen for that athlete", /router\.replace\(eventDetailsPath\(id, sp\.get\("memberId"\)/.test(events));
 
   // Every member-facing surface: no `x.error ||`, no `typeof x.error === "string" ? x.error`,
   // no `msg = x.error;` — those print whatever the server sent, codes included.

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { eventDetailsPath } from "@/lib/memberErrorText";
 import { athleteMatches, normalizeAudience } from "@/lib/eventAudience";
 import { quoteSessions } from "@/lib/eventPricingModel";
 import { z } from "zod";
@@ -42,8 +43,11 @@ import { chargeEventRegistration } from "@/lib/eventAutoCharge";
 import { resolveCardSnapshot, prettyBrand } from "@/lib/memberCard";
 import { applyProcessingFee } from "@/lib/fees";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
+import { memberVisibleEventWhere } from "@/lib/memberEventsServer";
+import { confirmLabel, reviewTiming, type PaymentMethodKey, type PricingKind, type RegisterReview } from "@/lib/eventDetailsView";
 
 async function emailBookingConfirmation(args: {
+  eventId: string;
   memberId: string;
   clubName: string;
   eventName: string;
@@ -77,7 +81,8 @@ async function emailBookingConfirmation(args: {
       startsAt: args.startsAt,
       endsAt: args.endsAt,
       coveredByMembership: args.coveredByMembership,
-      portalUrl: `${baseUrl}/member/bookings`,
+      // The event's details screen: the same one every event link opens.
+      portalUrl: `${baseUrl}${eventDetailsPath(args.eventId, args.memberId)}`,
       // An event start is a real moment: print it in the club's timezone.
       clock: { kind: "moment", timeZone: m.club?.timezone },
     });
@@ -108,6 +113,13 @@ const schema = z.object({
   // Set once the client has ticked acknowledgement for the event's
   // ACKNOWLEDGE-level documents.
   acknowledgeDocuments: z.boolean().optional(),
+  // 2026-11-18 — nothing is saved or charged without this. A request without
+  // it runs every check and every price calculation, then answers with a
+  // REVIEW (who, what it costs, when and how the money moves) instead of
+  // writing. The portal shows that review; its one button re-sends the same
+  // request with confirmed: true. So no tap anywhere registers or charges on
+  // its own.
+  confirmed: z.boolean().optional(),
   // The event's own questions (Event.registrationForm — weight class,
   // division, …). Validated by lib/eventForm exactly as the public link
   // validates them; before 2026-09-24 this route never asked.
@@ -176,14 +188,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       return NextResponse.json(CONSENT_BLOCK_BODY, { status: 403 });
     }
 
+    // The same visibility rules as the Events list and the details screen
+    // (lib/memberEventsServer): an event a family can't see, they can't join.
     const event = await prisma.event.findFirst({
-      where: {
-        id: params.id,
-        clubId: session.user.clubId,
-        deletedAt: null,
-        visibility: { in: ["PUBLIC", "MEMBERS_ONLY"] },
-        purchaseAccess: "ANYONE",
-      },
+      where: { id: params.id, ...memberVisibleEventWhere(session.user.clubId, new Date(), { upcomingOnly: false }) },
       include: {
         _count: { select: { bookings: true } },
         sessions: { select: { id: true, price: true, startsAt: true }, orderBy: { sortOrder: "asc" } },
@@ -217,6 +225,45 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         { status: 400 },
       );
     }
+
+    // ── Review, not write, until confirmed ───────────────────────────────────
+    const reviewOnly = body.confirmed !== true;
+    let reviewAck: { id: string; title: string }[] = [];
+    const reviewTz = reviewOnly
+      ? (await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { timezone: true } }))?.timezone ?? null
+      : null;
+    const reviewResponse = (r: {
+      pricing: PricingKind;
+      approval: boolean;
+      waitlisted?: boolean;
+      method?: PaymentMethodKey | null;
+      amount?: RegisterReview["amount"];
+      chargeOn?: Date | null;
+      savedCardLabel?: string | null;
+      split?: RegisterReview["split"];
+    }) => {
+      const base = {
+        pricing: r.pricing,
+        approval: r.approval,
+        waitlisted: !!r.waitlisted && !r.approval,
+        method: r.method ?? null,
+        amount: r.amount ?? null,
+        chargeOn: r.chargeOn ? r.chargeOn.toISOString() : null,
+        savedCardLabel: r.savedCardLabel ?? null,
+        split: r.split ?? null,
+      };
+      const review: RegisterReview = {
+        review: true,
+        athlete: { memberId: member.id, name: `${member.firstName} ${member.lastName ?? ""}`.trim() },
+        event: { id: event.id, name: event.name },
+        ...base,
+        acknowledge: reviewAck,
+        timing: reviewTiming(base, reviewTz),
+        confirmLabel: confirmLabel(base),
+      };
+      return NextResponse.json(review);
+    };
+    const isFull = !!event.capacity && event._count.bookings >= event.capacity;
 
     // ── Who the event is for (lib/eventAudience.ts) ──────────────────────────
     const audience = normalizeAudience(event.audience);
@@ -415,7 +462,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       );
     }
     const ackDocs = await acknowledgementDocs(session.user.clubId, event.id);
-    if (ackDocs.length > 0) {
+    // Unconfirmed: the review lists them and the confirm button agrees to them.
+    if (reviewOnly) reviewAck = ackDocs.map((d) => ({ id: d.id, title: d.title }));
+    if (ackDocs.length > 0 && !reviewOnly) {
       if (!acknowledgeDocuments) {
         return NextResponse.json(
           {
@@ -460,6 +509,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         where: { memberId: member.id, membershipId: { in: acceptedMembershipIds }, status: "active" },
       });
       if (activeSub) {
+        if (reviewOnly) return reviewResponse({ pricing: "COVERED", approval: policy.requiresCoachApproval, waitlisted: isFull });
         if (policy.requiresCoachApproval) {
           const reg = await requestCoachReview(null);
           return NextResponse.json({
@@ -479,6 +529,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         if (status === "CONFIRMED") {
           const club = await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { name: true } });
           emailBookingConfirmation({
+            eventId: event.id,
             memberId: member.id,
             clubName: club?.name ?? "your club",
             eventName: event.name,
@@ -512,6 +563,14 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         event.variableCostEstimatedSignups > 0
           ? +(varTotal / event.variableCostEstimatedSignups).toFixed(2)
           : null;
+      if (reviewOnly) {
+        return reviewResponse({
+          pricing: "SPLIT",
+          approval: policy.requiresCoachApproval,
+          waitlisted: isFull,
+          split: { mode: event.variableCostMode ?? "ESTIMATED", perHead: estPerHead },
+        });
+      }
       if (policy.requiresCoachApproval) {
         const reg = await requestCoachReview(estPerHead);
         return NextResponse.json({
@@ -569,6 +628,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // Genuinely free — no fixed price AND no variable cost AND no membership gate.
     const hasPrice = !!(event.memberPrice || event.nonMemberPrice || event.dropInFee);
     if (!hasPrice) {
+      if (reviewOnly) return reviewResponse({ pricing: "FREE", approval: policy.requiresCoachApproval, waitlisted: isFull });
       if (policy.requiresCoachApproval) {
         const reg = await requestCoachReview(null);
         return NextResponse.json({
@@ -588,6 +648,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       if (status === "CONFIRMED") {
         const club = await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { name: true } });
         emailBookingConfirmation({
+          eventId: event.id,
           memberId: member.id,
           clubName: club?.name ?? "your club",
           eventName: event.name,
@@ -736,6 +797,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
     // A 100%-off code books directly — same shape as the free path above.
     if (applied && priceCents <= 0) {
+      if (reviewOnly) return reviewResponse({ pricing: "FREE", approval: false, waitlisted: isFull });
       const status = event.capacity && event._count.bookings >= event.capacity ? "WAITLISTED" : "CONFIRMED";
       await prisma.booking.create({
         data: { eventId: event.id, memberId: member.id, status, bookedByUserId: session.user.id ?? null },
@@ -744,6 +806,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       if (status === "CONFIRMED") {
         const clubName = (await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { name: true } }))?.name;
         emailBookingConfirmation({
+          eventId: event.id,
           memberId: member.id,
           clubName: clubName ?? "your club",
           eventName: event.name,
@@ -759,7 +822,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // Stripe so a controlled minor sees "Sent to your guardian" instead
     // of a Stripe redirect. Replay payload mirrors the original POST so
     // the approval flow can re-invoke this endpoint cleanly.
-    const gate = await applyParentalControls({
+    // Queuing a guardian approval writes a row, so it happens only once the
+    // person has confirmed the review.
+    const gate = reviewOnly ? ({ kind: "allow" } as const) : await applyParentalControls({
       member: {
         id: member.id,
         clubId: session.user.clubId,
@@ -962,6 +1027,20 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           },
           { status: 400 },
         );
+      }
+
+      if (reviewOnly) {
+        const fee = applyProcessingFee(priceCents, feePolicyFor(club));
+        const m = (intent === "CASH_CHECK" ? (paymentMethod === "CHECK" ? "CHECK" : "CASH") : intent) as PaymentMethodKey;
+        const card = savedCardAvailable && (m === "AUTO_CARD" || m === "APPROVAL_CHARGE") ? await resolveCardSnapshot(customerId, club.stripeAccountId) : null;
+        return reviewResponse({
+          pricing: "PAID",
+          approval: true,
+          method: m,
+          amount: { gross: grossPrice, due: price, discountLabel: applied?.label ?? (applied?.code ? `code ${applied.code}` : null), cardFee: fee.feeCents / 100, cardTotal: fee.totalCents / 100 },
+          chargeOn: m === "AUTO_CARD" ? eventScheduledChargeAt(event) : null,
+          savedCardLabel: card ? `${prettyBrand(card.brand)} ····${card.last4}` : null,
+        });
       }
 
       const stampCode = async (id: string) => {
@@ -1279,6 +1358,21 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       return NextResponse.json({ error: "PAYMENT_METHOD_NOT_ALLOWED", message: reason }, { status: 400 });
     }
 
+    if (reviewOnly) {
+      const fee = applyProcessingFee(priceCents, feePolicyFor(club));
+      const customerId = member.stripeSetupCustomerId ?? member.stripeCustomerId;
+      const card = chosen === "SAVED_CARD" || chosen === "AUTO_CARD" ? await resolveCardSnapshot(customerId, club.stripeAccountId) : null;
+      return reviewResponse({
+        pricing: "PAID",
+        approval: false,
+        waitlisted: isFull,
+        method: chosen as PaymentMethodKey,
+        amount: { gross: grossPrice, due: price, discountLabel: applied?.label ?? (applied?.code ? `code ${applied.code}` : null), cardFee: fee.feeCents / 100, cardTotal: fee.totalCents / 100 },
+        chargeOn: chosen === "AUTO_CARD" ? eventScheduledChargeAt(event) : null,
+        savedCardLabel: card ? `${prettyBrand(card.brand)} ····${card.last4}` : null,
+      });
+    }
+
     // ── Pay now with the saved card ─────────────────────────────────────────
     // The client explicitly confirmed the exact total on the button. Reuses
     // the scheduled-charge engine with "now" as the date — same idempotency
@@ -1396,6 +1490,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         if (discount) await recordDiscountUse(discount.id);
         if (bookingStatus === "CONFIRMED") {
           emailBookingConfirmation({
+            eventId: event.id,
             memberId: member.id,
             clubName: club.name,
             eventName: event.name,
@@ -1434,6 +1529,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       if (discount) await recordDiscountUse(discount.id);
       if (bookingStatus === "CONFIRMED") {
         emailBookingConfirmation({
+          eventId: event.id,
           memberId: member.id,
           clubName: club.name,
           eventName: event.name,

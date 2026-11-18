@@ -111,22 +111,29 @@ export function makeFakeDb(cfg: FakeConfig) {
     const inc = args?.include;
     if (!sel) {
       const out: Row = { ...row };
-      for (const [k, v] of Object.entries(inc ?? {})) if (v) out[k] = related(model, row, k, v);
+      for (const [k, v] of Object.entries(inc ?? {})) {
+        if (!v) continue;
+        // `include: { _count: { select: { rel: true } } }` counts the same way select does.
+        if (k === "_count") { out._count = countsFor(model, row, v); continue; }
+        out[k] = related(model, row, k, v);
+      }
       return out;
     }
     const out: Row = {};
     for (const [k, v] of Object.entries(sel)) {
       if (!v) continue;
-      if (k === "_count") {
-        out._count = {};
-        for (const f of Object.keys((v as any).select ?? {})) {
-          const r = rel(model, f);
-          if (!r) throw new Error(`fake-prisma: _count on unknown relation ${model}.${f}`);
-          out._count[f] = table(r.model).filter((o) => o[r.fk] === row.id).length;
-        }
-        continue;
-      }
+      if (k === "_count") { out._count = countsFor(model, row, v); continue; }
       out[k] = rel(model, k) ? related(model, row, k, v) : row[k] === undefined ? null : row[k];
+    }
+    return out;
+  }
+
+  function countsFor(model: string, row: Row, v: any): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const f of Object.keys(v?.select ?? {})) {
+      const r = rel(model, f);
+      if (!r) throw new Error(`fake-prisma: _count on unknown relation ${model}.${f}`);
+      out[f] = table(r.model).filter((o) => o[r.fk] === row.id).length;
     }
     return out;
   }

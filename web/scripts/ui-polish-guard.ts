@@ -51,6 +51,10 @@ const H1_ALLOW: Record<string, { max: number; reason: string }> = {
     max: 1,
     reason: "member-facing registration status card (stone palette), not a dashboard page header",
   },
+  "components/events/EventInfoBlock.tsx": {
+    max: 1,
+    reason: "the event's name on the public event page and the member event details screen (stone palette), not a dashboard page header",
+  },
   "app/dashboard/members/[id]/billing/page.tsx": {
     max: 1,
     reason: "title is followed by a row of status chips (a <div>) that PageHeader's <p> description can't hold. Uses PageHeader's exact h1 classes",
