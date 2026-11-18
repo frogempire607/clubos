@@ -112,6 +112,11 @@ export const GATED = [
   ["scripts/hooks-order-guard.ts"],
   // The pages the crawl found crashing, pinned as rendered / as source.
   ["scripts/crash-audit-tests.ts"],
+  // First-party client error reporting: a crashed screen is recorded (which
+  // screen, the error, who by id and role) and nothing about a person is —
+  // addresses lose ids and tokens, text loses emails, the server re-scrubs
+  // everything and takes identity only from the session.
+  ["scripts/client-errors-tests.ts"],
   ["scripts/members-grep-guards.ts"],
   ["scripts/reports-mobile-guard.ts", [], { TZ: "America/New_York" }],
   ["scripts/ui-polish-guard.ts"],

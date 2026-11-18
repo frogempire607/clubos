@@ -7,6 +7,7 @@ import NativeDeepLinks from "@/components/NativeDeepLinks";
 import NativeShell from "@/components/NativeShell";
 import PushRegistration from "@/components/PushRegistration";
 import DialogHost from "@/components/DialogHost";
+import ClientErrorReporter from "@/components/ClientErrorReporter";
 
 const fraunces = Fraunces({ subsets: ["latin"], display: "swap", variable: "--font-fraunces" });
 const inter    = Inter({ subsets: ["latin"], display: "swap" });
@@ -168,6 +169,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             of whatever sheet or modal asked for it. */}
         <div className="relative z-[90]">
           <DialogHost />
+          <ClientErrorReporter />
         </div>
       </body>
     </html>

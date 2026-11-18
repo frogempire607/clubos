@@ -2780,6 +2780,36 @@ model StripeWebhookEvent {
   @@map("stripe_webhook_events")
 }
 
+// One row each time a screen crashes in someone's browser (crash audit
+// 2026-11-18). Written by POST /api/public/client-errors from the error
+// screen and the browser's own error events; read on Settings → Diagnostics.
+// Holds the screen (ids and tokens stripped — lib/clientErrors.ts), the error
+// text, and who by id and role only. No names, emails, member data or IP.
+// No relations on purpose: a signed-out visitor's crash is storable, and a
+// row outlives the account it came from.
+model ClientError {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  source      String   // SCREEN (error screen) | WINDOW | PROMISE
+  path        String
+  message     String
+  stack       String?
+  digest      String?
+  // Same crash, same string: groups repeats without comparing stacks.
+  fingerprint String
+  clubId      String?
+  userId      String?
+  role        String?
+  userAgent   String?
+  viewport    String?
+  release     String?
+
+  @@index([createdAt])
+  @@index([clubId, createdAt])
+  @@index([fingerprint])
+  @@map("client_errors")
+}
+
 // Reconciliation review queue. A subscription that exists in the club's Stripe
 // (connected account) but can't be confidently linked to an AthletixOS member
 // lands here for OWNER review. We NEVER auto-create billing or mutate a live

@@ -156,18 +156,37 @@ profile, My profile and the import wizard are broken in production now.
 - **So there is no client-side error reporting.** A screen that crashes in a
   browser — like items 6 and 7 — leaves no trace anywhere.
 
-**Recommendation** (nothing was added):
+**Built since (second commit on this branch): first-party error reporting.**
+No outside service. When a screen crashes, the error screen posts one small
+report to this app's own `POST /api/public/client-errors`, which stores a row
+in a new `client_errors` table and prints a line to the function log.
 
-1. **Finish the Sentry wiring on its free plan.** The package is already a
-   dependency and half configured. Needs: an account and the two DSN variables
-   in Netlify; `withSentryConfig` in `next.config.mjs`; the instrumentation
-   flag; an `app/global-error.tsx`. About an hour, and the only step that is
-   yours is creating the account.
-2. **Or, no outside service:** a small first-party endpoint the error screen
-   posts to, writing a row per crash (screen, message, app version, signed-in
-   role — no member data). Needs one new table.
-3. Either way, Netlify's 24-hour window means a "last 14 days" question cannot
-   be answered from logs on this plan.
+- **What is recorded:** the screen (ids, tokens and the query string stripped:
+  `/dashboard/staff/:id`), the error text and stack (email addresses and
+  tokens stripped), screen size, and — taken from the session, never from the
+  browser — the user id, club id and role. No names, no emails, no member
+  data, no IP address.
+- **Where it reports from:** the dashboard and portal error screens; a new
+  error screen for every other page (sign-in, sign-up, activation, public
+  event pages had none — a crash there was a blank page); the root layout;
+  and uncaught errors and unhandled promise rejections anywhere.
+- **Limits:** one report per distinct crash per page load, five per page
+  load, 30 a minute per address. Dropped connections, cancelled requests and
+  browser-extension errors are not reported.
+- **Where to read it:** Settings → Diagnostics → "Screen errors" (owner only,
+  your club's crashes, last 14 days, grouped, with how many people each one
+  hit). A crash by someone signed out belongs to no club and appears only in
+  the table itself.
+- **Needs one migration**, `20261118000000_client_errors` — one new table,
+  nothing existing touched. Safe in either order: until it is applied the
+  endpoint still answers and still writes the log line; it just stores
+  nothing, and the Diagnostics card says so.
+- **Not built:** no alert when a crash is recorded (you have to look), and no
+  clean-up of old rows.
+
+Still true: Sentry remains half-wired and off, and Netlify's 24-hour window
+means a "last 14 days" question cannot be answered from logs on this plan —
+it can now be answered from this table, from the day the migration is applied.
 
 ## Part 4 — a safety problem the audit itself found
 
@@ -207,7 +226,7 @@ The repo `CLAUDE.md` table is updated.
 It follows sheets into child components, and its first section proves each
 rule catches the broken shape and passes the fixed one.
 
-## Tests added (all in the build gate: 143 → 149 checks)
+## Tests added (all in the build gate: 143 → 150 checks)
 
 | File | Covers |
 |---|---|
@@ -217,6 +236,7 @@ rule catches the broken shape and passes the fixed one.
 | `scripts/crash-audit-tests.ts` | import wizard `params`, field patterns, failed reloads keep the screen |
 | `scripts/audience-status-filter-tests.ts` | the production 500 |
 | `scripts/dev-local-env-tests.ts` | a local server sees nothing real |
+| `scripts/client-errors-tests.ts` | what a crash report holds and does not hold; the reporter; the endpoints; the migration |
 
 `scripts/browser-crash-audit.ts` is the crawl. It is not in the build gate (it
 needs a running local server and database) and refuses any address that is
@@ -232,6 +252,5 @@ not this machine.
 - **A blank status rule in a saved audience** still means "no constraint", as
   an empty list always has. Whether saving such a rule should be refused is a
   product decision.
-- **Client-side error reporting** — recommended above, not built.
 - **Second-level sheets and the 4 pages with no local record** were not opened
   by the crawl. The source guard covers their code.
