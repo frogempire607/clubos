@@ -105,6 +105,11 @@ export const GATED = [
   // Decision 2026-11-18: an audience with a status rule and no status picked
   // cannot be SAVED (it would mean "everyone"). Already-saved ones keep working.
   ["scripts/audience-save-rule-tests.ts"],
+  // nodemailer 7 → 10 (dependency audit 2026-11-18): a real send through the
+  // real library to an SMTP server on 127.0.0.1, read back off the wire. Also
+  // pins what it found — a recipient string carrying a second address was
+  // delivered to the second address; one plain address or nothing now.
+  ["scripts/smtp-send-tests.ts"],
   // …and the hole the audit's own crawl fell into: scripts/dev-local.sh is a
   // default-deny environment now, and this asks it what a local server would
   // see for every variable the app reads. Nothing real, by name.

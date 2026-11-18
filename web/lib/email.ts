@@ -16,6 +16,32 @@ export function isEmailConfigured(): boolean {
   return smtpMissingVars().length === 0;
 }
 
+/**
+ * One plain email address, or null.
+ *
+ * The mail library reads a recipient as an address LIST with display names and
+ * comments. Handed `parent@family.test\r\nBcc: evil@attacker.test` it sent the
+ * message to evil@attacker.test and to nobody else — on nodemailer 7 and still
+ * on 10 (found by scripts/smtp-send-tests.ts, 2026-11-18). Addresses are
+ * format-checked when a person types them, but imports and older rows are not
+ * guaranteed to be, so the last line of defence is here: this app only ever
+ * sends to ONE address at a time, and anything that is not exactly one plain
+ * address is not sent to.
+ */
+export function plainEmailAddress(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const v = value.trim();
+  if (v.length < 3 || v.length > 254) return null;
+  // no spaces, control characters, list or comment syntax, and exactly one @
+  if (!/^[^\s\x00-\x1f\x7f<>(),;:"\\\[\]@]+@[^\s\x00-\x1f\x7f<>(),;:"\\\[\]@]+\.[^\s\x00-\x1f\x7f<>(),;:"\\\[\]@.]+$/.test(v)) return null;
+  return v;
+}
+
+/** A header value on one line: line breaks and control characters become spaces. */
+function oneLine(value: string): string {
+  return value.replace(/[\x00-\x1f\x7f]+/g, " ").trim();
+}
+
 export async function sendEmail({
   to,
   subject,
@@ -38,8 +64,19 @@ export async function sendEmail({
   // List-Unsubscribe headers. Leave unset for transactional email.
   listUnsubscribeUrl?: string | null;
 }) {
+  const recipient = plainEmailAddress(to);
+  if (!recipient) {
+    // Same outcome for the caller as a mail server refusing the address.
+    throw new Error("Not sent: the recipient is not a single valid email address.");
+  }
+  subject = oneLine(subject);
+  // A reply-to or unsubscribe link that is not what it should be is dropped
+  // rather than passed on; the message itself still goes.
+  const safeReplyTo = replyTo ? plainEmailAddress(replyTo) : null;
+  const safeUnsubscribe = listUnsubscribeUrl && /^https?:\/\/[^\s<>"]+$/.test(listUnsubscribeUrl) ? listUnsubscribeUrl : null;
+
   if (!process.env.SMTP_HOST) {
-    console.log(`[Email – no SMTP configured] To: ${to} | Subject: ${subject}`);
+    console.log(`[Email – no SMTP configured] To: ${recipient} | Subject: ${subject}`);
     return;
   }
 
@@ -57,19 +94,19 @@ export async function sendEmail({
   let from = baseFrom;
   if (fromName) {
     const addr = baseFrom.match(/<([^>]+)>/)?.[1] || baseFrom;
-    from = `${fromName.replace(/["<>]/g, "")} <${addr}>`;
+    from = `${oneLine(fromName).replace(/["<>]/g, "")} <${addr}>`;
   }
 
   await transporter.sendMail({
     from,
-    to,
+    to: recipient,
     subject,
     html,
-    ...(replyTo ? { replyTo } : {}),
-    ...(listUnsubscribeUrl
+    ...(safeReplyTo ? { replyTo: safeReplyTo } : {}),
+    ...(safeUnsubscribe
       ? {
           headers: {
-            "List-Unsubscribe": `<${listUnsubscribeUrl}>`,
+            "List-Unsubscribe": `<${safeUnsubscribe}>`,
             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
           },
         }

@@ -7,7 +7,8 @@
 | | critical | high | moderate | low | total |
 |---|---|---|---|---|---|
 | Before (`npm audit`, lockfile on `main`) | 9 | 24 | 81 | 2 | **116** |
-| After | 1 | 4 | 41 | 0 | **46** |
+| After the patch and minor updates | 1 | 4 | 41 | 0 | **46** |
+| After nodemailer 10 (decision 2, approved the same day) | 1 | 2 | 41 | 0 | **44** |
 
 The request quoted 128 (9 critical, 38 high) from `npm install`. Measured here
 from the committed lockfile it was 116 (9 critical, 24 high). The advisory feed
@@ -55,13 +56,12 @@ No `npm audit fix --force`. Only patch and minor updates, plus one removal.
 | `nanoid`, `source-map-js`, `browserslist`, `brace-expansion` | Tooling (build) | Build-time helpers under Next, PostCSS, Tailwind, mjml and ESLint. They process our own source and config. | **Fixed** (transitive). |
 | `playwright` | Tooling | Browser downloads were not certificate-checked. Used only for the local crash sweep, which drives the installed Chrome and downloads nothing. | **Fixed: 1.65.1.** |
 | `shadcn`, `@modelcontextprotocol/sdk`, `body-parser`, `fast-uri`, `ip-address`, `systeminformation` | Tooling | All inside the `shadcn` CLI. | **Fixed** (`shadcn` 4.23.0). |
-| `nodemailer` | Server | See decision 2. | **Not fixed — needs a major version.** |
+| `nodemailer` | Server | See decision 2. | **Fixed: 10.6.0** (approved after this audit; its own commit). |
 | `zod` | Server, Browser | See decision 3. | **Not fixed — needs a major version.** |
 | `postcss` (the copy inside `next`) | Tooling (build) | Next bundles its own PostCSS 8.4.31. It only ever compiles this repo's own CSS at build time. The app's own PostCSS is current (8.5.33). | **Not fixable without Next 15+. Accepted.** |
 
-`next-auth` still shows as *high* after the update. That is not a next-auth
-bug: npm marks it because it declares `nodemailer` as an optional companion,
-and `nodemailer` is flagged. It clears when decision 2 is made.
+`next-auth` showed as *high* after its own update only because it declares
+`nodemailer` as an optional companion. It cleared with decision 2.
 
 ## Checked and not flagged
 
@@ -109,18 +109,37 @@ mixed content (`capacitor.config.ts`), which narrows it; it does not close it.
   the 150 build checks as the gate. Go to the latest 15.5.x, not 16: 16
   renames middleware and is a second set of changes on top.
 
-### 2. nodemailer 7 → 10 — recommended, small
+### 2. nodemailer 7 → 10 — DONE (approved 2026-11-18)
 
-- **Risk of staying:** most of the 20 advisories need options this app never
-  passes (`raw`, `envelope`, `list` headers, OAuth2, DKIM, JSON transport —
-  `lib/email.ts` uses none). What does apply is how addresses are parsed: a
-  crafted recipient string can make parsing slow, or be read as a different
-  address. Addresses reach the mailer from member and guardian records, which
-  are format-checked on entry; imported rows are the weakest link. In
-  production email goes through Resend first, and nodemailer is the fallback.
-- **Effort:** half a day. One file uses it, through one call.
-- **Recommendation:** yes, as a small separate change, with a real send
-  tested against a throwaway inbox — which is why it is not in this one.
+- **What changed in the three majors, and whether it touches us:** an error
+  code was renamed (`NoAuth` → `ENOAUTH`; the app checks neither); remote
+  content fetched over HTTPS is now certificate-checked (the app attaches no
+  remote content); Node 20 or newer is required and the package ships its own
+  types (`@types/nodemailer` removed). `lib/email.ts` needed no change for the
+  upgrade itself.
+- **next-auth 4 lists nodemailer 7 as an optional companion** (only its email
+  sign-in uses it, which this app does not have). `package.json` now has an
+  `overrides` entry pointing that at the installed version, so install does
+  not fail on the mismatch.
+- **Check on your side:** Netlify must build and run on Node 20 or newer. I
+  could not read the site's Node version from here. The repo does not pin one,
+  and Netlify's default has been 20+ for some time, but confirm it in the
+  site's build settings before deploying.
+- **A real send is now tested** (`scripts/smtp-send-tests.ts`, in the build
+  gate): the real library, through `sendEmail`, to a mail server on 127.0.0.1,
+  read back off the wire — sign-in, envelope, From / Reply-To / Subject,
+  unsubscribe headers, and the HTML body byte for byte.
+- **That test found a real bug, on the old version and the new one.** The
+  library reads a recipient as an address *list*. A recipient stored as
+  `parent@family.test` followed by a line break and `Bcc: someone@else.test`
+  was delivered to `someone@else.test` and to nobody else. Addresses are
+  format-checked when typed, so this needed a bad row to already exist (an
+  import, an old record) — but nothing stopped it at the point of sending.
+  `sendEmail` and the Resend path now send to exactly one plain address or
+  record a failed send; a reply-to or unsubscribe link that is not what it
+  should be is dropped and the message still goes. Read-only count in
+  production: 559 stored addresses (126 logins, 60 member, 373 guardian),
+  **0 would be refused** by the new rule.
 
 ### 3. zod 3 → 4 — not now
 
@@ -153,13 +172,17 @@ Not flagged. Pinned on purpose. Nothing to decide for security.
 | `@sentry/nextjs` | 10.54.0 | 10.78.0 | minor |
 | `@tiptap/*` (7 packages) | 3.29.2 | 3.34.0 | minor |
 | `mjml` | 5.4.0 | 5.4.1 | patch |
+| `nodemailer` | 7.0.13 | 10.6.0 | **major** (decision 2) |
+| `@types/nodemailer` | 8.0.0 | removed | nodemailer ships its own types |
 | `playwright` (dev) | 1.49.1 | 1.65.1 | minor |
 | `shadcn` (dev) | 4.11.0 | 4.23.0 | minor |
 | `tsx` (dev) | 4.21.0 | 4.23.15 | minor |
 | `postcss` (dev) | 8.5.25 | 8.5.33 | patch |
 | transitive packages | | | via `npm audit fix` (no `--force`) |
 
-No application code needed changing for any of these.
+No application code needed changing for the patch and minor updates. The
+nodemailer commit changes `lib/email.ts` and `lib/sendClubEmail.ts` for the
+recipient rule described under decision 2, not for the upgrade.
 
 ## Verified
 
