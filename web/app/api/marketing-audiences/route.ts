@@ -9,6 +9,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, requireMessagesSubScope } from "@/lib/apiGuard";
 import { parseAudienceFilter, evaluateAudience } from "@/lib/audienceFilters";
+import { STATUS_RULE_INCOMPLETE, audienceSaveProblem } from "@/lib/audienceRules";
 
 const createSchema = z.object({
   name: z.string().min(1).max(200),
@@ -63,6 +64,10 @@ export async function POST(req: Request) {
   }
 
   const filter = parseAudienceFilter(data.filters);
+  // A status rule with no status picked constrains nothing — refuse to save an
+  // audience that reads as "by status" and means "everyone".
+  const problem = audienceSaveProblem(filter);
+  if (problem) return NextResponse.json({ error: problem, code: STATUS_RULE_INCOMPLETE }, { status: 400 });
   const matchedIds = await evaluateAudience(session.user.clubId, filter);
 
   const row = await prisma.marketingAudience.create({

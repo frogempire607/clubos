@@ -9,6 +9,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, requireMessagesSubScope } from "@/lib/apiGuard";
 import { parseAudienceFilter, evaluateAudience } from "@/lib/audienceFilters";
+import { STATUS_RULE_INCOMPLETE, audienceSaveProblem } from "@/lib/audienceRules";
 
 const patchSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -61,6 +62,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   if (data.filters !== undefined || data.isDynamic !== undefined) {
     const filter = parseAudienceFilter(data.filters ?? existing.filters);
+    // Only NEW or CHANGED rules are held to this. An older audience already
+    // saved with a blank status rule can still be renamed, frozen or archived
+    // without touching its rules, and keeps evaluating as it always has.
+    if (data.filters !== undefined) {
+      const problem = audienceSaveProblem(filter, existing.filters as { match?: unknown; rules?: unknown } | null);
+      if (problem) return NextResponse.json({ error: problem, code: STATUS_RULE_INCOMPLETE }, { status: 400 });
+    }
     const matchedIds = await evaluateAudience(session.user.clubId, filter);
     const isDynamic = data.isDynamic ?? existing.isDynamic;
     updates.filters = filter as unknown as object;

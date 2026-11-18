@@ -27,7 +27,7 @@
 //   email. We honor it even on transactional (with an audit note when we do).
 
 import { prisma } from "@/lib/prisma";
-import { sendEmail as smtpSend, isEmailConfigured } from "@/lib/email";
+import { sendEmail as smtpSend, isEmailConfigured, plainEmailAddress } from "@/lib/email";
 import { sanitizeEmailHtml } from "@/lib/sanitizeHtml";
 import { Resend } from "resend";
 
@@ -162,6 +162,16 @@ export async function sendClubEmail(input: SendClubEmailInput): Promise<SendClub
         updatedAt: new Date(),
       });
     return { emailSendId: row.id, status: "SKIPPED", skippedReason: "NO_PROVIDER" };
+  }
+
+  // One plain address or nothing — for BOTH providers (see plainEmailAddress
+  // in lib/email.ts: a recipient string carrying a second address was
+  // delivered to the second address). Recorded as a failed send, so it shows
+  // in the results screen instead of vanishing.
+  if (!plainEmailAddress(recipientEmail)) {
+    const msg = "Not sent: the recipient is not a single valid email address.";
+    await settleEmailSend(row.id, { status: "FAILED", error: msg, updatedAt: new Date() });
+    return { emailSendId: row.id, status: "FAILED", error: msg };
   }
 
   // Sanitization: bodyHtml comes from lib/emailRender.ts which already
