@@ -4,6 +4,8 @@ import { Suspense, useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import SocialButtons from "@/components/auth/SocialButtons";
+import { socialErrorText } from "@/lib/socialErrors";
 
 type Role = "staff" | "member";
 
@@ -33,7 +35,11 @@ function LoginInner() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [error, setError] = useState("");
+  // A Google / Apple attempt that didn't work comes back as ?social_error=<code>.
+  const [error, setError] = useState(() => {
+    const code = searchParams.get("social_error");
+    return code ? socialErrorText(code) : "";
+  });
   const [notice, setNotice] = useState(
     searchParams.get("memberRedirect") === "1"
       ? "That login is a member account, so we sent it to the member portal."
@@ -252,6 +258,17 @@ function LoginInner() {
               {loading ? "Signing in…" : isStaff ? "Sign in to dashboard" : "Sign in to portal"}
             </button>
           </form>
+
+          <div className="mt-4">
+            <SocialButtons
+              club={clubSlug}
+              next={(() => {
+                const raw = searchParams.get("next") || searchParams.get("callbackUrl");
+                return raw && raw.startsWith("/member") ? raw : null;
+              })()}
+              onError={setError}
+            />
+          </div>
 
           <div className="mt-6 pt-5 border-t border-app-border">
             <Link

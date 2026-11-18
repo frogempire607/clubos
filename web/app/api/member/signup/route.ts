@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { readToken, SOCIAL_PASSWORD_PREFIX, SOCIAL_ERROR_TEXT, type PendingPayload } from "@/lib/socialAuth";
+import { afterProviderProof, attachIdentity, findLinked, signInGate } from "@/lib/socialAuthServer";
+import { PENDING_COOKIE, clearCookie, withSession } from "@/lib/socialAuthHttp";
 import { notifyApprovalWaiting } from "@/lib/pushServer";
 import { sendVerificationEmail } from "@/lib/emailLinkServer";
 import { z } from "zod";
@@ -28,7 +32,10 @@ const schema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   email: z.string().email(),
-  password: z.string().min(8),
+  // Optional only for a signup that started with Google or Apple (social),
+  // which has no password; checked below.
+  password: z.string().min(8).optional(),
+  social: z.boolean().optional(),
   accountType: z.enum(["ADULT_ATHLETE", "MINOR_ATHLETE", "MINOR_SELF", "PARENT"]),
   dateOfBirth: z.string().optional(),
   // §7.2 — the modern child path. When these are present, `firstName`/
@@ -116,6 +123,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Club not found. Check the club URL and try again." }, { status: 404 });
     }
 
+    // Signing up after "Sign in with Google / Apple" matched no account: the
+    // provider's answer (a signed, short-lived cookie) stands in for the
+    // password, for this club only. Without it a password is required.
+    const social = data.social
+      ? readToken<PendingPayload>("pending", cookies().get(PENDING_COOKIE)?.value, new Date(), process.env.NEXTAUTH_SECRET)
+      : null;
+    if (data.social && (!social || social.clubId !== club.id)) {
+      return NextResponse.json({ error: SOCIAL_ERROR_TEXT.state, code: "SOCIAL_EXPIRED" }, { status: 400 });
+    }
+    if (!social && !data.password) {
+      return NextResponse.json({ error: "Choose a password of at least 8 characters." }, { status: 400 });
+    }
+    if (social) {
+      const linkedAlready = await findLinked(club.id, social.provider, social.subject);
+      if (linkedAlready && !linkedAlready.user.deletedAt) return NextResponse.json({ error: SOCIAL_ERROR_TEXT.taken }, { status: 409 });
+    }
+
     const signupDocs = await prisma.document.findMany({
       where: {
         audience: "MEMBER", clubId: club.id,
@@ -181,7 +205,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "An account with this email already exists. Try logging in." }, { status: 409 });
     }
 
-    const passwordHash = await bcrypt.hash(data.password, 12);
+    // A Google/Apple account has no password: a marker nobody can type
+    // (lib/socialAuth passwordIsUsable). They can add one later by the emailed
+    // reset link, which proves the address.
+    const passwordHash = social
+      ? `${SOCIAL_PASSWORD_PREFIX}${crypto.randomBytes(32).toString("hex")}`
+      : await bcrypt.hash(data.password as string, 12);
     // Whether the ACCOUNT HOLDER is a minor athlete. `planSignup` decided this
     // from the DATE OF BIRTH, not from which option was clicked, so this agrees
     // with `resolveIsMinor` at the login gate rather than contradicting it.
@@ -546,7 +575,22 @@ export async function POST(req: Request) {
 
     // Always: the confirmation email. It is what turns "typed an address" into
     // "owns the address", now or whenever the club later adds a record for it.
-    const verificationEmailSent = await sendVerificationEmail(
+    // Google or Apple vouching for this very address proves it, so the
+    // records waiting on it are linked now and no confirmation email is sent.
+    let provedByProvider = false;
+    if (social) {
+      const profile = {
+        provider: social.provider, subject: social.subject, email: social.email, emailVerified: social.emailVerified,
+        emailIsRelay: social.emailIsRelay, firstName: social.firstName, lastName: social.lastName,
+      };
+      await attachIdentity({ userId: user.id, clubId: club.id, profile, refreshTokenEnc: social.rt ?? null });
+      if (profile.email && profile.emailVerified && !profile.emailIsRelay && profile.email === user.email) {
+        await afterProviderProof(user.id, profile);
+        provedByProvider = true;
+        emailLinkPending = false;
+      }
+    }
+    const verificationEmailSent = provedByProvider ? false : await sendVerificationEmail(
       { id: user.id, email: user.email, firstName: user.firstName },
       club.name,
       baseUrlFromRequest(req),
@@ -782,10 +826,14 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json(
+    const res = NextResponse.json(
       {
         ok: true,
         clubSlug: club.slug,
+        // A Google/Apple signup is signed in by this response (there is no
+        // password for the page to sign in with). Not when a guardian must
+        // consent first: the login gate would refuse it anyway.
+        signedIn: false as boolean,
         guardianLinkPending,
         pendingGuardianConsent,
         // What the account holder should be told next. `intent` lets the client
@@ -805,6 +853,17 @@ export async function POST(req: Request) {
       },
       { status: 201 },
     );
+    if (social) {
+      clearCookie(res, PENDING_COOKIE, "/");
+      const gate = await signInGate(user.id, club.id);
+      if (gate.ok) {
+        const body = (await res.clone().json()) as Record<string, unknown>;
+        const signed = NextResponse.json({ ...body, signedIn: true }, { status: 201 });
+        clearCookie(signed, PENDING_COOKIE, "/");
+        return withSession(signed, gate.user);
+      }
+    }
+    return res;
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors }, { status: 400 });
     console.error(err); return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });

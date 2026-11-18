@@ -361,8 +361,10 @@ Check on the phone: the same list as iPhone, plus:
 
 ## 11. Changes to make in this packet WHEN Google / Apple sign-in and push ship
 
-Neither is built yet (plan §10 and §11). Do not paste these before the build
-that contains them is the one under review.
+Both are built (2026-11-18) and switched off until their keys are set (plan
+§10 and §11). Paste these only once the keys are set AND the build under
+review was made after `cap sync` with `@capacitor/browser` and
+`@capacitor/push-notifications`.
 
 **Demo logins stay email and password.** Reviewers cannot use your Google or
 Apple account, and Google requires credentials that are "accessible at all

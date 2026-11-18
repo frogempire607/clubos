@@ -15,6 +15,7 @@ import { invalidatePermissionCache } from "@/lib/apiGuard";
 import { releaseRemovedStaff } from "@/lib/classStaffServer";
 import { recordStaffActivity } from "@/lib/staffActivity";
 import { notifyApprovalWaiting } from "@/lib/pushServer";
+import { revokeAppleToken } from "@/lib/socialAuthServer";
 import {
   planAccountDeletion,
   tombstoneEmail,
@@ -181,6 +182,10 @@ export async function deleteOwnAccount(input: { userId: string; clubId: string; 
     await notifyApprovalWaiting({ clubId, approvalKind: MEMBERSHIP_CANCEL_KIND, requestedByUserId: userId });
   }
 
+  // Google / Apple sign-ins on this account. Read before the rows go: Apple
+  // requires the token to be revoked when an account is deleted (step 4).
+  const identities = await prisma.userIdentity.findMany({ where: { userId }, select: { provider: true, refreshTokenEnc: true } });
+
   // ── 2. The account itself, in one transaction ────────────────────────────
   await prisma.$transaction(async (tx) => {
     // Guardian access ends. REVOKED, not deleted: the link is the audit trail
@@ -199,6 +204,9 @@ export async function deleteOwnAccount(input: { userId: string; clubId: string; 
       where: { userId, deletedAt: null },
       data: ownMemberKeepsBilling ? { userId: null } : { deletedAt: now, userId: null },
     });
+
+    // No way back in through Google or Apple either.
+    await tx.userIdentity.deleteMany({ where: { userId } });
 
     // Their phones stop receiving anything. Disabled, not deleted, like every
     // other dead token (lib/pushServer).
@@ -248,6 +256,13 @@ export async function deleteOwnAccount(input: { userId: string; clubId: string; 
     } catch (err) {
       console.error("[account deletion] could not release staff schedule", err);
     }
+  }
+
+  // ── 4. Tell Apple this app no longer has access (App Review 5.1.1(v)) ────
+  // After the login is gone, so a slow or failed call to Apple never leaves
+  // the account half-deleted. Failures are logged by revokeAppleToken.
+  for (const id of identities) {
+    if (id.provider === "APPLE" && id.refreshTokenEnc) await revokeAppleToken(id.refreshTokenEnc);
   }
 
   return { ok: true, plan, cancelRequestsFiled };

@@ -105,7 +105,7 @@ Two branches, the second cut from the first. No migration in either.
 - [x] Text under 12px, stuck-spinner screens and event-email timezones: built 2026-11-17 (section 7).
 - [ ] Push notifications: tables written (migration not applied yet), code not started. Section 7.
 
-## 7. Attendees, class limits, sign-in, push (2026-11-17, **not pushed / not deployed — Julian pushes**)
+## 7. Attendees, class limits, sign-in, push (2026-11-17/18, **not pushed / not deployed — Julian pushes**)
 Branch `claude/attendees-limits-signin-push`, cut from `main` at `bf5b7b7`. Commits are in ship order.
 
 **Built, no migration needed (safe to ship as they are):**
@@ -119,13 +119,21 @@ Branch `claude/attendees-limits-signin-push`, cut from `main` at `bf5b7b7`. Comm
 - [x] `1122aab` Dropped connection: every screen's load has a 30 s limit, a "Can't reach the server" bar, and Try again.
 - [x] `cec90d1` Double tap: cash at the door, pay-later-by-link, and payout records each happen once.
 
-**YOU, before pushing anything from `ab606d9` on (in this order):**
-- [ ] Back up: `pg_dump "<session pooler URI>" --no-owner --no-privileges -f ~/clubos-backups/pre-$(date +%Y%m%d-%H%M).sql`
-- [ ] `cd /Users/cubano/Desktop/clubos/web/.claude/worktrees/clubos-web-maintenance-c5222b/web && npx prisma migrate deploy` — applies `20261117000000_user_identities`, `20261117010000_push_notifications`, `20261117020000_class_session_capacity`. All additive: four new tables and one nullable column.
+**Built after the migrations were applied (2026-11-18, Julian confirmed):**
+- [x] `32fecb6` Schedule page: registering for an event with questions, a roster spot, a payment choice or documents opens the Events page's register flow instead of printing "ROSTER_REQUIRED". No member page prints a raw error code (build guard). Attendees: removing someone who paid offers "Remove and refund" or "Remove, keep the payment" (owner / billing:full, in-app dialog, audit row); removed people have their own section; a kept payment reads "Removed, paid $X, not refunded" and counts in Collected. Tucker Tominack (Parabellum Duals) reads "Removed, paid $61.74, not refunded".
+- [x] `bb22d06` Push notifications (ships dark until the keys are set). See `docs/MOBILE-APP-PLAN-2026-11-15.md` §11.
+- [x] (sign-in commit) Sign in with Google / Apple (ships dark until the keys are set). See §10.
 
-**Not built yet (waiting on the migration being applied, then Claude):**
-- [ ] Sign in with Google / Sign in with Apple. Design and what to create: `docs/MOBILE-APP-PLAN-2026-11-15.md` §10.
-- [ ] Push notifications. Design and what to create: `docs/MOBILE-APP-PLAN-2026-11-15.md` §11.
+**YOU, to switch sign-in and push on:**
+- [ ] Create the Google / Apple / APNs / Firebase items and set the Netlify variables in plan §10 and §11.
+- [ ] `npm run cap:dev:prod` (runs `cap sync` with the production address), then in Xcode: App target → Signing & Capabilities → + **Push Notifications**; put `google-services.json` in `web/android/app/`; rebuild both apps.
+- [ ] Try it on a real iPhone and Android phone: Google, Apple, link-with-password, connect from My account, a push of each kind, a tap opening the right screen.
+- [ ] Then apply the store packet changes in `docs/STORE-SUBMISSION-PACKET.md` §11.
+
+**Done (2026-11-18): migrations applied**
+- [x] Back up: `pg_dump "<session pooler URI>" --no-owner --no-privileges -f ~/clubos-backups/pre-$(date +%Y%m%d-%H%M).sql`
+- [x] `cd /Users/cubano/Desktop/clubos/web/.claude/worktrees/clubos-web-maintenance-c5222b/web && npx prisma migrate deploy` — applies `20261117000000_user_identities`, `20261117010000_push_notifications`, `20261117020000_class_session_capacity`. All additive: four new tables and one nullable column.
+
 
 **Known limits of what was built (tell Claude if any matters):**
 - A member paying a class drop-in by card holds no spot while typing their card. If the class fills in those minutes they are still seated (the money arrived) and the row says "over the class limit".

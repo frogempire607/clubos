@@ -40,6 +40,15 @@
                 <data android:pathPrefix="/r/" />
             </intent-filter>
 
+            <!-- Google / Apple sign-in returns from the browser tab to
+                 com.athletixos.app://auth/social?code=… (lib/socialClient). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.athletixos.app" android:host="auth" />
+            </intent-filter>
+
         </activity>
 
         <provider

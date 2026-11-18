@@ -213,11 +213,25 @@ Submitting without push is safe; adding it is then a normal update.
   Camera scanning and push cannot be proven on a simulator; those need your
   phone, with exact steps in each report.
 
-## 10. Sign in with Google and Sign in with Apple (designed 2026-11-17; NOT built yet)
+## 10. Sign in with Google and Sign in with Apple (built 2026-11-18; switched off until the keys are set)
 
-Status: the table is written (`prisma/migrations/20261117000000_user_identities`,
-not applied). The code waits on that migration being applied. Email and
-password stays, unchanged, next to both buttons.
+Status: built. Table applied. Not tried against real Google or Apple, or on a
+phone. Email and password stays, unchanged, next to both buttons.
+
+Where it lives: rules `lib/socialAuth.ts` (pure), token checks
+`lib/socialJwt.ts`, provider calls and session `lib/socialAuthServer.ts`,
+routes `app/api/auth/social/*` (start, callback, redeem, pending, link,
+providers) and `app/api/account/sign-in-methods`, pages `/login` (buttons),
+`/login/social` (which account?), `/member/signup?social=1` (create without
+a password), My account → Sign-in methods. Tests: `scripts/social-auth-tests.ts`.
+
+Built differently from the design, and why:
+- A Google/Apple-only account adds a password by the emailed reset link, not
+  from My account with just a session: a stolen session could otherwise add a
+  permanent way in.
+- The app's return address is `com.athletixos.app://auth/social` (registered
+  in Info.plist and the Android manifest). iPhone may show "Open in
+  AthletixOS?" when the sheet hands back; check on a device.
 
 ### Rules re-read 2026-11-17
 
@@ -326,11 +340,17 @@ A button appears only when its variables are set, so the feature can ship
 dark and be switched on by adding them. `FIELD_ENCRYPTION_KEY` (already set)
 encrypts the Apple token kept for revocation.
 
-## 11. Push notifications (designed 2026-11-17; NOT built yet)
+## 11. Push notifications (built 2026-11-18; switched off until the keys are set)
 
-Status: the tables are written
-(`prisma/migrations/20261117010000_push_notifications`, not applied). The code
-waits on that migration and on the keys below.
+Status: built. Tables applied. Never sent to a real phone. Rules `lib/push.ts`,
+sending `lib/pushServer.ts`, client `lib/pushClient.ts` +
+`components/PushRegistration.tsx`, switches `components/account/NotificationSettings.tsx`,
+daily reminder `/api/cron/offline-membership-reminders` + Netlify function
+`offline-membership-reminders-cron` (13:00 UTC, `CRON_SECRET`). Tests:
+`scripts/push-tests.ts`. The reminder goes 1 to 3 days before the end date (a
+missed run is caught the next day). Lock-screen text is the fixed wording in
+the table below; names and dates appear only inside the app and in the
+family's email.
 
 ### What is sent, and to whom
 

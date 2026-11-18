@@ -13,6 +13,7 @@ import Link from "next/link";
 import ImageUpload from "@/components/ImageUpload";
 import PageHeader from "@/components/PageHeader";
 import NotificationSettings from "@/components/account/NotificationSettings";
+import SignInMethods from "@/components/account/SignInMethods";
 import W9Card from "@/components/staff/W9Card";
 import MyDocumentsCard from "@/components/staff/MyDocumentsCard";
 
@@ -272,6 +273,8 @@ export default function MyAccountPage() {
             </button>
           </div>
         </form>
+
+        <SignInMethods />
 
         <NotificationSettings />
 

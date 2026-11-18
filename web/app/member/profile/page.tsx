@@ -16,6 +16,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOutEverywhere } from "@/lib/signOutEverywhere";
 import NotificationSettings from "@/components/account/NotificationSettings";
+import SignInMethods from "@/components/account/SignInMethods";
 import ImageUpload from "@/components/ImageUpload";
 import { getActiveProfileId, setActiveProfileId } from "@/lib/activeProfile";
 import { Avatar, Pill, GhostButton } from "@/components/member/ui";
@@ -901,6 +902,8 @@ export default function MemberAccountPage() {
               </form>
               {inviteMsg && <p className="text-xs text-stone-600 mt-2">{inviteMsg}</p>}
             </div>
+
+            <SignInMethods variant="member" />
 
             <NotificationSettings variant="member" />
 
