@@ -1,5 +1,6 @@
 "use client";
 
+import { useFirstLoad } from "@/lib/firstLoad";
 import { alertDialog, confirmDialog, promptDialog } from "@/lib/dialogs";
 import { useSingleFlight } from "@/lib/useSingleFlight";
 import { useCallback, useEffect, useState } from "react";
@@ -1729,7 +1730,10 @@ type BankDataV2 = {
 
 function BankTab({ initialNeedsReviewOnly = false, entity = "all", canEdit = false }: { initialNeedsReviewOnly?: boolean; entity?: string; canEdit?: boolean }) {
   const [bankData, setBankData] = useState<BankDataV2 | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Changing the range, the page or the bank reloads the rows UNDER whatever
+  // is open (the categorise sheet, the connect dialog) instead of replacing
+  // the whole tab with a skeleton.
+  const [loading, setLoading] = useFirstLoad();
   // Deep-link focus from the UNCATEGORIZED_LARGE_BANK Action Item / Alert:
   // only rows that still need a human decision (bankRowStatus "Needs review"
   // or "Suggested"). Client-side over the loaded page — the same rows the

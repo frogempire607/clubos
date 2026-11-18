@@ -1,5 +1,6 @@
 "use client";
 
+import { backdropDismiss } from "@/lib/overlay";
 import { confirmDialog } from "@/lib/dialogs";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -308,7 +309,7 @@ export default function DuplicatesPage() {
         const c = loser.counts;
         const bothHaveLogin = winner.hasLogin && loser.hasLogin;
         return (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => { if (!busy) setPreview(null); }}>
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" {...backdropDismiss(() => { if (!busy) setPreview(null); })}>
             <div
               className="bg-surface rounded-xl border border-app-border w-full max-w-2xl max-h-[85dvh] overflow-y-auto p-5"
               onClick={(e) => e.stopPropagation()}

@@ -30,6 +30,7 @@
 
 "use client";
 
+import { backdropDismiss, useEscapeToClose } from "@/lib/overlay";
 import { confirmDialog } from "@/lib/dialogs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { History, KeyRound, Lock, X } from "lucide-react";
@@ -155,13 +156,9 @@ export function EditMemberDrawer({
     onClose();
   }, [dirty, onClose]);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") requestClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [requestClose]);
+  // Only while this drawer is the top layer. With the "Discard?" question
+  // open over it, Escape used to answer the question AND ask it again.
+  useEscapeToClose(requestClose);
 
   const emailChanged = (draft.email || "") !== (member.email || "");
   const ownsLogin = !!member.loginEmail;
@@ -213,7 +210,7 @@ export function EditMemberDrawer({
   const age = member.dateOfBirth ? ageOf(member.dateOfBirth) : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={requestClose} role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" {...backdropDismiss(requestClose)} role="dialog" aria-modal="true">
       <div
         onClick={(e) => e.stopPropagation()}
         className="flex h-full w-full flex-col bg-surface md:max-w-[560px] md:rounded-l-[14px]"

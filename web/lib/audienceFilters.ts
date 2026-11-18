@@ -327,11 +327,20 @@ export async function ruleToWhere(clubId: string, rule: AudienceRule, now: Date)
   }
 }
 
+const MEMBER_STATUSES = ["ACTIVE", "PROSPECT", "INACTIVE", "PAUSED"] as const;
+
+// Production 500, 2026-11-17 (crash audit): the audience builder previews a
+// rule the moment it is added, before a status is picked, so the value arrives
+// as "". Prisma does not "reject unknowns" quietly — it throws a validation
+// error and the preview answered 500. A blank is "not chosen yet" and
+// constrains nothing, exactly like an empty list always has. A value that is
+// not a status at all matches nobody: guessing "everyone" here would widen an
+// email's recipients.
 function normalizeEnumIn(rule: AudienceRule): Prisma.EnumMemberStatusFilter {
-  const arr = normalizeArray(rule);
+  const arr = normalizeArray(rule).map((v) => v.trim()).filter((v) => v !== "");
   if (arr.length === 0) return {};
-  // Cast — Prisma expects the actual enum union; the DB will reject unknowns.
-  return { in: arr as unknown as Prisma.EnumMemberStatusFilter["in"] };
+  const known = arr.map((v) => v.toUpperCase()).filter((v): v is (typeof MEMBER_STATUSES)[number] => (MEMBER_STATUSES as readonly string[]).includes(v));
+  return { in: known };
 }
 
 // Non-nullable column variant — Prisma's StringFilter (no `null`).

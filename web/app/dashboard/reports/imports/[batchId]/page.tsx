@@ -32,7 +32,11 @@ const STEPS = [
   { step: 7, label: "Done" },
 ] as const;
 
-export default function WizardPage({ params }: { params: Promise<{ batchId: string }> }) {
+// `params` is a plain object on this version of Next (14) and a Promise on the
+// next one. This page was written for the Promise and called `.then` on the
+// object: "a.then is not a function", and the import wizard showed the error
+// screen on every open (crash audit 2026-11-18). Both shapes are accepted.
+export default function WizardPage({ params }: { params: { batchId: string } | Promise<{ batchId: string }> }) {
   const router = useRouter();
   const search = useSearchParams();
   const [batchId, setBatchId] = useState<string | null>(null);
@@ -40,7 +44,9 @@ export default function WizardPage({ params }: { params: Promise<{ batchId: stri
   const [step, setStep] = useState<number>(Number(search.get("step") ?? "2"));
 
   useEffect(() => {
-    params.then((p) => setBatchId(p.batchId));
+    let alive = true;
+    void Promise.resolve(params).then((p) => { if (alive) setBatchId(p.batchId); });
+    return () => { alive = false; };
   }, [params]);
 
   const loadBatch = useCallback(async () => {

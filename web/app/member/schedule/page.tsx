@@ -1,4 +1,5 @@
 "use client";
+import { backdropDismiss } from "@/lib/overlay";
 import { memberErrorText, eventRegisterFlowPath, eventDetailsPath } from "@/lib/memberErrorText";
 import { rememberScroll, restoreScroll } from "@/lib/scrollMemory";
 
@@ -1124,7 +1125,7 @@ function SubscribeModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" {...backdropDismiss(onClose)}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-base font-semibold text-stone-900">Add to your calendar</h2>

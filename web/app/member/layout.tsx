@@ -1,5 +1,6 @@
 "use client";
 
+import { backdropDismiss, useEscapeToClose } from "@/lib/overlay";
 import ConnectionGuard from "@/components/ConnectionGuard";
 import VerifyEmailBanner from "@/components/member/VerifyEmailBanner";
 import ScanCheckInCard from "@/components/member/ScanCheckInCard";
@@ -111,14 +112,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
   }, [pathname]);
 
   // Esc closes the More sheet.
-  useEffect(() => {
-    if (!moreOpen) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setMoreOpen(false);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [moreOpen]);
+  useEscapeToClose(() => setMoreOpen(false), moreOpen);
 
   // Unread-message count for the Messages tab badge. Refetched on navigation
   // AND when a thread page signals it finished loading (the thread GET is what
@@ -501,7 +495,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
       {moreOpen && (
         <div
           className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center"
-          onClick={() => setMoreOpen(false)}
+          {...backdropDismiss(() => setMoreOpen(false))}
         >
           <div className="absolute inset-0 bg-black/40" aria-hidden />
           <div

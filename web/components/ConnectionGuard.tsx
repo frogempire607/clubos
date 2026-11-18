@@ -9,6 +9,21 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { installConnectionGuard, loadFailureMessage, safeToAutoRetry, type LoadFailure } from "@/lib/connectionGuard";
+import { hasOpenOverlay } from "@/lib/overlay";
+import { confirmDialog } from "@/lib/dialogs";
+
+// Rebuilding the screen closes whatever is open on it. Typed text was already
+// checked before an automatic retry; an open sheet was not — one holding only
+// choices (a plan picked, boxes ticked, a date chosen) has no typed text and
+// was closed under the person the moment the connection came back (crash audit
+// 2026-11-18). Sheets from lib/overlay.ts register themselves; the older
+// hand-built ones are found by their full-screen element.
+function workInProgress(): { sheetOpen: boolean; typed: boolean } {
+  const sheetOpen = hasOpenOverlay() || !!document.querySelector('[data-page] [role="dialog"], [data-page] div.fixed.inset-0, main [role="dialog"]');
+  const fields = Array.from(document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("main input, main textarea, [data-page] input, [data-page] textarea"));
+  const typed = !safeToAutoRetry(fields.map((f) => ({ value: f.value, type: f.getAttribute("type"), defaultValue: f.defaultValue })));
+  return { sheetOpen, typed };
+}
 
 export default function ConnectionGuard({ children }: { children: React.ReactNode }) {
   const [failure, setFailure] = useState<LoadFailure | null>(null);
@@ -21,6 +36,14 @@ export default function ConnectionGuard({ children }: { children: React.ReactNod
     setAttempt((n) => n + 1);
   }, []);
 
+  // The button is the person's own choice — but it still says what it costs
+  // before throwing away an open sheet or unsaved typing.
+  const retryAsked = useCallback(async () => {
+    const w = workInProgress();
+    if ((w.sheetOpen || w.typed) && !(await confirmDialog("Reload this screen?\n\nAnything open or typed here that has not been saved will be cleared.", { confirmLabel: "Reload" }))) return;
+    retry();
+  }, [retry]);
+
   useEffect(() => {
     const uninstall = installConnectionGuard(window, {
       onFailure: (kind) => setFailure((cur) => cur ?? kind),
@@ -30,8 +53,10 @@ export default function ConnectionGuard({ children }: { children: React.ReactNod
     });
     const onOnline = () => {
       if (!failureRef.current) return;
-      const fields = Array.from(document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("main input, main textarea, [data-page] input, [data-page] textarea"));
-      if (safeToAutoRetry(fields.map((f) => ({ value: f.value, type: f.getAttribute("type"), defaultValue: f.defaultValue })))) retry();
+      const w = workInProgress();
+      // Never by itself while a sheet is open or something is typed: the bar
+      // stays up and Try again is one tap away.
+      if (!w.sheetOpen && !w.typed) retry();
     };
     window.addEventListener("online", onOnline);
     return () => {
@@ -51,7 +76,7 @@ export default function ConnectionGuard({ children }: { children: React.ReactNod
             <p className="flex-1 min-w-0 text-[14px] leading-snug">{loadFailureMessage(failure)}</p>
             <button
               type="button"
-              onClick={retry}
+              onClick={retryAsked}
               className="min-h-11 px-4 rounded-[10px] bg-white text-[#111111] text-[14px] font-semibold flex-shrink-0"
             >
               Try again

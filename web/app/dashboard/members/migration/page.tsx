@@ -1,5 +1,6 @@
 "use client";
 
+import { backdropDismiss } from "@/lib/overlay";
 import { confirmDialog } from "@/lib/dialogs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -1446,7 +1447,7 @@ function MigrationDrawer({ memberId, onClose, onChanged }: { memberId: string; o
   const pending = d?.approvalStatus === "PENDING_APPROVAL";
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" {...backdropDismiss(onClose)}>
       <div className="bg-surface rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[92dvh] overflow-y-auto border border-app-border" onClick={(e) => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface z-10">
           <h2 className="text-base font-semibold text-text-primary">
@@ -1685,7 +1686,7 @@ function HistoryDrawer({ row, onClose }: { row: Row; onClose: () => void }) {
       .then((d) => { setEvents(d.events || []); setLoading(false); });
   }, [row.id]);
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-end z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-end z-50" {...backdropDismiss(onClose)}>
       <div className="bg-surface h-full w-full max-w-md border-l border-app-border overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-app-border flex items-center justify-between sticky top-0 bg-surface">
           <div>

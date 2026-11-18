@@ -18,6 +18,7 @@
 
 "use client";
 
+import { backdropDismiss, useEscapeToClose } from "@/lib/overlay";
 import { useEffect, useState } from "react";
 import { Check, KeyRound, MailX, X } from "lucide-react";
 
@@ -55,18 +56,12 @@ export function PasswordResetDialog({
   onAddEmail?: () => void;
   onLinkGuardian?: () => void;
 }) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeToClose(onClose);
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
-      onClick={onClose}
+      {...backdropDismiss(onClose)}
       role="dialog"
       aria-modal="true"
     >

@@ -14,6 +14,7 @@
 // Change dates. Change plan (Stripe) still hands off to B12's dialog in
 // the Membership panel (B16 retired Advanced billing).
 
+import { backdropDismiss } from "@/lib/overlay";
 import { sharedGet } from "@/lib/sharedGet";
 import { computeProcessingFeeCents, type FeePolicy, type FeePolicyInput } from "@/lib/fees";
 import { useCallback, useEffect, useState } from "react";
@@ -100,7 +101,7 @@ async function patch(url: string, body: unknown) {
 
 function Sheet({ title, sub, children, onClose }: { title: string; sub?: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" {...backdropDismiss(onClose)}>
       <div className="bg-surface rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[92dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="px-4 pt-4 pb-2.5 border-b border-[#F1F1F3]">
           <h3 className="text-[15px] font-semibold text-text-primary">{title}</h3>

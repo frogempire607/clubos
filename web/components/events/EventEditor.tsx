@@ -19,6 +19,7 @@
 // (pricingModel, signupAccess, splitInvoiceWhen, sellIndividualSessions,
 // sessions[].price, sessions[].id). The API writes both vocabularies.
 
+import { backdropDismiss } from "@/lib/overlay";
 import { promptDialog } from "@/lib/dialogs";
 import Link from "next/link";
 import { audienceProblem, describeAudience, normalizeAudience } from "@/lib/eventAudience";
@@ -1299,7 +1300,7 @@ export default function EventEditor({
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end lg:items-center justify-center p-0 lg:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end lg:items-center justify-center p-0 lg:p-4" {...backdropDismiss(onClose)}>
       <form
         onSubmit={handleSubmit}
         onClick={(e) => e.stopPropagation()}

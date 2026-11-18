@@ -103,6 +103,15 @@ export default function StaffProfile({ staffId, selfRoute = false }: { staffId: 
     [data, reload, setDirty, goTo, setProblem],
   );
 
+  // Each call emails a link AND replaces the previous one, so a double tap
+  // sent two emails, the first of which no longer worked.
+  //
+  // This hook MUST stay above the returns below. It was added beneath them
+  // (2026-11-16), so it ran on the render after the data arrived and not on
+  // the one before: React threw, and this page and "My profile" showed the
+  // error screen on every open. scripts/hooks-order-guard.ts keeps it here.
+  const flight = useSingleFlight();
+
   if (error) {
     return (
       <div className="p-4 sm:p-8">
@@ -129,9 +138,6 @@ export default function StaffProfile({ staffId, selfRoute = false }: { staffId: 
     `on staff since ${new Date(staff.createdAt).toLocaleDateString("en-US", { month: "short", year: "numeric" })}`,
   ].filter(Boolean) as string[];
 
-  // Each call emails a link AND replaces the previous one, so a double tap
-  // sent two emails, the first of which no longer worked.
-  const flight = useSingleFlight();
   const sendSetupLink = () => flight.run("setup-link", sendSetupLinkNow);
   async function sendSetupLinkNow() {
     const res = await fetch(`/api/staff/${staffId}/setup-link`, { method: "POST" });

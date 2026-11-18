@@ -1,4 +1,5 @@
 "use client";
+import { backdropDismiss } from "@/lib/overlay";
 import { memberErrorText, eventDetailsPath } from "@/lib/memberErrorText";
 
 // Bookings — every reservation for the selected athlete (events, classes,
@@ -811,7 +812,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
       {manage && (
         <div
           className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4"
-          onClick={() => setManage(null)}
+          {...backdropDismiss(() => setManage(null))}
         >
           <div className="bg-white rounded-2xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-base font-semibold text-stone-900 mb-0.5">Manage booking</h3>

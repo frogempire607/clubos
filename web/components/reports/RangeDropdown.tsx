@@ -1,5 +1,6 @@
 "use client";
 
+import { backdropDismiss, useEscapeToClose } from "@/lib/overlay";
 import { useEffect, useRef, useState } from "react";
 import { CalendarDays, ChevronDown } from "lucide-react";
 import { useBodyScrollLock, usePhone } from "@/components/reports/responsive";
@@ -52,16 +53,10 @@ export default function RangeDropdown({
       if (!ref.current) return;
       if (!ref.current.contains(e.target as Node)) setOpen(false);
     }
-    function onEsc(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
     document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onEsc);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onEsc);
-    };
+    return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
+  useEscapeToClose(() => setOpen(false), open);
   const current = OPTIONS.find((o) => o.key === value) ?? OPTIONS[2];
   // The phone bottom sheet holds the page still behind it.
   const phone = usePhone();
@@ -98,7 +93,7 @@ export default function RangeDropdown({
               />
             )}
           </div>
-          <div className="sm:hidden fixed inset-0 z-50 flex items-end" onClick={() => setOpen(false)}>
+          <div className="sm:hidden fixed inset-0 z-50 flex items-end" {...backdropDismiss(() => setOpen(false))}>
             <div className="absolute inset-0 bg-black/40" />
             <div
               className="relative w-full bg-surface rounded-t-2xl p-3 pb-safe max-h-[80dvh] overflow-y-auto"
