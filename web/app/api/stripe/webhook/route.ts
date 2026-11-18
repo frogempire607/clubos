@@ -26,6 +26,7 @@ import { closeOfflineRequestsPaidByCard } from "@/lib/offlineSupersedeServer";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
 import { resolveEventPolicy, eventScheduledChargeAt } from "@/lib/eventPayments";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 import { settleBundlePurchase } from "@/lib/bundlePurchases";
 import {
   invoiceSubscriptionId,
@@ -544,7 +545,7 @@ export async function POST(req: Request) {
           try {
             const mig = await prisma.member.findUnique({
               where: { id: migMemberId },
-              select: { id: true, clubId: true, migrationStatus: true, club: { select: { stripeAccountId: true } } },
+              select: { id: true, clubId: true, migrationStatus: true, approvalStatus: true, club: { select: { stripeAccountId: true } } },
             });
             if (mig && mig.migrationStatus !== "COMPLETED") {
               let pmId: string | null = null;
@@ -576,6 +577,13 @@ export async function POST(req: Request) {
                   message: "Payment method on file — awaiting club review & approval before billing starts",
                 },
               });
+              // The activation page already told the club when it put this
+              // member in the queue. Only tell them here if this is what put
+              // them there.
+              const alreadyQueued = mig.migrationStatus === "ACTIVATED" && mig.approvalStatus === "PENDING_APPROVAL";
+              if (!alreadyQueued && (mig.migrationStatus === null || mig.migrationStatus === "ACTIVATED")) {
+                await notifyApprovalWaiting({ clubId: mig.clubId, approvalKind: "MIGRATION_BILLING" });
+              }
             }
           } catch (e) {
             console.error("Migration setup completion update failed:", e);

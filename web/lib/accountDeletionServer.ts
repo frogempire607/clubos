@@ -14,6 +14,7 @@ import { GUARDIAN_LINK_STATUS } from "@/lib/familyAccess";
 import { invalidatePermissionCache } from "@/lib/apiGuard";
 import { releaseRemovedStaff } from "@/lib/classStaffServer";
 import { recordStaffActivity } from "@/lib/staffActivity";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 import {
   planAccountDeletion,
   tombstoneEmail,
@@ -176,6 +177,9 @@ export async function deleteOwnAccount(input: { userId: string; clubId: string; 
     });
     cancelRequestsFiled++;
   }
+  if (cancelRequestsFiled > 0) {
+    await notifyApprovalWaiting({ clubId, approvalKind: MEMBERSHIP_CANCEL_KIND, requestedByUserId: userId });
+  }
 
   // ── 2. The account itself, in one transaction ────────────────────────────
   await prisma.$transaction(async (tx) => {
@@ -194,6 +198,13 @@ export async function deleteOwnAccount(input: { userId: string; clubId: string; 
     await tx.member.updateMany({
       where: { userId, deletedAt: null },
       data: ownMemberKeepsBilling ? { userId: null } : { deletedAt: now, userId: null },
+    });
+
+    // Their phones stop receiving anything. Disabled, not deleted, like every
+    // other dead token (lib/pushServer).
+    await tx.deviceToken.updateMany({
+      where: { userId, disabledAt: null },
+      data: { disabledAt: now, disabledReason: "ACCOUNT_DELETED" },
     });
 
     if (role !== "MEMBER") {

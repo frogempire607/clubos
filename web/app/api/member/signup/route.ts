@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 import { sendVerificationEmail } from "@/lib/emailLinkServer";
 import { z } from "zod";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { rateLimit, rateLimitedResponse, ipFromRequest } from "@/lib/ratelimit";
-import { requestGuardianLink, ensurePrimaryGuardian, isOwnerVouched } from "@/lib/guardianLink";
+import { requestGuardianLink, ensurePrimaryGuardian, isOwnerVouched, GUARDIAN_LINK_KIND } from "@/lib/guardianLink";
 import { GUARDIAN_LINK_SOURCE } from "@/lib/familyAccess";
 import { missingRequiredDocumentIds, requiredDocumentSurfaceWhere } from "@/lib/documents";
 import { normalizeFreeTrialConfig, trialWindowDays } from "@/lib/freeTrial";
@@ -446,6 +447,9 @@ export async function POST(req: Request) {
           child: { id: childMember.id, isMinor: childMember.isMinor, guardianEmail: childMember.guardianEmail },
           relationship: data.relationship || null,
         });
+        if (linkResult.status === "pending" && linkResult.queued) {
+          await notifyApprovalWaiting({ clubId: club.id, approvalKind: GUARDIAN_LINK_KIND, requestedByUserId: user.id });
+        }
 
         if (linkResult.status === "linked") {
           // Owner-vouched parent: normalize a Guardian profile so this

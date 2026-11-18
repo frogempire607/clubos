@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { MEMBERSHIP_AUTOPAY_KIND } from "@/lib/approvals";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 import { previewAutopayChange } from "@/lib/autopay";
 import { canManageMember } from "@/lib/memberContext";
 
@@ -146,6 +147,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       status: "PENDING",
     },
   });
+  await notifyApprovalWaiting({ clubId: session.user.clubId, approvalKind: MEMBERSHIP_AUTOPAY_KIND, requestedByUserId: session.user.id });
 
   return NextResponse.json(
     {

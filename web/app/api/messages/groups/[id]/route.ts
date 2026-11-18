@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { notifyGroupMessage } from "@/lib/pushServer";
 import { requirePermission } from "@/lib/apiGuard";
 import { requireTierFeature } from "@/lib/tierGuard";
 
@@ -101,6 +102,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       data: { groupId: params.id, senderId: session.user.id, body },
       include: { sender: { select: { id: true, firstName: true, lastName: true } } },
     });
+    await notifyGroupMessage({ clubId: session.user.clubId, senderId: session.user.id, groupId: params.id });
     return NextResponse.json(msg, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors }, { status: 400 });

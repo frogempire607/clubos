@@ -20,6 +20,7 @@ import {
 import { applyParentalControls } from "@/lib/parentalControls";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { MEMBERSHIP_PURCHASE_KIND } from "@/lib/approvals";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 import { findValidDiscount, recordDiscountUse } from "@/lib/discounts";
 import { membershipDiscountAtPurchase } from "@/lib/membershipSiblingServer";
 import { purchaseTrialFor, trialCheckoutFields } from "@/lib/freeTrial";
@@ -208,6 +209,7 @@ export async function POST(req: Request) {
           },
         },
       });
+      await notifyApprovalWaiting({ clubId: club.id, approvalKind: MEMBERSHIP_PURCHASE_KIND, requestedByUserId: session.user.id });
       return NextResponse.json(
         {
           queued: true,

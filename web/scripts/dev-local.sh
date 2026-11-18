@@ -26,6 +26,15 @@ export RESEND_API_KEY=""
 export STRIPE_SECRET_KEY=""
 export STRIPE_WEBHOOK_SECRET=""
 export STRIPE_CONNECT_WEBHOOK_SECRET=""
+# Push notifications, for the same reason again: with the APNs key or the
+# Firebase service account loaded, a local click that creates an approval or
+# sends a message would put a real notification on a real family's phone.
+# Blank, lib/pushServer.ts treats both platforms as not configured and every
+# send is a no-op before its first query. Never remove this from the local dev
+# script.
+export APNS_KEY_ID=""
+export APNS_PRIVATE_KEY=""
+export FIREBASE_SERVICE_ACCOUNT_JSON=""
 export NEXT_PUBLIC_APP_URL="http://127.0.0.1:3000"
 # A git worktree has no node_modules of its own — Node resolves upward to the
 # main checkout's. The hardcoded ./node_modules/.bin/next therefore does not

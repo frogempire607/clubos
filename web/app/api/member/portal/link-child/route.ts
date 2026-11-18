@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 import { isEmailVerified } from "@/lib/emailVerification";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { requestGuardianLink } from "@/lib/guardianLink";
+import { requestGuardianLink, GUARDIAN_LINK_KIND } from "@/lib/guardianLink";
 
 const schema = z.object({
   childEmail:   z.string().email(),
@@ -64,6 +65,9 @@ export async function POST(req: Request) {
     if (result.status === "linked") {
       return NextResponse.json({ ok: true, linked: true }, { status: 201 });
     }
+    // The request is in the owner's queue: tell whoever can approve it. Here,
+    // not inside lib/guardianLink, which a browser bundle also reaches.
+    if (result.queued) await notifyApprovalWaiting({ clubId: session.user.clubId, approvalKind: GUARDIAN_LINK_KIND, requestedByUserId: session.user.id });
     return NextResponse.json(
       {
         ok: true,

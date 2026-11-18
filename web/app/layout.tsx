@@ -5,6 +5,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 import NativeDeepLinks from "@/components/NativeDeepLinks";
 import NativeShell from "@/components/NativeShell";
+import PushRegistration from "@/components/PushRegistration";
 import DialogHost from "@/components/DialogHost";
 
 const fraunces = Fraunces({ subsets: ["latin"], display: "swap", variable: "--font-fraunces" });
@@ -161,6 +162,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
         <NativeDeepLinks />
         <NativeShell />
+        <PushRegistration />
         <Providers>{children}</Providers>
         {/* After the page, and in its own layer, so a confirm always sits on top
             of whatever sheet or modal asked for it. */}

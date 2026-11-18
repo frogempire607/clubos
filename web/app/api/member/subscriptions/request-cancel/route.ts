@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { MEMBERSHIP_CANCEL_KIND } from "@/lib/approvals";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 import { canManageMember } from "@/lib/memberContext";
 
 // POST /api/member/subscriptions/request-cancel
@@ -90,6 +91,7 @@ export async function POST(req: Request) {
       status: "PENDING",
     },
   });
+  await notifyApprovalWaiting({ clubId: session.user.clubId, approvalKind: MEMBERSHIP_CANCEL_KIND, requestedByUserId: session.user.id });
 
   return NextResponse.json(
     {

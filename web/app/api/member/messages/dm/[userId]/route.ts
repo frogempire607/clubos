@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { notifyDirectMessage } from "@/lib/pushServer";
 import { memberCanMessage } from "@/lib/parentalControls";
 import { findOrAutoLinkMember } from "@/lib/memberLink";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
@@ -180,6 +181,7 @@ export async function POST(req: Request, context: { params: Promise<{ userId: st
       } as Prisma.MessageUncheckedCreateInput,
       include: { sender: { select: { id: true, firstName: true, lastName: true } } },
     });
+    await notifyDirectMessage({ clubId: session.user.clubId, senderId: session.user.id, recipientIds: [params.userId], subjectMemberId });
     return NextResponse.json(message, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors }, { status: 400 });

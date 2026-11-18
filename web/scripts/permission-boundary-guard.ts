@@ -84,11 +84,13 @@ const GUARD =
  *                 guardian consent, partner invite) — there is no session
  *   webhook/cron  signature- or CRON_SECRET-authenticated
  *   me/…, widgets, upload  act on the caller's own row
+ *   push/devices  the caller's own phone: the row is keyed to session.user.id
+ *                 and nothing else can be named (members register too)
  */
 const NOT_STAFF_FACING = [
   /\/api\/(member|public|auth|stripe\/webhook|cron|webhooks|files|preview|unsubscribe)\//,
   /\[token\]/,
-  /\/api\/(me|account|dashboard\/widgets|upload|emails\/image-url)\//,
+  /\/api\/(me|account|dashboard\/widgets|upload|emails\/image-url|push\/devices)\//,
 ];
 
 const MUTATING = ["POST", "PATCH", "PUT", "DELETE"] as const;

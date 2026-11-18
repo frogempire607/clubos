@@ -14,7 +14,8 @@ import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signOut } from "next-auth/react";
+import { signOutEverywhere } from "@/lib/signOutEverywhere";
+import NotificationSettings from "@/components/account/NotificationSettings";
 import ImageUpload from "@/components/ImageUpload";
 import { getActiveProfileId, setActiveProfileId } from "@/lib/activeProfile";
 import { Avatar, Pill, GhostButton } from "@/components/member/ui";
@@ -901,12 +902,14 @@ export default function MemberAccountPage() {
               {inviteMsg && <p className="text-xs text-stone-600 mt-2">{inviteMsg}</p>}
             </div>
 
+            <NotificationSettings variant="member" />
+
             {/* Account actions */}
             <div className="pcard p-5">
               <h2 className="text-sm font-semibold text-stone-900 mb-3">Account actions</h2>
               <div className="flex flex-wrap gap-2">
                 <button
-                  onClick={() => signOut({ callbackUrl: "/login" })}
+                  onClick={() => void signOutEverywhere({ callbackUrl: "/login" })}
                   className="text-sm px-4 py-2 border border-stone-300 text-stone-700 rounded-lg hover:bg-stone-50"
                 >
                   Sign out

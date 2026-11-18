@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { writeBillingAudit } from "@/lib/billingAudit";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 
 export const dynamic = "force-dynamic";
 
@@ -111,6 +112,7 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
     after: { reactivationId: r.id, request },
     note: "Client requested changes to the reactivation offer — confirmation locked until the owner resolves it. No billing data changed.",
   });
+  await notifyApprovalWaiting({ clubId: r.clubId, approvalKind: "REACTIVATION_CHANGE_REQUEST", requestedByUserId: session?.user?.id ?? null });
 
   return NextResponse.json({
     ok: true,

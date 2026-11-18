@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { invoiceSplitEnabled } from "@/lib/featureFlags";
 import { INVOICE_SPLIT_KIND } from "@/lib/approvals";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 
 // Invoice splitting (Client UX Phase 7, behind FEATURE_INVOICE_SPLIT).
@@ -281,6 +282,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ memberId:
       },
     }),
   ]);
+  await notifyApprovalWaiting({ clubId: session.user.clubId, approvalKind: INVOICE_SPLIT_KIND, requestedByUserId: session.user.id });
 
   return NextResponse.json({
     ok: true,
