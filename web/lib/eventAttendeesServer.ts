@@ -7,6 +7,7 @@ import { resolveRegistrationRecipients } from "@/lib/eventRecipients";
 import { resolveEventPolicy } from "@/lib/eventPayments";
 import { resolveCategoryFields } from "@/lib/eventCategories";
 import { sendRegistrationId, type CheckInRecord, type RowExtras, type SendEntry } from "@/lib/eventAttendeeExtras";
+import type { AnswerSource } from "@/lib/eventFormAnswers";
 import {
   buildAttendeeLedger,
   summarizeLedger,
@@ -89,6 +90,10 @@ export type EventAttendeesPayload = {
   checkIns: CheckInRecord[];
   /** Per registration id: the EmailSend rows about it, newest first. */
   sends: Record<string, SendEntry[]>;
+  /** The event's signup questions (Event.registrationForm), for labels. */
+  registrationForm: unknown;
+  /** Per registration id: what they answered, on the registration and on each entry. */
+  answers: Record<string, AnswerSource>;
 };
 
 export async function loadEventAttendees(clubId: string, eventId: string): Promise<EventAttendeesPayload | null> {
@@ -119,7 +124,7 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
   });
   if (!event) return null;
 
-  const [regs, bookings, attendance, emailSends] = await Promise.all([
+  const [regs, bookings, attendance, emailSends, entries] = await Promise.all([
     prisma.eventRegistration.findMany({ where: { eventId: event.id }, select: REG_SELECT }),
     prisma.booking.findMany({ where: { eventId: event.id }, select: BOOKING_SELECT }),
     // Check-in mode reads what the attendance route (POST /api/attendance
@@ -147,6 +152,17 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
         bouncedAt: true,
         skippedReason: true,
         error: true,
+      },
+    }),
+    // Answers to questions asked once per entry (weight per bracket, etc.).
+    prisma.eventRegistrationEntry.findMany({
+      where: { eventId: event.id, clubId, status: { not: "DROPPED" } },
+      orderBy: { sortOrder: "asc" },
+      select: {
+        registrationId: true,
+        answers: true,
+        roster: { select: { label: true } },
+        position: { select: { label: true } },
       },
     }),
   ]);
@@ -195,6 +211,14 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
       paymentUrl: r.status === "PAID" || r.status === "CANCELED" ? null : r.paymentUrl,
     };
   }
+  const asBag = (v: unknown): Record<string, unknown> | null =>
+    v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  const answers: Record<string, AnswerSource> = {};
+  for (const r of regs) answers[r.id] = { formResponses: asBag(r.formResponses), entries: [] };
+  for (const e of entries) {
+    const label = [e.roster?.label, e.position?.label].filter(Boolean).join(" · ") || null;
+    answers[e.registrationId]?.entries.push({ label, answers: asBag(e.answers) });
+  }
   const regIds = new Set(regs.map((r) => r.id));
   const sends: Record<string, SendEntry[]> = {};
   for (const e of emailSends) {
@@ -234,6 +258,8 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
       checkedInAt: a.checkedInAt ? a.checkedInAt.toISOString() : null,
     })),
     sends,
+    registrationForm: event.registrationForm,
+    answers,
   };
 }
 

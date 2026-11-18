@@ -58,6 +58,12 @@ export const GATED = [
   // record somebody else created once the person has proved they receive
   // mail there. Signup used to hand over a family on a typed address.
   ["scripts/email-verification-tests.ts"],
+  // Event attendee screen (2026-11-17): each registrant's form answers under
+  // the question's label, everyone's answers as one table / CSV, and "Email
+  // registrants" (guests reached, cancelled skipped, one email per address,
+  // unsubscribe rules). Also: the "Registered for event" audience no longer
+  // includes cancelled registrations.
+  ["scripts/event-attendee-answers-tests.ts"],
   ["scripts/account-deletion-tests.ts"],
   // The native app shell: a store build ships no debug logging, cleartext,
   // mixed content or open navigation; Android back, scanned codes and the

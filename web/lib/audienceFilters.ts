@@ -191,7 +191,7 @@ export async function estimateAudienceCount(clubId: string, filter: AudienceFilt
 
 // ── Rule → where ────────────────────────────────────────────────────────
 
-async function ruleToWhere(clubId: string, rule: AudienceRule, now: Date): Promise<Prisma.MemberWhereInput | null> {
+export async function ruleToWhere(clubId: string, rule: AudienceRule, now: Date): Promise<Prisma.MemberWhereInput | null> {
   switch (rule.field as AudienceField) {
     case "membershipStatus":
       return { status: normalizeEnumIn(rule) };
@@ -269,10 +269,22 @@ async function ruleToWhere(clubId: string, rule: AudienceRule, now: Date): Promi
     case "classSessionAttended":
       return { attendanceRecords: { some: { classSessionId: normalizeStringNullableWhere(rule) } } };
     case "registeredForEventId":
+      // A cancelled or declined registration, and a cancelled booking, is
+      // someone who is NOT coming. Until 2026-11-17 they stayed in this
+      // audience, so "everyone registered for the tournament" also reached
+      // the families who had pulled out.
       return {
         OR: [
-          { bookings: { some: { eventId: normalizeStringWhere(rule) } } },
-          { eventRegistrations: { some: { eventId: normalizeStringWhere(rule) } } },
+          { bookings: { some: { eventId: normalizeStringWhere(rule), status: { not: "CANCELED" } } } },
+          {
+            eventRegistrations: {
+              some: {
+                eventId: normalizeStringWhere(rule),
+                status: { not: "CANCELED" },
+                OR: [{ approvalStatus: null }, { approvalStatus: { not: "DECLINED" } }],
+              },
+            },
+          },
         ],
       };
     case "tag":
