@@ -1,4 +1,4 @@
-import { classIsFull } from "@/lib/classCapacity";
+import { classIsFull, dayCapacity } from "@/lib/classCapacity";
 import { addBillingPeriod } from "@/lib/billingAdmin";
 import { webhookFailureStatus } from "@/lib/webhookRetry";
 import { createTransactionOnce } from "@/lib/transactionOnce";
@@ -793,9 +793,9 @@ export async function POST(req: Request) {
             // see why the class is one over.
             const limitRow = await prisma.classSession.findUnique({
               where: { id: classSessionId },
-              select: { recurringClass: { select: { capacity: true } }, _count: { select: { attendance: true } } },
+              select: { capacity: true, recurringClass: { select: { capacity: true } }, _count: { select: { attendance: true } } },
             });
-            const paidIntoFull = !!limitRow && classIsFull(limitRow.recurringClass.capacity, limitRow._count.attendance);
+            const paidIntoFull = !!limitRow && classIsFull(dayCapacity(limitRow.capacity, limitRow.recurringClass.capacity), limitRow._count.attendance);
             await prisma.attendanceRecord.create({
               data: {
                 clubId,

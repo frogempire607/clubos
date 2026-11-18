@@ -1,4 +1,4 @@
-import { CLASS_FULL_BODY, classIsFull } from "@/lib/classCapacity";
+import { CLASS_FULL_BODY, classIsFull, dayCapacity } from "@/lib/classCapacity";
 import { countClassSpotsTaken, withClassCapacityLock } from "@/lib/classCapacityServer";
 import { NextResponse } from "next/server";
 import { acceptedPlansFrom, type AcceptedPlan } from "@/lib/acceptedPlans";
@@ -338,9 +338,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const m = await prisma.member.findUnique({ where: { id: member.id }, select: { trialEndsAt: true } });
     const cs = await prisma.classSession.findUnique({
       where: { id: target.classSessionId },
-      select: { recurringClass: { select: { pricingOptions: true, capacity: true } } },
+      select: { capacity: true, recurringClass: { select: { pricingOptions: true, capacity: true } } },
     });
-    classCapacity = cs?.recurringClass.capacity ?? null;
+    classCapacity = dayCapacity(cs?.capacity, cs?.recurringClass.capacity);
     if (classCapacity != null && classIsFull(classCapacity, await countClassSpotsTaken(target.classSessionId))) {
       return NextResponse.json({ ...CLASS_FULL_BODY, message: `${target.title} is full. See the front desk.` }, { status: 409 });
     }

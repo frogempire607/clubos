@@ -1163,7 +1163,10 @@ function SessionEditModal({
     canceled: boolean;
     staffOverride: string[] | null;
     note: string | null;
+    capacity?: number | null;
+    classCapacity?: number | null;
   };
+  const [dayLimit, setDayLimit] = useState("");
   const [s, setS] = useState<Sess | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1198,6 +1201,7 @@ function SessionEditModal({
           setEndTime(dt(found.endsAt));
           setCanceled(found.canceled);
           setNote(found.note ?? "");
+          setDayLimit(found.capacity != null ? String(found.capacity) : "");
           if (Array.isArray(found.staffOverride)) {
             setOverride(found.staffOverride);
             setUseOverride(true);
@@ -1229,6 +1233,7 @@ function SessionEditModal({
         startTime,
         endTime,
         note: note || null,
+        capacity: dayLimit.trim() ? Math.max(1, parseInt(dayLimit, 10) || 0) || null : null,
         // New coach scheduling: coaches and canceling are not written from this form.
         ...(newScheduling ? {} : { canceled, staffOverride: useOverride ? override : null }),
       }),
@@ -1325,6 +1330,21 @@ function SessionEditModal({
                   ))}
                 </div>
               )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-text-primary mb-1" htmlFor="day-limit">Limit for this day only</label>
+              <input
+                id="day-limit"
+                type="number"
+                min={1}
+                inputMode="numeric"
+                value={dayLimit}
+                onChange={(e) => setDayLimit(e.target.value)}
+                placeholder={parentClass?.capacity ? `Class limit: ${parentClass.capacity}` : "No limit"}
+                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm"
+              />
+              <p className="mt-1 text-xs text-text-muted">Leave empty to use the class&apos;s own limit. When this day is full, members see &quot;Full&quot; and can&apos;t book it; staff can still add someone.</p>
             </div>
 
             <div>

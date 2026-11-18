@@ -14,7 +14,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CLASS_FULL_BODY, CLASS_FULL_LABEL, classIsFull, classLimit, classSpotsLeft, fullDayOffer, overLimitWarning } from "../lib/classCapacity";
+import { CLASS_FULL_BODY, CLASS_FULL_LABEL, classIsFull, classLimit, classSpotsLeft, dayCapacity, fullDayOffer, overLimitWarning } from "../lib/classCapacity";
 
 const ROOT = join(__dirname, "..");
 const code = (rel: string) =>
@@ -35,6 +35,14 @@ check("a capacity of 0 or less is treated as not set", classLimit(0) === null &&
 check("12 spots, 11 taken: one left, not full", classSpotsLeft(12, 11) === 1 && !classIsFull(12, 11));
 check("12 spots, 12 taken: full", classIsFull(12, 12) && classSpotsLeft(12, 12) === 0);
 check("a day already over its limit before this shipped is full, never negative", classIsFull(12, 15) && classSpotsLeft(12, 15) === 0);
+
+console.log("\n§1b a limit set on one class day");
+check("a day with its own limit uses it, not the class's", dayCapacity(8, 12) === 8 && dayCapacity(20, 12) === 20);
+check("a day with no limit of its own uses the class's", dayCapacity(null, 12) === 12);
+check("neither set: unlimited", dayCapacity(null, null) === null && dayCapacity(undefined, undefined) === null);
+check("a day limit on a class that has none still limits that day", dayCapacity(6, null) === 6);
+check("booking, the schedule, the door and the webhook all resolve the day's limit", ["app/api/member/classes/book/route.ts", "app/api/member/schedule/route.ts", "app/api/member/checkin/[id]/route.ts", "app/api/stripe/webhook/route.ts"].every((f) => code(f).includes("dayCapacity(")));
+check("the day editor can set and clear the day's limit", code("app/api/classes/[id]/sessions/[sessionId]/route.ts").includes("capacity: data.capacity ?? null") && code("app/dashboard/classes/page.tsx").includes("Limit for this day only"));
 
 console.log("\n§2 what a member is offered on a full day");
 {
@@ -88,7 +96,7 @@ console.log("\n§5 every member path that takes a spot is guarded");
   const hook = code("app/api/stripe/webhook/route.ts");
   check("a payment that lands after the class filled is still seated, and marked", hook.includes("paidIntoFull") && hook.includes("over the class limit"));
   const sched = code("app/api/member/schedule/route.ts");
-  check("the member schedule marks a full day", sched.includes("fullDayOffer(") && sched.includes("classIsFull(sessionItem.recurringClass.capacity, sessionItem._count.attendance)"));
+  check("the member schedule marks a full day", sched.includes("fullDayOffer(") && sched.includes("classIsFull(dayCapacity(sessionItem.capacity, sessionItem.recurringClass.capacity), sessionItem._count.attendance)"));
 }
 
 console.log("\n§6 existing bookings are never removed");

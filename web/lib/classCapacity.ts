@@ -21,6 +21,15 @@ export const CLASS_FULL_BODY = {
   code: CLASS_FULL_CODE,
 } as const;
 
+/**
+ * The limit for one class day: that day's own limit when a coach or owner set
+ * one (ClassSession.capacity), otherwise the class's (RecurringClass.capacity).
+ * Both unset = unlimited.
+ */
+export function dayCapacity(sessionCapacity: number | null | undefined, classCapacity: number | null | undefined): number | null {
+  return classLimit(sessionCapacity) ?? classLimit(classCapacity);
+}
+
 /** null / undefined / 0 or less = no limit. */
 export function classLimit(capacity: number | null | undefined): number | null {
   return capacity != null && capacity > 0 ? capacity : null;

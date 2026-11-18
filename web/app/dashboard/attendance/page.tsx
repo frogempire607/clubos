@@ -1,6 +1,6 @@
 "use client";
 
-import { overLimitWarning } from "@/lib/classCapacity";
+import { dayCapacity, overLimitWarning } from "@/lib/classCapacity";
 import { alertDialog, confirmDialog } from "@/lib/dialogs";
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -2027,7 +2027,7 @@ function AttendancePanel({
                       </button>
                     </div>
                     {(() => {
-                      const warn = overLimitWarning(data?.session.recurringClass.capacity, data?.attendance.length ?? 0);
+                      const warn = overLimitWarning(dayCapacity((data?.session as { capacity?: number | null } | undefined)?.capacity, data?.session.recurringClass.capacity), data?.attendance.length ?? 0);
                       return warn ? (
                         <div role="alert" className="mb-3 rounded-lg border border-warn-border bg-warn-surface px-3 py-2 text-sm text-warn-text">
                           <strong className="font-semibold">Class limit reached.</strong> {warn.replace(" Adding this person", " Anyone you add")} Members can no longer book this day themselves.

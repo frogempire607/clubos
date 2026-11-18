@@ -17,7 +17,7 @@ import { classHasStarted } from "@/lib/datetime";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
-import { CLASS_FULL_BODY, classIsFull } from "@/lib/classCapacity";
+import { CLASS_FULL_BODY, classIsFull, dayCapacity } from "@/lib/classCapacity";
 import { countClassSpotsTaken, withClassCapacityLock } from "@/lib/classCapacityServer";
 
 // POST /api/member/classes/book
@@ -127,8 +127,9 @@ export async function POST(req: Request) {
     // below ALSO take the spot under a lock (bookSpot), so two people tapping
     // the last spot at the same moment cannot both get it. No capacity set =
     // unlimited: no count, no lock.
-    const capacityArgs = { classSessionId, capacity: cls.capacity };
-    if (cls.capacity != null && classIsFull(cls.capacity, await countClassSpotsTaken(classSessionId))) {
+    const limit = dayCapacity(classSession.capacity, cls.capacity);
+    const capacityArgs = { classSessionId, capacity: limit };
+    if (limit != null && classIsFull(limit, await countClassSpotsTaken(classSessionId))) {
       return NextResponse.json(CLASS_FULL_BODY, { status: 409 });
     }
     const classFull = () => NextResponse.json(CLASS_FULL_BODY, { status: 409 });
