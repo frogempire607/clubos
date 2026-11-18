@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Plus, Save, X, Trash2, Users, RefreshCw } from "lucide-react";
 import type { AudienceFilter, AudienceRule, Op } from "@/lib/audienceFilters";
+import { audienceSaveProblem } from "@/lib/audienceRules";
 import PageHeader from "@/components/PageHeader";
 
 // Owner-facing labels for the parseable field ids. Keep in sync with
@@ -255,6 +256,9 @@ function AudienceEditor({
     setSaving(true);
     try {
       if (!name.trim()) throw new Error("Name is required");
+      // Said here, before the request, in the same words the server uses.
+      const problem = audienceSaveProblem(filterSnapshot, audience?.filters ?? null);
+      if (problem) throw new Error(problem);
       const payload = { name, description: description || null, filters: filterSnapshot, isDynamic };
       const res = isNew
         ? await fetch("/api/marketing-audiences", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })

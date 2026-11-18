@@ -102,6 +102,9 @@ export const GATED = [
   // …and the one production 500 the audit found in Netlify's logs: the
   // audience preview with a status rule not yet filled in.
   ["scripts/audience-status-filter-tests.ts"],
+  // Decision 2026-11-18: an audience with a status rule and no status picked
+  // cannot be SAVED (it would mean "everyone"). Already-saved ones keep working.
+  ["scripts/audience-save-rule-tests.ts"],
   // …and the hole the audit's own crawl fell into: scripts/dev-local.sh is a
   // default-deny environment now, and this asks it what a local server would
   // see for every variable the app reads. Nothing real, by name.
