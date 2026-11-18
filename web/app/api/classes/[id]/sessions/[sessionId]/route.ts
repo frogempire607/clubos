@@ -31,6 +31,8 @@ const schema = z.object({
   canceled: z.boolean().optional(),
   staffOverride: z.array(z.string()).optional().nullable(),
   note: z.string().max(2000).optional().nullable(),
+  // A limit for THIS day only. null = go back to the class's own limit.
+  capacity: z.number().int().positive().max(10000).optional().nullable(),
 });
 
 function applyWallClock(date: Date, hhmm: string): Date {
@@ -80,7 +82,7 @@ export async function PATCH(
 
   const touchesDetails =
     data.startsAt !== undefined || data.endsAt !== undefined || data.startTime !== undefined ||
-    data.endTime !== undefined || data.canceled !== undefined || data.note !== undefined;
+    data.endTime !== undefined || data.canceled !== undefined || data.note !== undefined || data.capacity !== undefined;
   if (touchesDetails && !canEditClass) {
     return NextResponse.json({ error: "You don't have permission to manage this." }, { status: 403 });
   }
@@ -157,6 +159,7 @@ export async function PATCH(
             ...(startsAt !== undefined ? { startsAt } : {}),
             ...(endsAt !== undefined ? { endsAt } : {}),
             ...(data.note !== undefined ? { note: data.note ?? null } : {}),
+            ...(data.capacity !== undefined ? { capacity: data.capacity ?? null } : {}),
             overridden: true,
           },
         });
@@ -178,6 +181,7 @@ export async function PATCH(
           { staffOverride: staffOverrideValue(staffOverride) }
         : {}),
       ...(data.note !== undefined ? { note: data.note ?? null } : {}),
+            ...(data.capacity !== undefined ? { capacity: data.capacity ?? null } : {}),
       // Any per-occurrence edit pins this row so series regeneration
       // preserves it.
       overridden: true,

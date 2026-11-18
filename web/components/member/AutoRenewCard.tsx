@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 // Portal — "Auto-renew" for every membership this adult pays for (2026-09-28).
 //
@@ -67,7 +68,7 @@ export default function AutoRenewCard() {
     const d = await r.json().catch(() => ({}));
     setBusy(false);
     if (!r.ok) {
-      setError(typeof d.error === "string" ? d.error : "That didn't go through. Nothing changed.");
+      setError(memberErrorText(d, "That didn't go through. Nothing changed."));
       return;
     }
     setDone(typeof d.message === "string" ? d.message : pending.to ? pending.row.copy.onSentence : pending.row.copy.offSentence);

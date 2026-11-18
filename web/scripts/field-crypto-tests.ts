@@ -363,13 +363,18 @@ console.log("\n[6] build guard — a tax id may only exist encrypted");
   });
   ok(hasCrypto, "6.3 AES-256-GCM field encryption exists in lib/", "a tax-id field without encryption must fail the build");
 
-  // (c) decryptField is called from exactly ONE module.
+  // (c) decryptField is called from exactly the modules listed here.
+  //   lib/contractorTin.ts      the contractor tax id (the reason this exists)
+  //   lib/socialAuthServer.ts   the Apple sign-in refresh token, decrypted only
+  //                             to send it to Apple's revoke endpoint when an
+  //                             account is deleted or Apple is removed from it.
+  //                             Never returned to a page or logged (2026-11-17).
   const appAndLib = [...walk(join(ROOT, "lib")), ...walk(join(ROOT, "app")), ...walk(join(ROOT, "components"))];
   const decryptCallers = appAndLib
     .filter((f) => !f.endsWith("lib/fieldCrypto.ts"))
     .filter((f) => /\bdecryptField\s*\(/.test(strip(readFileSync(f, "utf8"))))
     .map((f) => f.replace(ROOT + "/", ""));
-  eq(decryptCallers, ["lib/contractorTin.ts"], "6.4 decryptField is called from exactly one module");
+  eq(decryptCallers.sort(), ["lib/contractorTin.ts", "lib/socialAuthServer.ts"], "6.4 decryptField is called only from the named modules");
 
   // (d) That module audits BEFORE it decrypts, and a failed audit stops it.
   const tinModule = readFileSync(join(ROOT, "lib/contractorTin.ts"), "utf8");

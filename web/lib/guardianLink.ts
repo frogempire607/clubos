@@ -36,7 +36,7 @@ export function isOwnerVouched(child: ChildRef, requesterEmail: string | null): 
   return !!child.isMinor && !!onFile && !!requester && onFile === requester;
 }
 
-export type GuardianLinkResult = { status: "linked" } | { status: "pending" };
+export type GuardianLinkResult = { status: "linked" } | { status: "pending"; /** A new row went into the owner queue (false = one was already waiting). */ queued: boolean };
 
 // Single source of truth shared by the authenticated link-child route and
 // the (unauthenticated) PARENT signup branch, so both enforce the identical
@@ -106,7 +106,7 @@ export async function requestGuardianLink(args: {
     });
   }
 
-  return { status: "pending" };
+  return { status: "pending", queued: !alreadyRequested };
 }
 
 // A member must always have exactly one primary guardian once anyone is linked,

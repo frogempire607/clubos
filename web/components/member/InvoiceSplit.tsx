@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 // Invoice split (Client UX Phase 7, behind FEATURE_INVOICE_SPLIT — hidden
 // entirely when the server says the feature is off or the athlete has fewer
@@ -130,7 +131,7 @@ export default function InvoiceSplit({ memberId, childName }: { memberId: string
     const d = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
-      setError(typeof d.error === "string" ? d.error : "Could not propose the split.");
+      setError(memberErrorText(d, "Could not propose the split."));
       return;
     }
     setSplit(d.split ?? null);
@@ -149,7 +150,7 @@ export default function InvoiceSplit({ memberId, childName }: { memberId: string
     const d = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
-      setError(typeof d.error === "string" ? d.error : "Could not update the split.");
+      setError(memberErrorText(d, "Could not update the split."));
       return;
     }
     const next = (d.split ?? null) as Split | null;

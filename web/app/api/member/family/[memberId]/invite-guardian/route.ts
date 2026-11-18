@@ -8,6 +8,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { GUARDIAN_LINK_KIND, isPrimaryGuardian } from "@/lib/guardianLink";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 import { normalizeEmail } from "@/lib/memberValidation";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendClubJoinInviteEmail } from "@/lib/email";
@@ -140,6 +141,7 @@ export async function POST(req: Request, context: { params: Promise<{ memberId: 
         } as Prisma.InputJsonValue,
       },
     });
+    await notifyApprovalWaiting({ clubId: session.user.clubId, approvalKind: GUARDIAN_LINK_KIND, requestedByUserId: session.user.id });
     return NextResponse.json({
       status: "invited",
       message: `We emailed ${email} an invite to set up their account. Once they activate, your club can approve them as a guardian.`,
@@ -182,6 +184,7 @@ export async function POST(req: Request, context: { params: Promise<{ memberId: 
         } as Prisma.InputJsonValue,
       },
     });
+    await notifyApprovalWaiting({ clubId: session.user.clubId, approvalKind: GUARDIAN_LINK_KIND, requestedByUserId: session.user.id });
   }
 
   return NextResponse.json({

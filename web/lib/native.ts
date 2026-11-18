@@ -144,3 +144,57 @@ export async function scanQrCode(instructions: string): Promise<string | null> {
 export function minimizeApp(): void {
   void nativeCall("App", "minimizeApp");
 }
+
+// ── Push notifications (appended 2026-11-17; see lib/pushClient.ts) ────────
+//
+// Thin wrappers over the PushNotifications plugin. Nothing here asks for
+// permission by itself: pushRequestPermission() is only ever called from a
+// button the person pressed (components/account/NotificationSettings.tsx).
+
+export type PushPermission = "granted" | "denied" | "prompt" | "unavailable";
+
+function readPushPermission(r: { receive?: string } | null): PushPermission {
+  if (!r || typeof r.receive !== "string") return "unavailable";
+  if (r.receive === "granted" || r.receive === "denied") return r.receive;
+  return "prompt";
+}
+
+/** What the phone currently allows. Never shows a prompt. */
+export async function pushCheckPermission(): Promise<PushPermission> {
+  if (!isNativeApp()) return "unavailable";
+  return readPushPermission(await nativeCall<{ receive?: string }>("PushNotifications", "checkPermissions"));
+}
+
+/** Shows the system prompt (once; after that the phone answers from Settings). */
+export async function pushRequestPermission(): Promise<PushPermission> {
+  if (!isNativeApp()) return "unavailable";
+  return readPushPermission(await nativeCall<{ receive?: string }>("PushNotifications", "requestPermissions"));
+}
+
+/** Ask Apple / Google for this phone's token. It arrives on pushOnToken. */
+export async function pushRegister(): Promise<void> {
+  await nativeCall("PushNotifications", "register");
+}
+
+export function pushOnToken(cb: (token: string) => void): () => void {
+  return nativeListen<{ value?: string }>("PushNotifications", "registration", (d) => {
+    if (typeof d?.value === "string" && d.value) cb(d.value);
+  });
+}
+
+export function pushOnRegistrationError(cb: () => void): () => void {
+  return nativeListen("PushNotifications", "registrationError", () => cb());
+}
+
+/** A notification was tapped. `data` is the payload we sent with it. */
+export function pushOnTap(cb: (data: Record<string, unknown>) => void): () => void {
+  return nativeListen<{ notification?: { data?: Record<string, unknown> } }>("PushNotifications", "pushNotificationActionPerformed", (e) => {
+    cb(e?.notification?.data ?? {});
+  });
+}
+
+/** The app's bundle / package id, e.g. com.athletixos.app. Null in a browser. */
+export async function nativeAppId(): Promise<string | null> {
+  const info = await nativeCall<{ id?: string }>("App", "getInfo");
+  return typeof info?.id === "string" && info.id ? info.id : null;
+}

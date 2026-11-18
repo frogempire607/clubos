@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission, requireMessagesSubScope } from "@/lib/apiGuard";
 import { filterMemberIdsByCoachAudience } from "@/lib/coachAudience";
 import { sendMemberMessage } from "@/lib/memberMessaging";
+import { notifyDirectMessage } from "@/lib/pushServer";
 import { sendJoinInvite } from "@/lib/migrationServer";
 import { deleteOrphanedMemberLogins } from "@/lib/memberLink";
 import { getTierFeatures } from "@/lib/tier";
@@ -194,6 +195,7 @@ export async function POST(req: Request) {
 
   let sent = 0;
   const skipped: { memberId: string; reason: string }[] = [];
+  const pushTo = new Set<string>();
   for (const memberId of ids) {
     const result = await sendMemberMessage({
       clubId: session.user.clubId,
@@ -201,8 +203,15 @@ export async function POST(req: Request) {
       memberId,
       body: data.body.trim(),
     });
-    if (result.ok) sent++;
-    else skipped.push({ memberId, reason: result.error ?? "Could not deliver" });
+    if (result.ok) {
+      sent++;
+      for (const m of result.messages) pushTo.add(m.recipientId);
+    } else skipped.push({ memberId, reason: result.error ?? "Could not deliver" });
+  }
+  // One push per person for the whole batch, after every message is stored.
+  // No `about`: a parent of two selected athletes gets one notification.
+  if (pushTo.size > 0) {
+    await notifyDirectMessage({ clubId: session.user.clubId, senderId: session.user.id, recipientIds: [...pushTo] });
   }
 
   return NextResponse.json({ ok: true, sent, skipped });

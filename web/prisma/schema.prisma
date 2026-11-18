@@ -670,6 +670,9 @@ model User {
   uploadedStaffDocs          StaffDocument[]              @relation("StaffDocsUploader")
   legalAcceptances           LegalAcceptance[]
   parentalConsentsAsGuardian ParentalConsent[]            @relation("GuardianConsent")
+  identities                 UserIdentity[]
+  deviceTokens               DeviceToken[]
+  notificationPreferences    NotificationPreference[]
   parentalConsentsAsChild    ParentalConsent[]            @relation("ChildConsent")
   EventCompAssignment        EventCompAssignment[]
   actionItemSnoozes          ActionItemSnooze[]
@@ -686,6 +689,98 @@ model User {
 // new version creates a new row — we never overwrite history. Two rows are
 // written per signup (TOS + PRIVACY). Source-of-truth versions live in
 // legal/versions.ts (TERMS_VERSION + PRIVACY_VERSION).
+// A sign-in method other than the password: "Sign in with Google" or "Sign in
+// with Apple" (migration 20261117000000_user_identities). One row per
+// (club, provider, the provider's own stable id for the person). A person can
+// hold several on one account; the password stays a method of its own on
+// users.passwordHash.
+//
+// A row is only ever created when (a) the provider said the email is verified
+// and it matched a member-role account, (b) the person was already signed in
+// (My account -> Connect, or signing in once with their password after Apple
+// hid their email), or (c) they created the account in the same sitting. Never
+// on an unverified email match. See lib/socialAuth.ts decideSocialSignIn.
+model UserIdentity {
+  id              String    @id @default(cuid())
+  userId          String
+  clubId          String
+  provider        String // GOOGLE | APPLE
+  providerSubject String // the provider's `sub` claim
+  // The address the provider reported, for display only ("Google · a@b.com").
+  // Never used to find an account after the row exists.
+  email           String?
+  emailIsRelay    Boolean   @default(false) // Apple "Hide My Email"
+  // Apple only: the refresh token, AES-256-GCM (lib/fieldCrypto). Kept for one
+  // purpose: revoking it when the account is deleted, which Apple requires.
+  refreshTokenEnc String?
+  createdAt       DateTime  @default(now())
+  lastUsedAt      DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clubId, provider, providerSubject])
+  @@index([userId])
+  @@map("user_identities")
+}
+
+// A phone that can receive push notifications for one login (migration
+// 20261117010000_push_notifications). `appId` + `platform` say which app
+// issued the token, so a per-club branded app can use its own push
+// credentials later. A token the provider reports dead is disabled, not
+// deleted, so "why did I stop getting notifications" has an answer.
+model DeviceToken {
+  id             String    @id @default(cuid())
+  clubId         String
+  userId         String
+  platform       String // IOS | ANDROID
+  appId          String // bundle / package id, e.g. com.athletixos.app
+  token          String
+  createdAt      DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  disabledAt     DateTime?
+  disabledReason String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([appId, token])
+  @@index([userId])
+  @@index([clubId])
+  @@map("device_tokens")
+}
+
+// One person's on/off switch for one kind of push. No row = on.
+model NotificationPreference {
+  id        String   @id @default(cuid())
+  clubId    String
+  userId    String
+  type      String // APPROVALS | MESSAGES | OFFLINE_MEMBERSHIP_ENDING
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type])
+  @@index([clubId])
+  @@map("notification_preferences")
+}
+
+// "Already told them": one row per (what, who, how). The unique index is what
+// makes a reminder go out once per membership period even if the hourly job
+// runs twice or overlaps itself.
+model NotificationLog {
+  id           String   @id @default(cuid())
+  clubId       String
+  type         String
+  dedupeKey    String // e.g. offline-ending:<subscriptionId>:<period end, YYYY-MM-DD>
+  recipientKey String // a user id, or an email address for a family reminder
+  channel      String // PUSH | EMAIL
+  createdAt    DateTime @default(now())
+
+  @@unique([dedupeKey, recipientKey, channel])
+  @@index([clubId, type])
+  @@map("notification_logs")
+}
+
 model LegalAcceptance {
   id           String   @id @default(cuid())
   userId       String
@@ -4195,6 +4290,9 @@ model ClassSession {
   staffOverride Json?
   note          String?
   overridden    Boolean  @default(false)
+  // Limit for THIS class day only (migration 20261117020000). null = use the
+  // class's own capacity (RecurringClass.capacity); both null = unlimited.
+  capacity      Int?
   createdAt     DateTime @default(now())
 
   // ── Staff scheduling overhaul, Migration A (20261008000000) ──────────────

@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 // Shown in the member portal only when BOTH are true: this account has not
 // confirmed its email, and the club already has something under that email
@@ -46,7 +47,7 @@ export default function VerifyEmailBanner() {
       const res = await fetch("/api/member/email-verification", { method: "POST" });
       const d = await res.json().catch(() => ({}));
       if (res.ok) { setSent("sent"); setNote("Sent. Check your inbox, and your spam folder."); }
-      else { setSent("error"); setNote(typeof d.error === "string" ? d.error : "We couldn't send it. Please try again."); }
+      else { setSent("error"); setNote(memberErrorText(d, "We couldn't send it. Please try again.")); }
     } catch {
       setSent("error");
       setNote("No connection. Try again.");

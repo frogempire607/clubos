@@ -3,10 +3,13 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { requirePermission } from "@/lib/apiGuard";
 import { loadEventAttendees } from "@/lib/eventAttendeesServer";
-import { attendeeExportTable, parseExportFilter, tableToCsv } from "@/lib/eventAttendeeExtras";
+import { attendeeExportTable, attendeeStatusText, parseExportFilter, tableToCsv } from "@/lib/eventAttendeeExtras";
+import { answersTable } from "@/lib/eventFormAnswers";
 import { buildPdf, todayStamp } from "@/lib/exporters";
 
 // GET /api/events/[id]/attendees/export?format=csv|pdf&filter=all|owes|waiting|scheduled|settled&removed=1
+// GET /api/events/[id]/attendees/export?view=answers   (CSV: one row per
+//     registrant, one column per signup question)
 //
 // READ-ONLY (events:view, the same gate as the list it exports). The rows
 // come from loadEventAttendees — the ONE loader the Attendees screen reads —
@@ -23,6 +26,18 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   if (!payload) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const sp = new URL(req.url).searchParams;
+  const slugOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "event";
+  if (sp.get("view") === "answers") {
+    const t = answersTable(payload.ledger.rows, (id) => payload.answers[id] ?? null, payload.registrationForm, {
+      statusText: (r) => attendeeStatusText(r),
+    });
+    return new Response(tableToCsv(t), {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${slugOf(payload.event.name)}-form-answers-${todayStamp()}.csv"`,
+      },
+    });
+  }
   const filter = parseExportFilter(sp.get("filter"));
   const showRemoved = sp.get("removed") === "1" && filter === "all";
   const table = attendeeExportTable(payload.ledger, {
@@ -32,7 +47,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     extras: payload.extras,
   });
 
-  const slug = payload.event.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "event";
+  const slug = slugOf(payload.event.name);
   const filename = `${slug}-attendees${filter === "all" ? "" : `-${filter}`}-${todayStamp()}`;
 
   if (sp.get("format") === "pdf") {

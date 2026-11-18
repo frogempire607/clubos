@@ -10,12 +10,16 @@ import {
   payoutBasisNote,
 } from "@/lib/eventComp";
 
+/** Thrown inside the claim transaction to roll back a Payout another request already created. */
+class AlreadyGenerated extends Error {}
+
 // POST /api/events/[id]/comp/generate-payouts (finances:edit)
 // Turns each compensated assignment into ONE pending Payout row — a payable
 // for the owner to review and mark paid through the existing payouts page.
-// Never moves money, never touches Stripe. assignment.payoutId (unique) is
-// the never-pay-twice guard: once generated, re-running skips the row; to
-// re-issue, void/handle the Payout in the ledger.
+// Never moves money, never touches Stripe. assignment.payoutId is the
+// never-pay-twice guard, CLAIMED CONDITIONALLY in the same transaction that
+// creates the Payout: once generated, re-running (or a second tap) skips the
+// row; to re-issue, void/handle the Payout in the ledger.
 export async function POST(_req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await getServerSession(authOptions);
@@ -89,31 +93,49 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
       continue;
     }
 
-    const payout = await prisma.payout.create({
-      data: {
-        clubId,
-        // The payouts page vocabulary: contractors on file surface as "Guest
-        // clinician" payees; staff stay STAFF.
-        payeeType: a.payeeType === "STAFF" ? "STAFF" : "GUEST",
-        payeeUserId: a.userId,
-        contractorId: a.contractorId,
-        payeeName: a.payeeName,
-        kind: "EVENT",
-        eventId: event.id,
-        amount,
-        status: "PENDING",
-        notes: payoutBasisNote(input, revenue, event.name, { ignoreRefunds: event.compNoRefunds }),
-        createdById: session.user.id ?? null,
-      },
-      select: { id: true },
-    });
-
-    // Claim the assignment; the unique payoutId column makes a concurrent
-    // double-generate impossible to record twice.
-    await prisma.eventCompAssignment.update({
-      where: { id: a.id },
-      data: { payoutId: payout.id },
-    });
+    // Create the payable and claim the assignment TOGETHER, and only if the
+    // assignment is still unclaimed. Two taps on "Create payout records" used
+    // to each create a Payout and each point the assignment at its own: the
+    // unique payoutId stopped nothing, because the two ids differ, and the
+    // owner was left with two payables for one job (audit R9). Now the claim
+    // is conditional (payoutId still null); the tap that loses rolls its
+    // Payout back and counts the row as already generated.
+    const note = payoutBasisNote(input, revenue, event.name, { ignoreRefunds: event.compNoRefunds });
+    const won = await prisma
+      .$transaction(async (db) => {
+        const payout = await db.payout.create({
+          data: {
+            clubId,
+            // The payouts page vocabulary: contractors on file surface as "Guest
+            // clinician" payees; staff stay STAFF.
+            payeeType: a.payeeType === "STAFF" ? "STAFF" : "GUEST",
+            payeeUserId: a.userId,
+            contractorId: a.contractorId,
+            payeeName: a.payeeName,
+            kind: "EVENT",
+            eventId: event.id,
+            amount,
+            status: "PENDING",
+            notes: note,
+            createdById: session.user.id ?? null,
+          },
+          select: { id: true },
+        });
+        const claim = await db.eventCompAssignment.updateMany({
+          where: { id: a.id, payoutId: null },
+          data: { payoutId: payout.id },
+        });
+        if (claim.count !== 1) throw new AlreadyGenerated();
+        return true;
+      })
+      .catch((err) => {
+        if (err instanceof AlreadyGenerated) return false;
+        throw err;
+      });
+    if (!won) {
+      skippedExisting++;
+      continue;
+    }
     created++;
     results.push({ payeeName: a.payeeName, amount });
   }

@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText, EVENT_REGISTER_FLOW_CODES, eventRegisterFlowPath } from "@/lib/memberErrorText";
 
 // Schedule — My Schedule + My Bookings merged into one destination
 // (design 2c / 1e). Page-level tabs: Schedule (Agenda | Calendar with
@@ -9,7 +10,7 @@
 import { isNativeApp, nativeStoreSet } from "@/lib/native";
 import { OFFLINE_SCHEDULE_KEY, buildOfflineSchedule } from "@/lib/offlineSchedule";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 import {
   onActiveProfileChange,
@@ -223,7 +224,7 @@ function ItemCard({ item, onClick, family = false, contextFirstName = null }: { 
             {span ?? `${formatLongDate(item)} · ${formatTimeRange(item)}`}
             {multi ? ` · ${item.sessions!.length} sessions` : ""}
             {item.location ? ` · ${item.location}` : ""}
-            {item.capacity ? ` · ${Math.max(item.capacity - item.filled, 0)} spots left` : ""}
+            {item.capacity ? (item.capacity - item.filled <= 0 ? " · Full" : ` · ${item.capacity - item.filled} ${item.capacity - item.filled === 1 ? "spot" : "spots"} left`) : ""}
           </p>
           {reg && (
             <span className="mt-1.5 inline-flex items-center rounded-full border border-green-200 bg-green-50 px-2.5 py-0.5 text-[13px] font-semibold text-green-800">
@@ -256,6 +257,7 @@ export default function MemberSchedulePage() {
 function ScheduleInner() {
   const { profiles } = useAthleteProfiles();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [data, setData] = useState<ScheduleResponse | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   // Page tab: Schedule | Bookings. Deep-linkable via ?tab=bookings; a URL
@@ -397,7 +399,7 @@ function ScheduleInner() {
     const d = await res.json().catch(() => ({}));
     setCheckinBusy(null);
     if (!res.ok) {
-      setError(d.error || "Couldn't check in — ask your club for help.");
+      setError(memberErrorText(d, "Couldn't check in — ask your club for help."));
       return;
     }
     setInfo(d.message || "Checked in.");
@@ -504,7 +506,7 @@ function ScheduleInner() {
     setBusy(null);
     if (!res.ok) {
       // Stated per athlete: one child failing is not the whole request failing.
-      setError(`${who}${d.error || "Could not book this class."}`);
+      setError(`${who}${memberErrorText(d, "Could not book this class.")}`);
       return;
     }
     // Parental gate (P4) — server returns 202 + { pendingApproval } when
@@ -551,9 +553,17 @@ function ScheduleInner() {
       }),
     });
     const d = await res.json().catch(() => ({}));
+    if (!res.ok && typeof d.error === "string" && EVENT_REGISTER_FLOW_CODES.has(d.error)) {
+      // The event has questions, a roster spot to pick, a payment choice or
+      // documents. This quick button can't ask for those; the Events page can,
+      // so hand over to its register flow for the same athlete. (This used to
+      // print the code — "ROSTER_REQUIRED" — onto the screen.)
+      router.push(eventRegisterFlowPath(item.refId, target.memberId));
+      return;
+    }
     setBusy(null);
     if (!res.ok) {
-      setError(`${who}${d.error || "Could not register for this event."}`);
+      setError(`${who}${memberErrorText(d, "Could not register for this event.")}`);
       return;
     }
     // Same P4 parental gate handling as bookClass — 202 + pendingApproval
@@ -736,13 +746,13 @@ function ScheduleInner() {
                               style={c}
                             >
                               {datePillParts(item.startsAt, kindIsWallClockUTC(item.kind)).day}
-                              <span className="text-[8px] font-extrabold tracking-wide mt-0.5">
+                              <span className="text-[12px] font-extrabold tracking-wide mt-0.5">
                                 {datePillParts(item.startsAt, kindIsWallClockUTC(item.kind)).month}
                               </span>
                             </span>
                             <span className="min-w-0">
                               <span className={`block text-[12.5px] font-semibold truncate ${item.canceled ? "text-stone-500 line-through" : "text-stone-900"}`}>{item.title}</span>
-                              <span className="block text-[11.5px] text-stone-500 truncate">
+                              <span className="block text-[12px] text-stone-500 truncate">
                                 {friendlyDate(item.startsAt, { relative: true }, kindIsWallClockUTC(item.kind))}
                                 {" "}
                                 {friendlyTime(item.startsAt, kindIsWallClockUTC(item.kind))}

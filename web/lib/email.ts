@@ -1,3 +1,4 @@
+import { emailDate, emailDateTime, emailTimeRange, type EmailClock } from "@/lib/emailTime";
 import nodemailer from "nodemailer";
 
 const REQUIRED_SMTP_VARS = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"] as const;
@@ -406,6 +407,7 @@ export async function sendBookingConfirmationEmail({
   coveredByMembership,
   amountPaid,
   portalUrl,
+  clock,
 }: {
   to: string;
   firstName: string;
@@ -417,10 +419,12 @@ export async function sendBookingConfirmationEmail({
   coveredByMembership?: boolean;
   amountPaid?: string;
   portalUrl: string;
+  /** Which kind of time `startsAt` is. Required: see lib/emailTime.ts. */
+  clock: EmailClock;
 }) {
-  const fmtDate = startsAt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-  const fmtTime = startsAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  const endTime = endsAt ? ` – ${endsAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : "";
+  const fmtDate = emailDate(startsAt, clock);
+  const fmtTime = emailTimeRange(startsAt, endsAt, clock);
+  const endTime = "";
 
   await sendEmail({
     to,
@@ -894,6 +898,7 @@ export async function sendPartnerInviteEmail({
   inviteUrl,
   fromName,
   replyTo,
+  timeZone,
 }: {
   to: string;
   partnerName: string | null; // may be unknown if booker only typed an email
@@ -906,10 +911,10 @@ export async function sendPartnerInviteEmail({
   inviteUrl: string;
   fromName?: string | null;
   replyTo?: string | null;
+  /** The club's timezone: a lesson time is a real moment (lib/emailTime.ts). */
+  timeZone: string | null | undefined;
 }) {
-  const whenLabel = confirmedStartAt
-    ? `${confirmedStartAt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} at ${confirmedStartAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
-    : null;
+  const whenLabel = confirmedStartAt ? emailDateTime(confirmedStartAt, { kind: "moment", timeZone }) : null;
   const safePartnerName = partnerName ? escapeHtml(partnerName.trim()) : null;
   const greeting = safePartnerName ? `Hi ${safePartnerName}` : "Hi there";
   const safeBooker = escapeHtml(bookerName);

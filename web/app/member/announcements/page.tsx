@@ -98,7 +98,7 @@ export default function MemberAnnouncementsPage() {
               >
                 <div className="flex items-start justify-between gap-3 mb-1">
                   <h3 className="text-sm font-semibold text-stone-900 truncate">{a.title}</h3>
-                  <span className="text-[11px] text-stone-400 flex-shrink-0">{fmtRelative(dateIso)}</span>
+                  <span className="text-[12px] text-stone-400 flex-shrink-0">{fmtRelative(dateIso)}</span>
                 </div>
                 <p className="text-sm text-stone-600 line-clamp-2 whitespace-pre-wrap">{a.body}</p>
               </button>

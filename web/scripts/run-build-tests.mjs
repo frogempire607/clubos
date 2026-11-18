@@ -58,6 +58,27 @@ export const GATED = [
   // record somebody else created once the person has proved they receive
   // mail there. Signup used to hand over a family on a typed address.
   ["scripts/email-verification-tests.ts"],
+  // Event attendee screen (2026-11-17): each registrant's form answers under
+  // the question's label, everyone's answers as one table / CSV, and "Email
+  // registrants" (guests reached, cancelled skipped, one email per address,
+  // unsubscribe rules). Also: the "Registered for event" audience no longer
+  // includes cancelled registrations.
+  ["scripts/event-attendee-answers-tests.ts"],
+  // Class limits (2026-11-17): a class day with a capacity takes that many;
+  // a full day reads "Full" to members and cannot be booked; staff are warned
+  // and can still add; the last spot is taken once; no capacity = unlimited.
+  ["scripts/class-capacity-tests.ts"],
+  // Audit D3: event and lesson emails print the club's time with the zone
+  // named ("6:00 PM EST"), never the server's UTC hour; class emails print the
+  // class's own wall clock. The clock is a required argument.
+  ["scripts/email-time-tests.ts"],
+  // Audit U3/U4: every data load has a time limit, a failed load shows a
+  // "can't reach the server" bar, and Try again re-runs the screen's loads.
+  // Saves are never timed out or replayed.
+  ["scripts/connection-guard-tests.ts"],
+  // Audit R9: a double tap on cash-at-the-door books one payment, and on
+  // "Create payout records" makes one payable per coach.
+  ["scripts/double-tap-tests.ts"],
   ["scripts/account-deletion-tests.ts"],
   // The native app shell: a store build ships no debug logging, cleartext,
   // mixed content or open navigation; Android back, scanned codes and the
@@ -175,6 +196,9 @@ export const GATED = [
   // events
   ["scripts/event-attendees-tests.ts"],
   ["scripts/event-attendees-actions-tests.ts"],
+  ["scripts/member-errors-and-remove-paid-tests.ts"],
+  ["scripts/push-tests.ts"],
+  ["scripts/social-auth-tests.ts"],
   ["scripts/event-attendees-extras-tests.ts"],
   ["scripts/event-pricing-model-tests.ts"],
   ["scripts/event-roster-tests.ts"],

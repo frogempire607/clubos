@@ -7,6 +7,7 @@ import type { AttendeeLedger } from "@/lib/eventAttendees";
 import type { CheckInRecord, RowExtras, SendEntry } from "@/lib/eventAttendeeExtras";
 import type { CategoryField } from "@/lib/eventCategories";
 import type { RegistrationMoney } from "@/lib/registrationMoney";
+import type { AnswerSource } from "@/lib/eventFormAnswers";
 
 export type AttendeesPayload = {
   event: {
@@ -24,6 +25,9 @@ export type AttendeesPayload = {
   extras?: Record<string, RowExtras>;
   checkIns?: CheckInRecord[];
   sends?: Record<string, SendEntry[]>;
+  /** The signup questions and, per registration id, what was answered. */
+  registrationForm?: unknown;
+  answers?: Record<string, AnswerSource>;
 };
 
 export type RegDetail = {
@@ -83,6 +87,8 @@ export type RegistrationsPayload = {
       holdSpotDuringReview: boolean;
     };
     canDecide?: boolean;
+    /** Owner or billing:full — may remove someone who paid. */
+    canDecideMoney?: boolean;
     categoryFields?: CategoryField[];
     extraEntryLabel?: string;
     proposalNotePlaceholder?: string;

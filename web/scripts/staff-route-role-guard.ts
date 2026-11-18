@@ -113,6 +113,14 @@ export const ANY_SESSION_OK: Record<string, string> = {
     "Members upload their own profile photo (components/ImageUpload). The file is stored under the caller's club and the caller's user id.",
   "app/api/help/search/route.ts#GET":
     "Searches the static help articles in lib/helpContent. No club data.",
+  "app/api/push/devices/route.ts#POST":
+    "Registers the caller's own phone for push. Members and staff both get notifications; the row is keyed to the caller's user id and club.",
+  "app/api/push/devices/route.ts#DELETE":
+    "Switches off the caller's own phone on sign-out. Only rows belonging to the caller are touched.",
+  "app/api/me/notifications/route.ts#GET":
+    "The caller's own notification switches. Members see the kinds they can receive; nothing about anyone else.",
+  "app/api/me/notifications/route.ts#PUT":
+    "Changes the caller's own notification switches. Writes only rows keyed to the caller's user id.",
 };
 
 const VERBS = ["GET", "POST", "PATCH", "PUT", "DELETE"];

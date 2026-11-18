@@ -7,6 +7,7 @@ import { resolveRegistrationRecipients } from "@/lib/eventRecipients";
 import { resolveEventPolicy } from "@/lib/eventPayments";
 import { resolveCategoryFields } from "@/lib/eventCategories";
 import { sendRegistrationId, type CheckInRecord, type RowExtras, type SendEntry } from "@/lib/eventAttendeeExtras";
+import type { AnswerSource } from "@/lib/eventFormAnswers";
 import {
   buildAttendeeLedger,
   summarizeLedger,
@@ -40,6 +41,9 @@ const REG_SELECT = {
   invoiceCount: true,
   invoicedAt: true,
   paymentUrl: true,
+  // Removed-but-paid rows: which payment, so its refund state can be shown.
+  transactionId: true,
+  stripePaymentIntentId: true,
 } as const;
 
 const BOOKING_SELECT = {
@@ -89,6 +93,10 @@ export type EventAttendeesPayload = {
   checkIns: CheckInRecord[];
   /** Per registration id: the EmailSend rows about it, newest first. */
   sends: Record<string, SendEntry[]>;
+  /** The event's signup questions (Event.registrationForm), for labels. */
+  registrationForm: unknown;
+  /** Per registration id: what they answered, on the registration and on each entry. */
+  answers: Record<string, AnswerSource>;
 };
 
 export async function loadEventAttendees(clubId: string, eventId: string): Promise<EventAttendeesPayload | null> {
@@ -119,7 +127,7 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
   });
   if (!event) return null;
 
-  const [regs, bookings, attendance, emailSends] = await Promise.all([
+  const [regs, bookings, attendance, emailSends, entries] = await Promise.all([
     prisma.eventRegistration.findMany({ where: { eventId: event.id }, select: REG_SELECT }),
     prisma.booking.findMany({ where: { eventId: event.id }, select: BOOKING_SELECT }),
     // Check-in mode reads what the attendance route (POST /api/attendance
@@ -149,7 +157,37 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
         error: true,
       },
     }),
+    // Answers to questions asked once per entry (weight per bracket, etc.).
+    prisma.eventRegistrationEntry.findMany({
+      where: { eventId: event.id, clubId, status: { not: "DROPPED" } },
+      orderBy: { sortOrder: "asc" },
+      select: {
+        registrationId: true,
+        answers: true,
+        roster: { select: { label: true } },
+        position: { select: { label: true } },
+      },
+    }),
   ]);
+
+  // What has been refunded on removed registrants who had paid. The refund
+  // lives on the Transaction (charge.refunded webhook), never on the
+  // registration, so "Removed, paid $X, not refunded" is read from there.
+  const removedPaid = regs.filter((r) => r.status === "CANCELED" && Number(r.amountPaid ?? 0) > 0);
+  const refundedByReg = new Map<string, number>();
+  if (removedPaid.length > 0) {
+    const txIds = removedPaid.map((r) => r.transactionId).filter((x): x is string => !!x);
+    const pis = removedPaid.map((r) => r.stripePaymentIntentId).filter((x): x is string => !!x);
+    const txs = await prisma.transaction.findMany({
+      where: { clubId, OR: [...(txIds.length ? [{ id: { in: txIds } }] : []), ...(pis.length ? [{ stripePaymentIntentId: { in: pis } }] : [])] },
+      select: { id: true, stripePaymentIntentId: true, amount: true, refundedAmount: true, status: true },
+    }).catch(() => []);
+    for (const r of removedPaid) {
+      const tx = txs.find((t) => (r.transactionId && t.id === r.transactionId) || (r.stripePaymentIntentId && t.stripePaymentIntentId === r.stripePaymentIntentId));
+      if (!tx) continue;
+      refundedByReg.set(r.id, tx.status === "REFUNDED" ? Number(tx.amount) : Number(tx.refundedAmount ?? 0));
+    }
+  }
 
   // Where each bill would ACTUALLY go — the family model, not the snapshot
   // on the registration row (blank for minors without their own address).
@@ -167,6 +205,8 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
       formResponses: (r.formResponses ?? null) as Record<string, unknown> | null,
       recipientEmail: rec?.email ?? null,
       recipientName: rec?.displayName ?? null,
+      refundedAmount: refundedByReg.get(r.id) ?? null,
+      paidByCard: !!r.stripePaymentIntentId,
     };
   });
   const ledgerBookings: LedgerBooking[] = bookings.map((b) => ({ ...b, status: String(b.status) }));
@@ -194,6 +234,14 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
       // A link on a settled or canceled row is dead weight — never offer it.
       paymentUrl: r.status === "PAID" || r.status === "CANCELED" ? null : r.paymentUrl,
     };
+  }
+  const asBag = (v: unknown): Record<string, unknown> | null =>
+    v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  const answers: Record<string, AnswerSource> = {};
+  for (const r of regs) answers[r.id] = { formResponses: asBag(r.formResponses), entries: [] };
+  for (const e of entries) {
+    const label = [e.roster?.label, e.position?.label].filter(Boolean).join(" · ") || null;
+    answers[e.registrationId]?.entries.push({ label, answers: asBag(e.answers) });
   }
   const regIds = new Set(regs.map((r) => r.id));
   const sends: Record<string, SendEntry[]> = {};
@@ -234,6 +282,8 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
       checkedInAt: a.checkedInAt ? a.checkedInAt.toISOString() : null,
     })),
     sends,
+    registrationForm: event.registrationForm,
+    answers,
   };
 }
 

@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { useEffect, useState } from "react";
 import { parseOptions, optionFacts, type MembershipOption } from "@/lib/membershipOptions";
@@ -84,7 +85,7 @@ export default function MemberMembershipsPage() {
     setGroupMsg("");
     const r = await fetch("/api/member/group-values", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ memberId: selectedMemberId, values: groupDraft }) });
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) { setGroupMsg(d.error || "Couldn't save."); return; }
+    if (!r.ok) { setGroupMsg(memberErrorText(d, "Couldn't save.")); return; }
     setGroupValues((v) => ({ ...v, [selectedMemberId]: d.groupValues ?? groupDraft }));
     setGroupDraft(null);
     setGroupMsg("Saved — prices below include any group rate this earns.");
@@ -112,7 +113,7 @@ export default function MemberMembershipsPage() {
         body: JSON.stringify({ memberId: selectedMemberId, membershipId, optionId, optionLabel }),
       });
       const d = await res.json().catch(() => null);
-      if (!res.ok) setError(d?.error || "Could not send that request.");
+      if (!res.ok) setError(memberErrorText(d, "Could not send that request."));
       else setNotice(d?.message || "Sent to your club.");
     } catch {
       setError("Could not send that request. Please try again.");
@@ -141,7 +142,7 @@ export default function MemberMembershipsPage() {
     }
     if (!res.ok || !d.url) {
       setSubmitting(null);
-      setError(d.error || "Could not start checkout");
+      setError(memberErrorText(d, "Could not start checkout"));
       return;
     }
     window.location.href = d.url;
@@ -247,7 +248,7 @@ export default function MemberMembershipsPage() {
                     )}
                   </div>
                   {activeForThis && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-50 text-green-700 font-medium flex-shrink-0">
+                    <span className="text-[12px] px-2 py-0.5 rounded-full bg-green-50 text-green-700 font-medium flex-shrink-0">
                       Current
                     </span>
                   )}
@@ -383,7 +384,7 @@ export default function MemberMembershipsPage() {
                                   </div>
                                 );
                               })()}
-                              <p className="text-[11px] text-stone-500 mb-1.5">How will you pay?</p>
+                              <p className="text-[12px] text-stone-500 mb-1.5">How will you pay?</p>
                               <div className="grid grid-cols-3 gap-2">
                                 <button
                                   disabled={submitting === key || (o.billingPeriod !== "ONE_TIME" && !!selectedMemberId && !!trialByMember[selectedMemberId]?.[m.id] && !chargeTiming)}
@@ -408,7 +409,7 @@ export default function MemberMembershipsPage() {
                                   Check
                                 </button>
                               </div>
-                              <p className="text-[11px] text-stone-400 mt-1.5">
+                              <p className="text-[12px] text-stone-400 mt-1.5">
                                 Card checks out securely online. Cash/check sends a request — your club
                                 activates the membership and collects payment in person.
                               </p>
@@ -438,7 +439,7 @@ function OptionDetails({ option, plan }: { option: MembershipOption; plan: { con
       {facts.length > 0 && (
         <ul className="mt-1 flex flex-wrap gap-1">
           {facts.map((f) => (
-            <li key={f} className="text-[10.5px] text-stone-600 bg-stone-100 rounded-full px-2 py-0.5">{f}</li>
+            <li key={f} className="text-[12px] text-stone-600 bg-stone-100 rounded-full px-2 py-0.5">{f}</li>
           ))}
         </ul>
       )}

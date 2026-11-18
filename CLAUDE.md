@@ -131,6 +131,7 @@ never remove one, and never hand-roll a partial override in its place**:
 | `RESEND_API_KEY` | Same, via Resend | Falls back to the SMTP path, i.e. console |
 | `STRIPE_SECRET_KEY` | **Charge a real card, cancel a real subscription, create a real Stripe object on the club's connected account** | Every Stripe call throws, loudly and locally |
 | `STRIPE_WEBHOOK_SECRET` / `STRIPE_CONNECT_WEBHOOK_SECRET` | Verify and act on real webhook payloads replayed locally | Signature verification fails |
+| `APNS_KEY_ID` / `APNS_PRIVATE_KEY` / `FIREBASE_SERVICE_ACCOUNT_JSON` | Put a real push notification on a real family's or coach's phone (a local approval request or message triggers one) | `lib/pushServer.ts` treats both platforms as not configured; every send returns before its first query |
 
 It also binds `127.0.0.1` (not `0.0.0.0`) and sets `NEXTAUTH_URL` to match.
 

@@ -5,7 +5,8 @@ import { registrationDiscountName } from "@/lib/eventDiscounts";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPermission, hasBillingSubScope } from "@/lib/permissions";
+import { hasPermission } from "@/lib/permissions";
+import { canSeeApprovalKind, visiblePendingApprovalKinds } from "@/lib/push";
 import { previewAutopayChange } from "@/lib/autopay";
 import { MEMBERSHIP_TRANSFER_KIND } from "@/lib/membershipTransferKind";
 import { GUARDIAN_LINK_KIND } from "@/lib/guardianLink";
@@ -86,27 +87,17 @@ export async function GET() {
   const perms = (session.user as { permissions?: Record<string, unknown> | null }).permissions ?? null;
   const isOwner = role === "OWNER";
 
-  const kinds: string[] = [];
-  if (isOwner || hasPermission(perms, "members", "view")) {
-    // INVOICE_SPLIT rides the members gate — it configures family billing
-    // structure, not money movement; the action route requires members:edit.
-    kinds.push(GUARDIAN_LINK_KIND, INVOICE_SPLIT_KIND);
-  }
-  if (isOwner || hasPermission(perms, "finances", "view")) {
-    kinds.push(MEMBERSHIP_CANCEL_KIND, MEMBERSHIP_PURCHASE_KIND, PRIVATE_PACKAGE_PURCHASE_KIND);
-  }
-  // A client-requested membership transfer is reviewed by whoever may perform
-  // one, so it rides the same gate as the action itself rather than a broader
-  // finances:view — see /api/member-subscriptions/[id]/transfer.
-  if (isOwner || hasBillingSubScope(perms, "transfer_subscription")) {
-    kinds.push(MEMBERSHIP_TRANSFER_KIND);
-  }
-  // An autopay change rides `billing`, not `finances`: acting on it requires
-  // billing:full, and a queue you can see but never act on is worse than one
-  // you never see.
-  if (isOwner || hasPermission(perms, "billing", "view")) {
-    kinds.push(MEMBERSHIP_AUTOPAY_KIND, MEMBERSHIP_CHANGE_KIND);
-  }
+  // Which PendingApproval kinds this person's queue is built from. The gates
+  // live in ONE place, lib/push.APPROVAL_GATES, because a push about an
+  // approval must go to exactly the people who would see it here:
+  //   GUARDIAN_LINK, INVOICE_SPLIT → members:view (INVOICE_SPLIT configures
+  //     family billing structure, not money movement; acting needs members:edit)
+  //   MEMBERSHIP_CANCEL, MEMBERSHIP_PURCHASE, PRIVATE_PACKAGE_PURCHASE → finances:view
+  //   MEMBERSHIP_TRANSFER → the transfer_subscription billing sub-scope, the
+  //     same gate as the action (/api/member-subscriptions/[id]/transfer)
+  //   MEMBERSHIP_AUTOPAY_CHANGE, MEMBERSHIP_CHANGE_REQUEST → billing:view (a
+  //     queue you can see but never act on is worse than one you never see)
+  const kinds: string[] = visiblePendingApprovalKinds(role, perms);
   // B16 slice 1 — event registrations awaiting a coach ride their own gate
   // (events:edit, or the event's responsible coach), so they are gathered
   // below even when none of the PendingApproval kinds above apply.
@@ -435,7 +426,7 @@ export async function GET() {
     requestedCancellationDate: string | null;
   };
   let migrationApprovals: MigrationApproval[] = [];
-  if (isOwner || hasPermission(perms, "members", "edit")) {
+  if (canSeeApprovalKind(role, perms, "MIGRATION_BILLING")) {
     const pendingMembers = await prisma.member.findMany({
       where: {
         clubId,
@@ -505,7 +496,7 @@ export async function GET() {
     request: unknown;
   };
   let changeRequests: ChangeRequestApproval[] = [];
-  if (isOwner || hasPermission(perms, "billing", "view") || hasPermission(perms, "members", "edit")) {
+  if (canSeeApprovalKind(role, perms, "REACTIVATION_CHANGE_REQUEST")) {
     const rows = await prisma.membershipReactivation.findMany({
       where: { clubId, changeRequestStatus: "OPEN" },
       orderBy: { changeRequestAt: "desc" },

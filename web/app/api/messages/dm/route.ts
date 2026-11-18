@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission, requireStaff } from "@/lib/apiGuard";
 import { getTierFeatures } from "@/lib/tier";
 import { sendMemberMessage } from "@/lib/memberMessaging";
+import { notifyDirectMessage } from "@/lib/pushServer";
 import { rateLimit, rateLimitedResponse } from "@/lib/ratelimit";
 
 // Read subjectMemberId off a message row without depending on the cached Prisma
@@ -138,6 +139,12 @@ export async function POST(req: Request) {
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
+  await notifyDirectMessage({
+    clubId: session.user.clubId,
+    senderId: session.user.id,
+    recipientIds: result.messages.map((m) => m.recipientId),
+    subjectMemberId: result.messages[0]?.subjectMemberId ?? null,
+  });
 
   return NextResponse.json(result, { status: 201 });
 }

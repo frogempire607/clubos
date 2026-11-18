@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
@@ -50,6 +51,22 @@ export default function MemberSignupPage() {
     const n = sp.get("next");
     if (n && n.startsWith("/member") && !n.startsWith("//") && !n.includes("://")) setNextPath(n);
     if (sp.get("trial") === "1") setTrialRequested(true);
+    // Arrived from "Continue with Google / Apple" → "Create an account": no
+    // password; the provider's answer (held server-side) stands in for it.
+    if (sp.get("social") === "1") {
+      fetch("/api/auth/social/pending", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d: { pending: { providerLabel: string; email: string | null; firstName: string | null; lastName: string | null; clubSlug: string } | null }) => {
+          const p = d.pending;
+          if (!p) return;
+          setSocialLabel(p.providerLabel);
+          setClubSlug(p.clubSlug);
+          if (p.email) setEmail(p.email);
+          if (p.firstName) setFirstName((v) => v || (p.firstName as string));
+          if (p.lastName) setLastName((v) => v || (p.lastName as string));
+        })
+        .catch(() => undefined);
+    }
   }, []);
 
   // Show what the trial link actually grants (name + days) once the club is known.
@@ -95,12 +112,14 @@ export default function MemberSignupPage() {
   const [signedDocIds, setSignedDocIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // "Google" / "Apple" when this signup started there (no password asked).
+  const [socialLabel, setSocialLabel] = useState<string | null>(null);
 
   function canContinueStep1() {
     return !!clubSlug.trim();
   }
   function canContinueStep2() {
-    return !!(firstName && lastName && email && password);
+    return !!(firstName && lastName && email && (socialLabel || password));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -163,7 +182,7 @@ export default function MemberSignupPage() {
         firstName,
         lastName,
         email,
-        password,
+        ...(socialLabel ? { social: true } : { password }),
         // The DOB-derived intent, not the button they clicked.
         accountType: effectiveIntent,
         // On the guardian path this is the CHILD's date of birth — the account
@@ -199,7 +218,7 @@ export default function MemberSignupPage() {
       const data = await res.json().catch(() => ({}));
       let msg = "Sign up failed. Please try again.";
       if (typeof data.error === "string") {
-        msg = data.error;
+        msg = memberErrorText(data, msg);
       } else if (Array.isArray(data.error) && data.error[0]?.message) {
         // Zod validation errors come back as an array.
         msg = data.error[0].message;
@@ -236,8 +255,11 @@ export default function MemberSignupPage() {
           (okData.trialNote ? `&trialnote=${encodeURIComponent(okData.trialNote)}` : "")
         : null;
 
+    // A Google / Apple signup comes back already signed in (no password to
+    // sign in with here).
+    const signedInByServer = (okData as { signedIn?: boolean }).signedIn === true;
     // Sign in after successful signup
-    const loginRes = await signIn("credentials", {
+    const loginRes = signedInByServer ? { ok: true } : await signIn("credentials", {
       email,
       password,
       clubSlug: clubSlug.trim().toLowerCase(),
@@ -465,12 +487,18 @@ export default function MemberSignupPage() {
                     className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
                 </div>
 
+                {socialLabel ? (
+                  <p className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-600">
+                    You&apos;ll sign in with {socialLabel}, so there&apos;s no password to choose.
+                  </p>
+                ) : (
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Password</label>
                   <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8}
                     placeholder="At least 8 characters"
                     className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900" />
                 </div>
+                )}
 
                 {/* REQUIRED on both self-signup paths, and it is what actually
                     decides the outcome — not the option above. On the guardian
@@ -508,7 +536,7 @@ export default function MemberSignupPage() {
                   <button
                     type="button"
                     onClick={() => setStep(3)}
-                    disabled={!firstName || !lastName || !email || !password}
+                    disabled={!firstName || !lastName || !email || (!socialLabel && !password)}
                     className="flex-1 px-4 py-2 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-700 disabled:opacity-50"
                   >
                     Continue
@@ -660,7 +688,7 @@ export default function MemberSignupPage() {
                       <div key={doc.id} className="rounded-lg border border-stone-200 bg-stone-50 p-3">
                         <div className="mb-2 flex items-center justify-between gap-2">
                           <p className="text-sm font-medium text-stone-900">{doc.title}</p>
-                          <span className="text-[10px] uppercase tracking-wide text-stone-500">{doc.type}</span>
+                          <span className="text-[12px] uppercase tracking-wide text-stone-500">{doc.type}</span>
                         </div>
                         {doc.body ? (
                           <div

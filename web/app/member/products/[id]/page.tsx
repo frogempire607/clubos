@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 // Member store — product detail (B10 handoff screen 2e).
 //
@@ -102,7 +103,7 @@ export default function MemberProductDetailPage() {
       body: JSON.stringify({ ...p, memberId }),
     });
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) { setBusy(false); setError(d.error || "Couldn't book that."); return; }
+    if (!res.ok) { setBusy(false); setError(memberErrorText(d, "Couldn't book that.")); return; }
     if (d.url) { window.location.href = d.url; return; }
     setBusy(false);
     setBookedMsg(d.status === "PENDING" ? "Request sent — the club will confirm it." : "Booked. See you there!");
@@ -117,7 +118,7 @@ export default function MemberProductDetailPage() {
     });
     const d = await res.json().catch(() => ({}));
     if (res.status === 202) { setBusy(false); setError(d.message || "Sent to your parent for approval."); return; }
-    if (!res.ok || !d.url) { setBusy(false); setError(d.error || "Could not start checkout"); return; }
+    if (!res.ok || !d.url) { setBusy(false); setError(memberErrorText(d, "Could not start checkout")); return; }
     window.location.href = d.url;
   }
 
@@ -175,7 +176,7 @@ export default function MemberProductDetailPage() {
 
         <div className="space-y-4">
           <div>
-            <span className="inline-block text-[11px] font-medium uppercase tracking-wider text-stone-500 bg-stone-100 rounded-full px-2 py-0.5 mb-2">{product.booking ? "Book" : "Shop"}</span>
+            <span className="inline-block text-[12px] font-medium uppercase tracking-wider text-stone-500 bg-stone-100 rounded-full px-2 py-0.5 mb-2">{product.booking ? "Book" : "Shop"}</span>
             <h1 className="text-xl font-semibold text-stone-900 leading-tight">{product.name}</h1>
             <div className="mt-1 flex items-baseline gap-2">
               <span className="text-lg font-semibold text-stone-900">{money(unit)}</span>
@@ -226,7 +227,7 @@ export default function MemberProductDetailPage() {
                       className={`min-h-[44px] px-3.5 rounded-xl border text-sm transition ${sel ? "border-stone-900 bg-stone-900 text-white" : out ? "border-stone-200 text-stone-400 line-through bg-stone-50" : "border-stone-300 text-stone-900 bg-white"}`}
                     >
                       <span className="block leading-tight">{val}</span>
-                      <span className={`block text-[10px] leading-tight ${sel ? "text-white/70" : "text-stone-400"} no-underline`}>
+                      <span className={`block text-[12px] leading-tight ${sel ? "text-white/70" : "text-stone-400"} no-underline`}>
                         {out ? "sold out" : st <= 3 ? `${st} left` : ""}
                       </span>
                     </button>
@@ -281,7 +282,7 @@ function CheckoutButton({ total, disabled, soldOut, needsPick, busy, onClick }: 
       <button type="button" onClick={onClick} disabled={disabled} className="w-full pbtn-accent rounded-xl py-3.5 text-sm font-semibold min-h-[48px]">
         {busy ? "Opening checkout…" : soldOut ? "Sold out" : needsPick ? "Pick your options" : `Checkout · ${money(total)}`}
       </button>
-      <p className="mt-1.5 text-[11px] text-stone-500 flex items-center justify-center gap-1"><ShieldCheck size={12} /> Secure checkout by Stripe</p>
+      <p className="mt-1.5 text-[12px] text-stone-500 flex items-center justify-center gap-1"><ShieldCheck size={12} /> Secure checkout by Stripe</p>
     </div>
   );
 }

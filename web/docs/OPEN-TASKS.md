@@ -89,9 +89,9 @@ Two branches, the second cut from the first. No migration in either.
 - [x] Double-tap money bugs (cash payment, approvals, mark paid, payouts), email-queue double send, webhook receipts.
 - [x] Internal links no longer reload the app; phone screen heights fixed.
 - [x] Signup email check (audit S2) — decided "verify first", built 2026-11-16 on branch 2. New signups get a "Confirm your email" message; records the club already has under that email connect when they tap it.
-- [ ] **CHECK in Netlify:** Functions region (should be `us-east-2`, where the database is) and whether `DATABASE_URL` has `connection_limit=1`. Tell Claude what they say.
+- [x] **Netlify settings checked 2026-11-17.** Functions region is `us-east-1` (Virginia) and the plan cannot change it; the database is in `us-east-2` (Ohio). So every database call crosses regions, and the lever that remains is fewer calls per request: keep cutting round trips. `DATABASE_URL` has `pgbouncer=true` and no `connection_limit`. **Recommendation: leave it.** Setting `connection_limit=1` would make every "run these together" in the code run one at a time again, undoing the speed work. Only if Netlify logs ever show Prisma `P2024` (timed out waiting for a connection) or the pooler refusing clients: add `connection_limit=5&pool_timeout=20`, never 1.
 - [x] All seven "your call" audit rows decided and built 2026-11-16 (branch 2): discount good through its day, one payment per visit, webhook retries connection failures, Attendees screen no longer charges, last event spot sold once, spend limit and membership end/first charge on the club's day.
-- [ ] Still open: enforce CLASS capacity when members book? (not decided)
+- [x] Class capacity is enforced when members book (decided and built 2026-11-17, section 7).
 
 **Branch 2 `claude/athletixos-mobile-app`** — plan: `docs/MOBILE-APP-PLAN-2026-11-15.md`, store forms: `docs/STORE-SUBMISSION-PACKET.md`
 - [x] Account deletion for every account type + public `/delete-account` page + privacy links in the app.
@@ -100,6 +100,43 @@ Two branches, the second cut from the first. No migration in either.
 - [x] All 78 browser pop-ups replaced with in-app dialogs. AthletixOS plans are not sold inside the app.
 - [x] Google audience: **13 and over** (decided 2026-11-16).
 - [x] Account-deletion rules: keep all four as built (2026-11-16). Support address: support@athletix-os.com.
-- [ ] Confirm the "within 30 days" promise on `/delete-account`.
+- [x] The "handled within 30 days" promise on `/delete-account` is approved (2026-11-17).
 - [ ] **YOU:** Apple + Google accounts, demo club + 3 demo logins, TestFlight / Play internal builds, phone checks (packet §3, §7, §8).
-- [ ] Next code: push notifications (needs a migration + APNs key + Firebase), text under 12px, stuck-spinner screens, event-email timezones.
+- [x] Text under 12px, stuck-spinner screens and event-email timezones: built 2026-11-17 (section 7).
+- [ ] Push notifications: tables written (migration not applied yet), code not started. Section 7.
+
+## 7. Attendees, class limits, sign-in, push (2026-11-17/18, **not pushed / not deployed — Julian pushes**)
+Branch `claude/attendees-limits-signin-push`, cut from `main` at `bf5b7b7`. Commits are in ship order.
+
+**Built, no migration needed (safe to ship as they are):**
+- [x] `813dfda` **Event attendees.** Tap a registrant to see contact, payment status and every form answer under its question. "Form answers" view (everyone in one table) with CSV. "Email registrants" (paid only, or everyone not cancelled): reaches guests, skips cancelled, one email per address, unsubscribe rules apply. The "Registered for event" audience no longer includes cancelled registrations.
+- [x] `8d0b98b` **Class limits.** A class with a capacity takes that many per class day. A full day reads "Full" and members cannot book it (or scan in at the door without a booking). Staff can still add over the limit and see a warning. No capacity = unlimited. No existing booking is removed.
+
+**Needs the migrations below applied FIRST (everything from `ab606d9` on):**
+- [x] `ab606d9` Per-day class limit: set "Limit for this day only" in the class day editor.
+- [x] `81b96f5` Event and lesson emails print the club's time with the zone named, not UTC. Clubs with no timezone set get the time labelled "UTC": set the timezone in Settings → Club for the three clubs that have none.
+- [x] `c175a8f` Member portal: no text under 12px (116 places).
+- [x] `1122aab` Dropped connection: every screen's load has a 30 s limit, a "Can't reach the server" bar, and Try again.
+- [x] `cec90d1` Double tap: cash at the door, pay-later-by-link, and payout records each happen once.
+
+**Built after the migrations were applied (2026-11-18, Julian confirmed):**
+- [x] `32fecb6` Schedule page: registering for an event with questions, a roster spot, a payment choice or documents opens the Events page's register flow instead of printing "ROSTER_REQUIRED". No member page prints a raw error code (build guard). Attendees: removing someone who paid offers "Remove and refund" or "Remove, keep the payment" (owner / billing:full, in-app dialog, audit row); removed people have their own section; a kept payment reads "Removed, paid $X, not refunded" and counts in Collected. Tucker Tominack (Parabellum Duals) reads "Removed, paid $61.74, not refunded".
+- [x] `bb22d06` Push notifications (ships dark until the keys are set). See `docs/MOBILE-APP-PLAN-2026-11-15.md` §11.
+- [x] (sign-in commit) Sign in with Google / Apple (ships dark until the keys are set). See §10.
+
+**YOU, to switch sign-in and push on:**
+- [ ] Create the Google / Apple / APNs / Firebase items and set the Netlify variables in plan §10 and §11.
+- [ ] `npm run cap:dev:prod` (runs `cap sync` with the production address), then in Xcode: App target → Signing & Capabilities → + **Push Notifications**; put `google-services.json` in `web/android/app/`; rebuild both apps.
+- [ ] Try it on a real iPhone and Android phone: Google, Apple, link-with-password, connect from My account, a push of each kind, a tap opening the right screen.
+- [ ] Then apply the store packet changes in `docs/STORE-SUBMISSION-PACKET.md` §11.
+
+**Done (2026-11-18): migrations applied**
+- [x] Back up: `pg_dump "<session pooler URI>" --no-owner --no-privileges -f ~/clubos-backups/pre-$(date +%Y%m%d-%H%M).sql`
+- [x] `cd /Users/cubano/Desktop/clubos/web/.claude/worktrees/clubos-web-maintenance-c5222b/web && npx prisma migrate deploy` — applies `20261117000000_user_identities`, `20261117010000_push_notifications`, `20261117020000_class_session_capacity`. All additive: four new tables and one nullable column.
+
+
+**Known limits of what was built (tell Claude if any matters):**
+- A member paying a class drop-in by card holds no spot while typing their card. If the class fills in those minutes they are still seated (the money arrived) and the row says "over the class limit".
+- "Everyone not cancelled" in Email registrants includes people who started card checkout and did not finish.
+- Text sizes and the connection bar were not checked on a phone or in a browser: no local test database was running in this session.
+

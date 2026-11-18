@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 // The coach proposed something different — accept or decline (plan.md §5.4.7).
 //
@@ -96,7 +97,7 @@ export default function ProposalResponsePage() {
     const d = await res.json().catch(() => ({}));
     setBusy(null);
     if (!res.ok) {
-      setErr(d.message || d.error || "That didn't go through. Try again.");
+      setErr(memberErrorText(d, "That didn't go through. Try again."));
       return;
     }
     setDone(action === "accept" ? "accepted" : "declined");
@@ -179,20 +180,20 @@ export default function ProposalResponsePage() {
         )}
 
         <div className="rounded-lg border border-stone-200 overflow-hidden">
-          <div className="grid grid-cols-2 text-[11px] uppercase tracking-wide text-stone-500 bg-stone-50">
+          <div className="grid grid-cols-2 text-[12px] uppercase tracking-wide text-stone-500 bg-stone-50">
             <div className="px-3 py-2">You signed up for</div>
             <div className="px-3 py-2 border-l border-stone-200">Your coach proposes</div>
           </div>
           {keys.map((k) => (
             <div key={k} className="grid grid-cols-2 text-sm border-t border-stone-200">
               <div className="px-3 py-2">
-                <span className="block text-[11px] text-stone-500">
+                <span className="block text-[12px] text-stone-500">
                   {labelForChangeKey(k, proposal.labels)}
                 </span>
                 {value(proposal.original[k])}
               </div>
               <div className="px-3 py-2 border-l border-stone-200 bg-stone-50/60">
-                <span className="block text-[11px] text-stone-500">
+                <span className="block text-[12px] text-stone-500">
                   {labelForChangeKey(k, proposal.labels)}
                 </span>
                 <strong>{value(proposal.proposed[k])}</strong>

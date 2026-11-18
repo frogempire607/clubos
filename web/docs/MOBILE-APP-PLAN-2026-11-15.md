@@ -44,7 +44,7 @@ Google's pages were read the same day. Quotes are short on purpose.
 | Apple 5.1.1(v) | "If your app supports account creation, you must also offer account deletion within the app" | Slice 1: members, parents, staff and owners |
 | Apple 5.1.1(i) | privacy policy link "within the app" | Slice 1 |
 | Apple 4.5.4 | push "must not be required for the app to function"; no "sensitive personal or confidential information" | Slice 5 rules |
-| Apple 4.8 | only when a third-party or social login is used | Email + password only. No action. **Adding Google login later requires Sign in with Apple.** |
+| Apple 4.8 | only when a third-party or social login is used | Email + password only today. **Decided 2026-11-17: add Google and Apple together** (§10), Apple as an equal option. |
 | Apple 2.1(a) | demo account, back end live during review | Packet |
 | Apple 2.3.3 | screenshots "show the app in use", not a login page | Packet |
 | Apple 4.2.6 | template apps must be submitted by the content provider; one app hosting many clients is an accepted model | One AthletixOS app with clubs inside. Nothing here blocks per-club apps later (§7). |
@@ -212,3 +212,202 @@ Submitting without push is safe; adding it is then a normal update.
 - iOS Simulator and Android emulator runs for anything touching the shell.
   Camera scanning and push cannot be proven on a simulator; those need your
   phone, with exact steps in each report.
+
+## 10. Sign in with Google and Sign in with Apple (built 2026-11-18; switched off until the keys are set)
+
+Status: built. Table applied. Not tried against real Google or Apple, or on a
+phone. Email and password stays, unchanged, next to both buttons.
+
+Where it lives: rules `lib/socialAuth.ts` (pure), token checks
+`lib/socialJwt.ts`, provider calls and session `lib/socialAuthServer.ts`,
+routes `app/api/auth/social/*` (start, callback, redeem, pending, link,
+providers) and `app/api/account/sign-in-methods`, pages `/login` (buttons),
+`/login/social` (which account?), `/member/signup?social=1` (create without
+a password), My account → Sign-in methods. Tests: `scripts/social-auth-tests.ts`.
+
+Built differently from the design, and why:
+- A Google/Apple-only account adds a password by the emailed reset link, not
+  from My account with just a session: a stolen session could otherwise add a
+  permanent way in.
+- The app's return address is `com.athletixos.app://auth/social` (registered
+  in Info.plist and the Android manifest). iPhone may show "Open in
+  AthletixOS?" when the sheet hands back; check on a device.
+
+### Rules re-read 2026-11-17
+
+- Apple App Review Guidelines, still "Last Updated: October 16, 2026". 4.8: an
+  app that uses a third-party login must also offer one that "limits data
+  collection to the user's name and email address", lets people keep their
+  email private, and does not track for advertising without consent. Sign in
+  with Apple is that option; both buttons get the same size and position.
+- Google OAuth 2.0 Policies, "Last modified: August 5, 2026": a developer
+  "must not direct a Google OAuth 2.0 authorization request to an embedded
+  user-agent". Google's native-app page says a WKWebView request fails with
+  `disallowed_useragent`, that "SFSafariViewController" is a supported option,
+  and that custom URI schemes are no longer supported as Google redirect
+  addresses.
+- **Could not load:** Apple's "Token revocation" and "Configuring your
+  environment for Sign in with Apple" pages returned a title only. The
+  revocation endpoint and the Services ID steps below are from memory of those
+  pages, not a fresh read. Check them in your developer account as you go.
+
+### How it works
+
+- **Website:** the button sends the browser to Google or Apple and back to
+  `https://athletix-os.com/api/auth/social/callback/<google|apple>`. The server
+  checks the provider's signed answer and signs the person in.
+- **In the app:** the same flow, but opened in the system browser sheet
+  (SFSafariViewController on iPhone, Custom Tabs on Android), never in the
+  app's own web view. When it finishes, the sheet hands the app a one-time
+  code that only the app that started the flow can redeem. This needs one new
+  official plugin (`@capacitor/browser`) and a rebuild of both apps.
+- A club is still chosen first (the club link field), because one email can
+  have an account at more than one club.
+
+### Linking rules (security)
+
+1. A Google or Apple sign-in that was linked before signs straight in.
+2. **Verified email, matching a member or parent account:** linked and signed
+   in. The account's email is then treated as proven, and the same
+   "after verification, do the linking" step the signup email check uses
+   (`lib/emailLinkServer.completeEmailLinks`) connects the records the club
+   has under that address. Nothing else makes those links.
+3. **Email not verified by the provider:** never linked on a match.
+4. **Apple "Hide My Email"** (a private relay address): it matches nothing, so
+   no account is created silently. The person sees "Link to my existing
+   account": sign in once with the password and Apple is connected; or, if new,
+   create an account with a real email (which goes through the normal
+   confirm-your-email step).
+5. **Staff and owner accounts are never linked by an email match**, even a
+   verified one. A staff member or owner signs in with their password and
+   connects Google or Apple from My account. After that they can use it.
+   (Decision: staff and owners MAY use Google and Apple. The extra step is
+   because those accounts can see every family's data and move money, so a
+   match on an address is not enough.)
+6. One account can have several methods. My account lists them with Remove;
+   the last remaining method cannot be removed.
+7. Account deletion revokes the Apple token (Apple requires it) and deletes
+   the linked sign-in rows.
+
+"Approval by the club" for a hidden-email link was considered and left out:
+"sign in once with your password" and "create an account with your real
+email" cover every case, including a family that has a record but no login.
+
+### What you create
+
+**Google** (Google Cloud Console, a project owned by MC Technologies):
+1. APIs & Services → OAuth consent screen: User type External; app name
+   "AthletixOS"; support email `support@athletix-os.com`; authorized domain
+   `athletix-os.com`; privacy policy and terms links; scopes `openid`,
+   `email`, `profile` only (no verification review is needed for these).
+   Publish it ("In production").
+2. Credentials → Create OAuth client ID → **Web application**. Authorized
+   redirect URI: `https://athletix-os.com/api/auth/social/callback/google`
+   (add `http://127.0.0.1:3000/api/auth/social/callback/google` for local
+   testing). Copy the client ID and secret.
+3. **iOS and Android client IDs are not needed for this design.** The app uses
+   the web client through the browser sheet. They are only needed if we later
+   switch to Google's native SDKs.
+
+**Apple** (developer.apple.com → Certificates, Identifiers & Profiles):
+1. Identifiers → the App ID `com.athletixos.app` → tick **Sign in with
+   Apple** → Save.
+2. Identifiers → + → **Services IDs**: description "AthletixOS web sign-in",
+   identifier `com.athletixos.app.signin`. Tick Sign in with Apple →
+   Configure: primary App ID `com.athletixos.app`; Domains
+   `athletix-os.com`; Return URL
+   `https://athletix-os.com/api/auth/social/callback/apple`. (Apple accepts
+   https only, so there is no local test address.)
+3. Keys → + → name "AthletixOS Sign in with Apple", tick **Sign in with
+   Apple**, primary App ID as above. Download the `.p8` once and note the Key
+   ID. Keep the file in the password manager.
+4. Services → Sign in with Apple for Email Communication: register
+   `athletix-os.com` and the sending address (`noreply@athletix-os.com`), or
+   email to hidden-address users will not be delivered.
+
+**Netlify variables** (the names the code will read):
+
+| Variable | Value |
+|---|---|
+| `GOOGLE_OAUTH_CLIENT_ID` | the Web client ID |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | the Web client secret |
+| `APPLE_SIGNIN_SERVICES_ID` | `com.athletixos.app.signin` |
+| `APPLE_SIGNIN_KEY_ID` | the Key ID from step 3 |
+| `APPLE_SIGNIN_PRIVATE_KEY` | the full contents of the `.p8` file |
+| `APPLE_TEAM_ID` | `J5TSB958YP` (already the default in code) |
+
+A button appears only when its variables are set, so the feature can ship
+dark and be switched on by adding them. `FIELD_ENCRYPTION_KEY` (already set)
+encrypts the Apple token kept for revocation.
+
+## 11. Push notifications (built 2026-11-18; switched off until the keys are set)
+
+Status: built. Tables applied. Never sent to a real phone. Rules `lib/push.ts`,
+sending `lib/pushServer.ts`, client `lib/pushClient.ts` +
+`components/PushRegistration.tsx`, switches `components/account/NotificationSettings.tsx`,
+daily reminder `/api/cron/offline-membership-reminders` + Netlify function
+`offline-membership-reminders-cron` (13:00 UTC, `CRON_SECRET`). Tests:
+`scripts/push-tests.ts`. The reminder goes 1 to 3 days before the end date (a
+missed run is caught the next day). Lock-screen text is the fixed wording in
+the table below; names and dates appear only inside the app and in the
+family's email.
+
+### What is sent, and to whom
+
+| Kind | Goes to | Text on the lock screen | Opens |
+|---|---|---|---|
+| Approvals | The owner, and each staff member whose permissions let them act on that kind of approval. Nobody else. | "Something is waiting for your approval." | Members → Approvals |
+| Messages | The message's recipients, staff or family. | "You have a new message." | The conversation |
+| Cash or check membership ending | Owner and staff with billing access | "A cash membership ends soon. Record payment or renew." | That member's billing |
+| Same, to the family | The paying family, by push and by email | "Your membership needs a payment to continue." | Their membership |
+
+The wording you asked for names the athlete and the date ("<Athlete>'s cash
+membership ends <date>"). The standing rule in this plan, and your rule for
+this work, is no minors' details in the push text. Most athletes are minors,
+so **the name and date show inside the app after the tap, not on the lock
+screen.** Say if you want the name on the lock screen for adult athletes only.
+
+- Cash/check reminder timing: the same lead time as the existing pay-reminders
+  job if it fits; otherwise 3 days before the membership ends.
+- Once per membership period: `notification_logs` has a unique key per
+  membership, period end, person and channel.
+- Never for comps (memberships marked free on purpose) or card-billed ones.
+- "Who is on this plan / when does it end" is read from the subscription
+  (`MemberSubscription`), never from a field on the member.
+
+### Rules
+
+- Push is never required. Everything works with it off.
+- Every kind has its own on/off switch per person (My account → Notifications).
+- No amounts, health information or minors' details in the text.
+- Each device token records its app id and platform, so a per-club branded
+  app can use its own credentials later.
+- A token Apple or Google reports dead is switched off automatically.
+
+### What you create
+
+**Apple:** developer.apple.com → Keys → + → name "AthletixOS push", tick
+**Apple Push Notifications service (APNs)**. Download the `.p8` once, note the
+Key ID. (A separate key from the sign-in key keeps the two revocable apart.)
+In Xcode: App target → Signing & Capabilities → + Capability → **Push
+Notifications**.
+
+**Google:** console.firebase.google.com → Add project "AthletixOS" → Add app →
+Android, package `com.athletixos.app` → download `google-services.json` and
+put it at `web/android/app/google-services.json`. Then Project settings →
+Service accounts → Generate new private key (a JSON file).
+
+**Netlify variables** (the names the code will read):
+
+| Variable | Value |
+|---|---|
+| `APNS_KEY_ID` | the push key's Key ID |
+| `APNS_PRIVATE_KEY` | the full contents of the push `.p8` |
+| `APPLE_TEAM_ID` | `J5TSB958YP` |
+| `APNS_BUNDLE_ID` | `com.athletixos.app` |
+| `APNS_ENVIRONMENT` | `production` (TestFlight and App Store builds) |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | the full contents of the service-account JSON |
+
+Never commit either `.p8` or the service-account JSON. `google-services.json`
+is not a secret and is committed with the Android project.
+

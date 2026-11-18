@@ -19,6 +19,7 @@ import { resolveActivationAccount } from "@/lib/familyRules";
 import { resolveIsMinor } from "@/lib/parentalConsent";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 
 // NO AUTH — token-gated public activation endpoint. The token alone authorizes
 // activation; a session, when one happens to exist, is only ever used to
@@ -939,6 +940,9 @@ export async function POST(req: Request, context: { params: Promise<{ token: str
   // Fully paid: the membership is granted now. Status goes through the ONE
   // activation helper (never un-pauses a PAUSED member).
   if (finalPaid) await activateMemberStatus(member.id, member.clubId, { granted: true });
+  // Not fully paid: the member is now ACTIVATED + PENDING_APPROVAL, which is a
+  // row in the club's approvals queue. Tell whoever can act on it.
+  else await notifyApprovalWaiting({ clubId: member.clubId, approvalKind: "MIGRATION_BILLING" });
 
   // Grant the guardian access to this minor (no-op for own-login members).
   await linkGuardianIfManaged();

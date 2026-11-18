@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 // Bookings — every reservation for the selected athlete (events, classes,
 // privates) with check-in, event chat, cancel and change-request. Extracted
@@ -373,7 +374,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
     const d = await res.json().catch(() => ({}));
     setCheckinBusy(null);
     if (!res.ok) {
-      setToast(d.error || "Couldn't check in — ask your club for help.");
+      setToast(memberErrorText(d, "Couldn't check in — ask your club for help."));
       return;
     }
     setToast(d.message || "Checked in.");
@@ -397,7 +398,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
     const d = await res.json().catch(() => ({}));
     setChatBusy(null);
     if (!res.ok || !d.groupId) {
-      setToast(d.error || "Couldn't open the event chat.");
+      setToast(memberErrorText(d, "Couldn't open the event chat."));
       return;
     }
     router.push(`/member/messages/group/${d.groupId}`);
@@ -552,7 +553,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
       setReason("");
     } else {
       const d = await res.json().catch(() => ({}));
-      setToast(d.error || "Something went wrong. Please try again.");
+      setToast(memberErrorText(d, "Something went wrong. Please try again."));
     }
     setTimeout(() => setToast(null), 3500);
   }

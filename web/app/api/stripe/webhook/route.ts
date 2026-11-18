@@ -1,3 +1,4 @@
+import { classIsFull, dayCapacity } from "@/lib/classCapacity";
 import { addBillingPeriod } from "@/lib/billingAdmin";
 import { webhookFailureStatus } from "@/lib/webhookRetry";
 import { createTransactionOnce } from "@/lib/transactionOnce";
@@ -25,6 +26,7 @@ import { closeOfflineRequestsPaidByCard } from "@/lib/offlineSupersedeServer";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { sendRegistrationLifecycleEmail } from "@/lib/eventLifecycleEmails";
 import { resolveEventPolicy, eventScheduledChargeAt } from "@/lib/eventPayments";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 import { settleBundlePurchase } from "@/lib/bundlePurchases";
 import {
   invoiceSubscriptionId,
@@ -36,7 +38,7 @@ import {
 
 // Resolve the best email + first name for a member. Falls back to guardian email
 // for minors, then to the linked User account.
-async function memberContact(memberId: string): Promise<{ email: string | null; firstName: string; clubName: string }> {
+async function memberContact(memberId: string): Promise<{ email: string | null; firstName: string; clubName: string; timeZone: string | null }> {
   const m = await prisma.member.findUnique({
     where: { id: memberId },
     select: {
@@ -46,14 +48,14 @@ async function memberContact(memberId: string): Promise<{ email: string | null; 
       guardianEmail: true,
       guardian: { select: { email: true } },
       user: { select: { email: true } },
-      club: { select: { name: true } },
+      club: { select: { name: true, timezone: true } },
     },
   });
-  if (!m) return { email: null, firstName: "", clubName: "" };
+  if (!m) return { email: null, firstName: "", clubName: "", timeZone: null };
   const email = m.isMinor
     ? (m.guardian?.email || m.guardianEmail || m.email || m.user?.email || null)
     : (m.email || m.user?.email || m.guardianEmail || null);
-  return { email, firstName: m.firstName, clubName: m.club?.name ?? "your club" };
+  return { email, firstName: m.firstName, clubName: m.club?.name ?? "your club", timeZone: m.club?.timezone ?? null };
 }
 
 // AWAITED. This used to fire the email and return at once; on serverless the
@@ -543,7 +545,7 @@ export async function POST(req: Request) {
           try {
             const mig = await prisma.member.findUnique({
               where: { id: migMemberId },
-              select: { id: true, clubId: true, migrationStatus: true, club: { select: { stripeAccountId: true } } },
+              select: { id: true, clubId: true, migrationStatus: true, approvalStatus: true, club: { select: { stripeAccountId: true } } },
             });
             if (mig && mig.migrationStatus !== "COMPLETED") {
               let pmId: string | null = null;
@@ -575,6 +577,13 @@ export async function POST(req: Request) {
                   message: "Payment method on file — awaiting club review & approval before billing starts",
                 },
               });
+              // The activation page already told the club when it put this
+              // member in the queue. Only tell them here if this is what put
+              // them there.
+              const alreadyQueued = mig.migrationStatus === "ACTIVATED" && mig.approvalStatus === "PENDING_APPROVAL";
+              if (!alreadyQueued && (mig.migrationStatus === null || mig.migrationStatus === "ACTIVATED")) {
+                await notifyApprovalWaiting({ clubId: mig.clubId, approvalKind: "MIGRATION_BILLING" });
+              }
             }
           } catch (e) {
             console.error("Migration setup completion update failed:", e);
@@ -724,6 +733,7 @@ export async function POST(req: Request) {
                       endsAt: event.endsAt,
                       amountPaid: amountStr,
                       portalUrl: `${BASE_URL}/member/bookings`,
+                      clock: { kind: "moment", timeZone: contact.timeZone },
                     })
                   );
                 }
@@ -755,6 +765,7 @@ export async function POST(req: Request) {
                   endsAt: sessionRow.endsAt,
                   amountPaid: amountStr,
                   portalUrl: `${BASE_URL}/member/bookings`,
+                  clock: { kind: "class" },
                 })
               );
             }
@@ -784,6 +795,17 @@ export async function POST(req: Request) {
               data: { status: "DROP_IN", checkedInAt: existing.checkedInAt ?? new Date() },
             });
           } else {
+            // Class limit: the booking route refuses a full class BEFORE
+            // sending anyone to pay, but a card checkout holds no spot while
+            // the family types their card. If the class filled in those
+            // minutes, the money has still arrived: seat them (a confirmed
+            // payment never produces nothing) and say so on the row, so staff
+            // see why the class is one over.
+            const limitRow = await prisma.classSession.findUnique({
+              where: { id: classSessionId },
+              select: { capacity: true, recurringClass: { select: { capacity: true } }, _count: { select: { attendance: true } } },
+            });
+            const paidIntoFull = !!limitRow && classIsFull(dayCapacity(limitRow.capacity, limitRow.recurringClass.capacity), limitRow._count.attendance);
             await prisma.attendanceRecord.create({
               data: {
                 clubId,
@@ -791,6 +813,7 @@ export async function POST(req: Request) {
                 memberId,
                 status: "DROP_IN",
                 checkedInAt: new Date(),
+                ...(paidIntoFull ? { notes: "Paid online after the class filled — over the class limit." } : {}),
               },
             });
           }

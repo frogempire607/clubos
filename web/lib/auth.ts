@@ -5,6 +5,7 @@ import { prisma } from "./prisma";
 import { resolvePermissions } from "./permissions";
 import { liveUser } from "./apiGuard";
 import { rateLimit } from "./ratelimit";
+import { passwordIsUsable } from "./socialAuth";
 import { resolveIsMinor, childHasCurrentConsent, parentalConsentEnforced } from "./parentalConsent";
 
 const isProd = process.env.NODE_ENV === "production";
@@ -115,8 +116,10 @@ export const authOptions: NextAuthOptions = {
         // registered (user-enumeration timing oracle). The dummy hash makes the
         // not-found path do the same work as a real check. Behavior is otherwise
         // unchanged: every failure path still returns the same generic null.
+        // Accounts made through Google or Apple hold a marker, not a bcrypt hash
+        // (lib/socialAuth passwordIsUsable); they have no password to check.
         const activeHash =
-          user && !user.deletedAt && user.passwordHash ? user.passwordHash : null;
+          user && !user.deletedAt && passwordIsUsable(user.passwordHash) ? user.passwordHash : null;
         const valid = await bcrypt.compare(credentials.password, activeHash ?? DUMMY_PASSWORD_HASH);
 
         if (!club || !user || user.deletedAt || !activeHash || !valid) return null;

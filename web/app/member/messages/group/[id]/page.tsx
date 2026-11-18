@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
@@ -60,7 +61,7 @@ function MemberGroupThreadInner() {
     const res = await fetch(`/api/member/messages/groups/${id}`, { cache: "no-store" });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      setError(d.error || "Could not load group");
+      setError(memberErrorText(d, "Could not load group"));
       setLoading(false);
       return;
     }
@@ -88,7 +89,7 @@ function MemberGroupThreadInner() {
     setSending(false);
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      setError(d.error || "Failed to send");
+      setError(memberErrorText(d, "Failed to send"));
       return;
     }
     setDraft("");
@@ -125,13 +126,13 @@ function MemberGroupThreadInner() {
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-base font-semibold text-stone-900 truncate">{group.name}</h1>
             {isBroadcast && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-stone-100 text-stone-600 font-medium">
+              <span className="text-[12px] px-1.5 py-0.5 rounded-full bg-stone-100 text-stone-600 font-medium">
                 Read-only
               </span>
             )}
             {forName && (
               <span
-                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full"
+                className="inline-flex items-center gap-1 text-[12px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full"
                 style={{
                   background: "rgba(163, 230, 53, 0.18)",
                   color: "#3F6212",
@@ -159,14 +160,14 @@ function MemberGroupThreadInner() {
         ) : (
           groups.map((g) => (
             <div key={g.date} className="space-y-2">
-              <div className="text-center text-[11px] text-stone-400 my-2">{g.date}</div>
+              <div className="text-center text-[12px] text-stone-400 my-2">{g.date}</div>
               {g.items.map((m) => {
                 const mine = m.senderId === myId;
                 return (
                   <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                     <div className={`max-w-[80%] ${mine ? "" : ""}`}>
                       {!mine && (
-                        <div className="text-[11px] text-stone-500 mb-0.5 ml-2">
+                        <div className="text-[12px] text-stone-500 mb-0.5 ml-2">
                           {m.sender.firstName} {m.sender.lastName}
                         </div>
                       )}
@@ -178,7 +179,7 @@ function MemberGroupThreadInner() {
                         }`}
                       >
                         <div className="whitespace-pre-wrap">{m.body}</div>
-                        <div className={`text-[10px] mt-0.5 ${mine ? "text-stone-400" : "text-stone-500"}`}>
+                        <div className={`text-[12px] mt-0.5 ${mine ? "text-stone-400" : "text-stone-500"}`}>
                           {fmtTime(m.createdAt)}
                           {mine && typeof m.readCount === "number" ? ` · Read ${m.readCount}` : ""}
                         </div>

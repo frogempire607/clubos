@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
@@ -169,7 +170,7 @@ function ClubBanner() {
           <div className="mt-4 pt-4 border-t border-stone-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
             {(club.contactEmail || club.contactPhone || club.websiteUrl || socials.length > 0) && (
               <div>
-                <p className="text-[11px] uppercase tracking-wider text-stone-500 font-medium mb-1.5">Contact</p>
+                <p className="text-[12px] uppercase tracking-wider text-stone-500 font-medium mb-1.5">Contact</p>
                 <div className="space-y-1.5 text-sm text-stone-700">
                   {club.contactEmail && (
                     <div className="flex items-center gap-2">
@@ -202,7 +203,7 @@ function ClubBanner() {
 
             {hours && (
               <div>
-                <p className="text-[11px] uppercase tracking-wider text-stone-500 font-medium mb-1.5">Hours</p>
+                <p className="text-[12px] uppercase tracking-wider text-stone-500 font-medium mb-1.5">Hours</p>
                 <div className="space-y-0.5 text-sm text-stone-700">
                   {["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].map((d) => {
                     const v = hours[d];
@@ -222,7 +223,7 @@ function ClubBanner() {
 
         {donations.length > 0 && (
           <div className="mt-4 pt-4 border-t border-stone-100">
-            <p className="text-[11px] uppercase tracking-wider text-stone-500 font-medium mb-2">
+            <p className="text-[12px] uppercase tracking-wider text-stone-500 font-medium mb-2">
               Support {club.name}
             </p>
             <div className="flex flex-wrap gap-2">
@@ -402,18 +403,18 @@ function UpcomingBookings({
                   </p>
                 </div>
                 <span
-                  className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
+                  className="text-[12px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
                   style={{ background: c.bg, color: c.fg }}
                 >
                   {getEventLabel(b)}
                 </span>
                 {b.status === "WAITLISTED" && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium flex-shrink-0">
+                  <span className="text-[12px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium flex-shrink-0">
                     Waitlist
                   </span>
                 )}
                 {isPending && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium flex-shrink-0">
+                  <span className="text-[12px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium flex-shrink-0">
                     Pending
                   </span>
                 )}
@@ -622,7 +623,7 @@ function LinkChildModal({ onClose, onLinked }: { onClose: () => void; onLinked: 
     });
     const data = await res.json();
     setSaving(false);
-    if (!res.ok) { setError(data.error || "Failed to link child"); return; }
+    if (!res.ok) { setError(memberErrorText(data, "Failed to link child")); return; }
     if (data.linked === false) {
       // Queued for owner approval — no access granted yet.
       setPendingMsg(data.message || "Request sent to your club for approval.");
@@ -878,7 +879,7 @@ function ParentView({ data, onRefresh }: { data: PortalData; onRefresh: () => vo
                   <p className="text-sm font-semibold text-stone-900">
                     {activeProfile.firstName} {activeProfile.lastName}
                     {activeProfile.kind === "self" && (
-                      <span className="ml-2 text-[10px] uppercase tracking-wide text-stone-400">
+                      <span className="ml-2 text-[12px] uppercase tracking-wide text-stone-400">
                         you
                       </span>
                     )}

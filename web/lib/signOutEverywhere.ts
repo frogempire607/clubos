@@ -1,6 +1,7 @@
 "use client";
 
 import { signOut } from "next-auth/react";
+import { forgetPushDevice } from "@/lib/pushClient";
 
 // Robust sign-out for both browser and Capacitor iOS WKWebView.
 //
@@ -43,6 +44,10 @@ export async function signOutEverywhere(options?: { callbackUrl?: string }) {
   } catch {
     /* preview cookie cleanup is best-effort */
   }
+
+  // This phone stops getting the account's notifications. Needs the session,
+  // so it runs before signOut. Never throws.
+  await forgetPushDevice();
 
   // Tear down the NextAuth session WITHOUT letting next-auth/react do
   // the navigation. redirect:false leaves us in control so we can do a

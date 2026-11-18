@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendMemberMessage } from "@/lib/memberMessaging";
+import { notifyDirectMessage } from "@/lib/pushServer";
 import { requireTierFeature } from "@/lib/tierGuard";
 import { requireStaff } from "@/lib/apiGuard";
 
@@ -107,6 +108,7 @@ export async function POST(
         } as Prisma.MessageUncheckedCreateInput,
         include: { sender: { select: { id: true, firstName: true, lastName: true } } },
       });
+      await notifyDirectMessage({ clubId: session.user.clubId, senderId: session.user.id, recipientIds: [params.userId], subjectMemberId: about });
       return NextResponse.json(message, { status: 201 });
     }
 
@@ -121,6 +123,12 @@ export async function POST(
       if (!result.ok) {
         return NextResponse.json({ error: result.error }, { status: result.status });
       }
+      await notifyDirectMessage({
+        clubId: session.user.clubId,
+        senderId: session.user.id,
+        recipientIds: result.messages.map((m) => m.recipientId),
+        subjectMemberId: result.messages[0]?.subjectMemberId ?? null,
+      });
 
       return NextResponse.json(result.messages[0], { status: 201 });
     }
@@ -136,6 +144,7 @@ export async function POST(
         sender: { select: { id: true, firstName: true, lastName: true } },
       },
     });
+    await notifyDirectMessage({ clubId: session.user.clubId, senderId: session.user.id, recipientIds: [params.userId] });
 
     return NextResponse.json(message, { status: 201 });
   } catch (err) {

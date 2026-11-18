@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth";
 import { canManageMember } from "@/lib/memberContext";
 import { prisma } from "@/lib/prisma";
 import { MEMBERSHIP_CHANGE_KIND } from "@/lib/approvals";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 import { parseOptions } from "@/lib/membershipOptions";
 
 // POST /api/member/memberships/change-request
@@ -134,6 +135,7 @@ export async function POST(req: Request) {
       status: "PENDING",
     },
   });
+  await notifyApprovalWaiting({ clubId, approvalKind: MEMBERSHIP_CHANGE_KIND, requestedByUserId: session.user.id });
 
   return NextResponse.json(
     {

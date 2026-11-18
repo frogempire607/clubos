@@ -8,6 +8,7 @@ import { getAppBaseUrl } from "@/lib/baseUrl";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { applyParentalControls } from "@/lib/parentalControls";
 import { PRIVATE_PACKAGE_PURCHASE_KIND } from "@/lib/approvals";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 import { findValidDiscountFor, discountedPrice, recordDiscountUse, type ValidDiscount } from "@/lib/discounts";
 import {
   packageTotalForBasePrice,
@@ -313,6 +314,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         },
       },
     });
+    await notifyApprovalWaiting({ clubId, approvalKind: PRIVATE_PACKAGE_PURCHASE_KIND, requestedByUserId: session.user.id });
     if (discount) await recordDiscountUse(discount.id);
     return NextResponse.json(
       {

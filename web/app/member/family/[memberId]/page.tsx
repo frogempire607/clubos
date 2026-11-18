@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 // Controls — per-child parental-controls editor (design 2b / 1d).
 // Permissions render as a scannable toggle grid with Co-Guardians promoted
@@ -115,7 +116,7 @@ export default function FamilyControlsPage() {
     });
     const d = await res.json().catch(() => ({}));
     setMovingKey(null);
-    if (!res.ok) { setPurchaseMsg(typeof d.error === "string" ? d.error : "Could not move purchase."); return; }
+    if (!res.ok) { setPurchaseMsg(memberErrorText(d, "Could not move purchase.")); return; }
     const name = targets.find((t) => t.id === target);
     setPurchaseMsg(`Moved "${p.label}"${name ? ` to ${name.firstName}` : ""}.`);
     loadPurchases();
@@ -167,7 +168,7 @@ export default function FamilyControlsPage() {
     });
     const d = await res.json().catch(() => ({}));
     setInvitingLogin(false);
-    if (!res.ok) { setLoginMsg(typeof d.error === "string" ? d.error : "Could not send invite."); return; }
+    if (!res.ok) { setLoginMsg(memberErrorText(d, "Could not send invite.")); return; }
     setLoginMsg(d.message || "Invite sent.");
     setOwnLogin({ hasLogin: true, email: childEmail.trim().toLowerCase() });
   }
@@ -205,7 +206,7 @@ export default function FamilyControlsPage() {
     setSaving(false);
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      setError(typeof d.error === "string" ? d.error : "Save failed");
+      setError(memberErrorText(d, "Save failed"));
       return;
     }
     setSaved(true);
@@ -228,7 +229,7 @@ export default function FamilyControlsPage() {
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
-        setError(typeof d.error === "string" ? d.error : "Could not update that.");
+        setError(memberErrorText(d, "Could not update that."));
         return;
       }
       // Re-read so the grid reflects what the server actually stored, rather
@@ -256,7 +257,7 @@ export default function FamilyControlsPage() {
     const d = await res.json().catch(() => ({}));
     setInvitingGuardian(false);
     if (!res.ok) {
-      setGuardianMsg(typeof d.error === "string" ? d.error : "Could not send the invite.");
+      setGuardianMsg(memberErrorText(d, "Could not send the invite."));
       return;
     }
     setGuardianMsg(d.message || "Request sent.");
@@ -289,7 +290,7 @@ export default function FamilyControlsPage() {
     const dd = await res.json().catch(() => ({}));
     setSavingDetails(false);
     if (!res.ok) {
-      setDetailsErr(typeof dd.error === "string" ? dd.error : "Could not save details.");
+      setDetailsErr(memberErrorText(dd, "Could not save details."));
       return;
     }
     setDetailsSaved(true);
@@ -311,7 +312,7 @@ export default function FamilyControlsPage() {
     const d = await res.json().catch(() => ({}));
     setOpeningBilling(false);
     if (!res.ok || !d.url) {
-      setBillingMsg(typeof d.error === "string" ? d.error : "Could not open billing.");
+      setBillingMsg(memberErrorText(d, "Could not open billing."));
       return;
     }
     window.location.href = d.url;
@@ -553,7 +554,7 @@ export default function FamilyControlsPage() {
                       className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900 disabled:bg-stone-100"
                     />
                     {birthdayLocked && (
-                      <p className="text-[11px] text-stone-400 mt-1">
+                      <p className="text-[12px] text-stone-400 mt-1">
                         Locked for {first} — you can still update it here.
                       </p>
                     )}
@@ -662,7 +663,7 @@ export default function FamilyControlsPage() {
                     <option value="Other">Other</option>
                   </select>
                 </div>
-                <p className="text-[11px] text-stone-400">
+                <p className="text-[12px] text-stone-400">
                   They need their own club account first. Your club approves new guardians before they get access.
                 </p>
                 {guardianMsg && (
@@ -678,7 +679,7 @@ export default function FamilyControlsPage() {
                 exists to split with. */}
             <InvoiceSplit memberId={params.memberId} childName={first} />
 
-            <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-stone-400 px-1 !mt-5 -mb-1">
+            <p className="text-[12px] font-bold uppercase tracking-[0.06em] text-stone-400 px-1 !mt-5 -mb-1">
               Everything else — preserved
             </p>
 
@@ -746,7 +747,7 @@ export default function FamilyControlsPage() {
                   {invitingLogin ? "Sending…" : ownLogin.hasLogin ? "Resend invite" : "Send login invite"}
                 </button>
               </div>
-              <p className="text-[11px] text-stone-400 mt-2">
+              <p className="text-[12px] text-stone-400 mt-2">
                 They&apos;ll get an email to set their own password. Save the controls first if you
                 changed them — the invite uses your current settings.
               </p>
@@ -775,7 +776,7 @@ export default function FamilyControlsPage() {
                       <div key={key} className="flex flex-col sm:flex-row sm:items-center gap-2 border border-stone-200 rounded-lg px-3 py-2">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-stone-800 truncate">{p.label}</p>
-                          <p className="text-[11px] text-stone-400">{p.type === "subscription" ? "Membership" : "Product"} · {p.status}</p>
+                          <p className="text-[12px] text-stone-400">{p.type === "subscription" ? "Membership" : "Product"} · {p.status}</p>
                         </div>
                         {/* Memberships go through the transfer flow: it shows
                             what happens to the payment, takes an explicit
@@ -876,7 +877,7 @@ function CollapsedSection({
         </span>
         <span className="flex-1 min-w-0">
           <span className="block text-[13px] font-semibold text-stone-900">{title}</span>
-          <span className="block text-[11.5px] text-stone-500 truncate">{sub}</span>
+          <span className="block text-[12px] text-stone-500 truncate">{sub}</span>
         </span>
         <svg
           width="16"

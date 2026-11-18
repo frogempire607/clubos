@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { confirmDialog } from "@/lib/dialogs";
 import type { AutoDiscountView } from "@/lib/eventAutoDiscounts";
@@ -108,7 +109,17 @@ export default function MemberEventsPage() {
   const [isActiveMember, setIsActiveMember] = useState(false);
   const [hasMemberProfile, setHasMemberProfile] = useState(true);
   const [accessible, setAccessible] = useState<AccessibleProfile[]>([]);
-  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  // ?memberId= comes with ?event= when the Schedule page hands a registration
+  // over (lib/memberErrorText eventRegisterFlowPath): register THAT athlete.
+  // Read before the first load so the deep link never opens for the wrong
+  // child. The server checks the viewer may act for this member.
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(() => {
+    try {
+      return typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("memberId");
+    } catch {
+      return null;
+    }
+  });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -232,7 +243,7 @@ export default function MemberEventsPage() {
     const d = await res.json().catch(() => ({}));
     setBusy(null);
     if (!res.ok || !d.groupId) {
-      setError(d.error || "Couldn't open the event chat.");
+      setError(memberErrorText(d, "Couldn't open the event chat."));
       return;
     }
     router.push(`/member/messages/group/${d.groupId}`);
@@ -367,7 +378,7 @@ export default function MemberEventsPage() {
       setError(`${d.message} Add one under Profile → Payment & billing.`);
       return;
     }
-    if (!res.ok) { setError(d.message || d.error || "Could not register"); return; }
+    if (!res.ok) { setError(memberErrorText(d, "Could not register")); return; }
     // Coach approval (§5.4.5): a request, not a spot. Every branch of the
     // server's approval fork returns pendingReview with copy that already
     // says what happens to the money, so it is shown verbatim rather than
@@ -437,7 +448,7 @@ export default function MemberEventsPage() {
       });
       return;
     }
-    if (!res.ok) { setError(d.message || d.error || "Could not register"); return; }
+    if (!res.ok) { setError(memberErrorText(d, "Could not register")); return; }
     if (d.free) { setInfo(`Registered for all ${d.booked} events in the bundle.`); load(); return; }
     if (d.url) { window.location.href = d.url; return; }
     if (d.paid) { setInfo(d.message || "Paid — you're booked into every event."); load(); return; }
@@ -500,11 +511,11 @@ export default function MemberEventsPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-1">
                         <h3 className="text-sm font-semibold text-stone-900">{b.name}</h3>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-lime-accent/20 text-charcoal font-medium">
+                        <span className="text-[12px] px-1.5 py-0.5 rounded-full bg-lime-accent/20 text-charcoal font-medium">
                           {b.items.length} event{b.items.length === 1 ? "" : "s"}
                         </span>
                         {savings > 0 && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">
+                          <span className="text-[12px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">
                             Save ${savings.toFixed(2)}
                           </span>
                         )}
@@ -588,7 +599,7 @@ export default function MemberEventsPage() {
                     className="w-14 rounded-lg flex flex-col items-center justify-center flex-shrink-0 py-2"
                     style={{ background: c.bg, color: c.fg }}
                   >
-                    <span className="text-[10px] uppercase font-medium opacity-80">
+                    <span className="text-[12px] uppercase font-medium opacity-80">
                       {start.toLocaleString("en-US", { month: "short" })}
                     </span>
                     <span className="text-xl font-bold leading-none">{start.getDate()}</span>
@@ -596,16 +607,16 @@ export default function MemberEventsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <h3 className="text-sm font-semibold text-stone-900">{e.name}</h3>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: c.bg, color: c.fg }}>
+                      <span className="text-[12px] px-1.5 py-0.5 rounded font-medium" style={{ background: c.bg, color: c.fg }}>
                         {evLabel(e)}
                       </span>
                       {coveredByActiveSub && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">
+                        <span className="text-[12px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">
                           Free with your membership
                         </span>
                       )}
                       {isFull && !booked && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-stone-900 text-white font-medium">
+                        <span className="text-[12px] px-1.5 py-0.5 rounded-full bg-stone-900 text-white font-medium">
                           Waitlist only
                         </span>
                       )}
@@ -911,7 +922,7 @@ function PaymentChoiceModal({
                   <div key={`${d.id}-${i}`} className="flex items-start justify-between gap-2 border border-stone-200 rounded-lg px-3 py-2">
                     <div className="min-w-0">
                       <p className="text-sm text-stone-900 truncate">{d.title}</p>
-                      <p className="text-[11px] text-stone-500">
+                      <p className="text-[12px] text-stone-500">
                         {prompt.kind === "bundle"
                           ? d.requirement === "SIGN_REQUIRED"
                             ? `Must be completed before ${d.eventName ?? "the event"} check-in`
@@ -922,7 +933,7 @@ function PaymentChoiceModal({
                       </p>
                     </div>
                     {d.needsSignature && (
-                      <Link href="/member/documents" className="text-[11px] text-red-600 hover:underline whitespace-nowrap mt-0.5">
+                      <Link href="/member/documents" className="text-[12px] text-red-600 hover:underline whitespace-nowrap mt-0.5">
                         Sign first →
                       </Link>
                     )}
@@ -943,7 +954,7 @@ function PaymentChoiceModal({
                 </label>
               )}
               {prompt.kind === "bundle" && (
-                <p className="text-[11px] text-stone-500 mt-1.5">
+                <p className="text-[12px] text-stone-500 mt-1.5">
                   You won't sign anything now — documents marked &quot;must be completed&quot; are required before that event&apos;s check-in.
                 </p>
               )}

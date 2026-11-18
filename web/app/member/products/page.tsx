@@ -90,7 +90,7 @@ export default function MemberProductsPage() {
                         <div className="aspect-square bg-stone-100 relative">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={cover} alt={p.name} className={`w-full h-full object-cover ${soldOut ? "opacity-50" : ""}`} />
-                          {soldOut && <span className="absolute top-2 left-2 text-[11px] font-medium bg-white/90 text-stone-700 rounded-full px-2 py-0.5">Sold out</span>}
+                          {soldOut && <span className="absolute top-2 left-2 text-[12px] font-medium bg-white/90 text-stone-700 rounded-full px-2 py-0.5">Sold out</span>}
                         </div>
                       ) : (
                         <div className="aspect-square bg-stone-100 flex items-center justify-center text-stone-300"><ImageIcon className="h-8 w-8" strokeWidth={1.5} /></div>
@@ -101,7 +101,7 @@ export default function MemberProductsPage() {
                           <span className="text-sm font-semibold text-stone-900">{money(p.memberPrice)}</span>
                           {saves > 0 && <span className="text-xs text-stone-400 line-through">{money(p.price)}</span>}
                         </div>
-                        <p className="mt-1 text-[11px] text-stone-500">
+                        <p className="mt-1 text-[12px] text-stone-500">
                           {p.needsBookingFlow
                             ? "Book a time"
                             : soldOut ? "Out of stock"

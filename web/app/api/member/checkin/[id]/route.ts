@@ -1,3 +1,5 @@
+import { CLASS_FULL_BODY, classIsFull, dayCapacity } from "@/lib/classCapacity";
+import { countClassSpotsTaken, withClassCapacityLock } from "@/lib/classCapacityServer";
 import { NextResponse } from "next/server";
 import { acceptedPlansFrom, type AcceptedPlan } from "@/lib/acceptedPlans";
 import { z } from "zod";
@@ -322,6 +324,9 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   let status = hasAnySub ? "PRESENT" : "TRIAL";
   let notes = "Self check-in via attendance QR";
   let trialEndsAt: Date | null = null;
+  // Class limit: someone who is NOT already booked and scans in at the door is
+  // taking a spot, the same as booking one. (An existing booking returned above.)
+  let classCapacity: number | null = null;
 
   // ── Classes: the door rule (lib/doorAccess) ──────────────────────────────
   // Covered by a membership → in. No plan → the free trial if they can still
@@ -333,8 +338,12 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const m = await prisma.member.findUnique({ where: { id: member.id }, select: { trialEndsAt: true } });
     const cs = await prisma.classSession.findUnique({
       where: { id: target.classSessionId },
-      select: { recurringClass: { select: { pricingOptions: true } } },
+      select: { capacity: true, recurringClass: { select: { pricingOptions: true, capacity: true } } },
     });
+    classCapacity = dayCapacity(cs?.capacity, cs?.recurringClass.capacity);
+    if (classCapacity != null && classIsFull(classCapacity, await countClassSpotsTaken(target.classSessionId))) {
+      return NextResponse.json({ ...CLASS_FULL_BODY, message: `${target.title} is full. See the front desk.` }, { status: 409 });
+    }
     const decision = decideDoor({
       covered: verdictCovers(verdict, hasAnySub),
       hasActiveSubscription: hasAnySub,
@@ -375,22 +384,30 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     }
   }
 
+  const recordData = {
+    clubId,
+    classSessionId: target.kind === "class" ? target.classSessionId : null,
+    eventId: target.kind === "event" ? target.eventId : null,
+    memberId: member.id,
+    status,
+    checkedInAt: new Date(),
+    addedById: session.user.id,
+    notes,
+  };
+  // The spot first (under the class-day lock), the trial after: a full class
+  // must not start somebody's free trial without letting them in.
+  const spot =
+    target.kind === "class"
+      ? await withClassCapacityLock({ classSessionId: target.classSessionId, capacity: classCapacity }, (db) => db.attendanceRecord.create({ data: recordData }))
+      : { full: false as const, value: await prisma.attendanceRecord.create({ data: recordData }) };
+  if (spot.full) {
+    return NextResponse.json({ ...CLASS_FULL_BODY, message: `${target.title} is full. See the front desk.` }, { status: 409 });
+  }
+  const record = spot.value;
+
   if (trialEndsAt) {
     await prisma.member.update({ where: { id: member.id }, data: { trialEndsAt } });
   }
-
-  const record = await prisma.attendanceRecord.create({
-    data: {
-      clubId,
-      classSessionId: target.kind === "class" ? target.classSessionId : null,
-      eventId: target.kind === "event" ? target.eventId : null,
-      memberId: member.id,
-      status,
-      checkedInAt: new Date(),
-      addedById: session.user.id,
-      notes,
-    },
-  });
 
   return NextResponse.json({
     ok: true,

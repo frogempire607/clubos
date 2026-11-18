@@ -334,13 +334,14 @@ Check on the phone: the same list as iPhone, plus:
 |---|---|---|
 | 1 | Merge and deploy both branches (the app talks to the live site; the scanner button, the dialogs and the deletion screens are web changes) | YOU |
 | 2 | ~~Signup email check (audit S2)~~ **Built 2026-11-16.** Make sure confirmation emails actually arrive (Resend is configured in Netlify) before a reviewer signs up. | Done; YOU check delivery |
-| 3 | ~~Account-deletion rules~~ **Confirmed 2026-11-16: keep all four as built.** Still to confirm: the public page says requests by email are handled within 30 days. | Done; 30 days unconfirmed |
+| 3 | ~~Account-deletion rules~~ **Confirmed 2026-11-16: keep all four as built.** The public page's "handled within 30 days" promise is **approved (2026-11-17)**. | Done |
 | 4 | ~~Google target audience~~ **Decided 2026-11-16: 13 and over.** | Done |
 | 5 | ~~Support address~~ **`support@athletix-os.com`** (2026-11-16). Make sure that inbox is read daily while a review is open. | Done |
 | 6 | Create the demo club data and three demo logins (§3) | YOU |
 | 7 | Hands-on phone checks in §7 and §8 | YOU |
 | 8 | The privacy policy is marked attorney-pending in the repo (`legal/PRIVACY_POLICY.md`). It should mention the app, the camera, and (later) push notifications. | YOU + attorney |
-| 9 | Text under 12 px in the member portal (115 places) and screens that can spin forever on a dropped connection. Not a rejection risk by themselves; planned next. | Me |
+| 9 | ~~Text under 12 px in the member portal and screens that can spin forever on a dropped connection.~~ **Built 2026-11-17**; check both on a phone (§7 list). | Done; YOU check on a phone |
+| 11 | Sign in with Google / Apple (plan §10). Not built. **Until it ships, every answer in this packet that says "email and password only" is correct as written.** When it ships, apply §11 below. | Later |
 | 10 | Push notifications (plan slice 5): migration + APNs key + Firebase project. Not needed for the first submission. | Later |
 
 ## 10. If a reviewer pushes back
@@ -357,3 +358,50 @@ Check on the phone: the same list as iPhone, plus:
   does not change from the server.
 - **"We could not sign in":** check the demo logins from a phone that is not
   yours, on cellular.
+
+## 11. Changes to make in this packet WHEN Google / Apple sign-in and push ship
+
+Both are built (2026-11-18) and switched off until their keys are set (plan
+§10 and §11). Paste these only once the keys are set AND the build under
+review was made after `cap sync` with `@capacitor/browser` and
+`@capacitor/push-notifications`.
+
+**Demo logins stay email and password.** Reviewers cannot use your Google or
+Apple account, and Google requires credentials that are "accessible at all
+times, reusable". Keep the three `review.*@athletix-os.com` logins exactly as
+in §3 and say so in the notes.
+
+**§2 review notes, replace the ACCOUNTS paragraph with:**
+
+> ACCOUNTS
+> Sign in with email and password, Sign in with Apple, or Google. Sign in with
+> Apple is offered wherever Google is, as an equal option (Guideline 4.8).
+> Google and Apple sign-in open in the system browser sheet, not in the app's
+> web view. The demo accounts use email and password; no Apple or Google
+> account is needed to review the app. Account deletion is in the app for
+> every account type (More → Account → Delete account, or the name menu → My
+> account → Delete my account) and revokes any Sign in with Apple token.
+
+**§2 review notes, add under NATIVE FEATURES:**
+
+> - Push notifications (optional): new messages, items waiting for a staff
+>   member's approval, and a reminder before a cash-paid membership ends. The
+>   app works fully with notifications off; each kind can be turned off in My
+>   account → Notifications. Notification text contains no amounts and no
+>   personal details.
+
+**§4 Apple App Privacy:**
+- Sign in with Apple: change "not required (no third-party login)" to
+  "offered".
+- Device ID: **Yes**, App Functionality, linked to the user (the push token).
+- Email address, Name: unchanged (already Yes). Google and Apple send only
+  name and email; nothing else is requested.
+- Tracking: still **None**.
+
+**§5 Google Data safety:**
+- Device or other IDs: **Collected**, purpose App functionality, not shared,
+  optional (the push token; only if the person allows notifications).
+- Permissions: add **Notifications** (Android 13+ asks at the moment the
+  person turns them on), still with Camera.
+- Nothing changes for Name, Email or User IDs.
+

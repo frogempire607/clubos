@@ -29,6 +29,7 @@ import { hasBillingSubScope } from "@/lib/permissions";
 import { buildTransferPreview, executeTransfer } from "@/lib/membershipTransfer";
 import { resolvePayerUserId } from "@/lib/familyAccess";
 import { MEMBERSHIP_TRANSFER_KIND } from "@/lib/membershipTransferKind";
+import { notifyApprovalWaiting } from "@/lib/pushServer";
 
 type Actor =
   | { kind: "STAFF"; role: "OWNER" | "STAFF"; userId: string; clubId: string }
@@ -230,6 +231,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       },
       select: { id: true },
     });
+    await notifyApprovalWaiting({ clubId: actor.clubId, approvalKind: MEMBERSHIP_TRANSFER_KIND, requestedByUserId: actor.userId });
 
     await prisma.memberMigrationEvent.create({
       data: {
