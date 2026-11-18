@@ -1,5 +1,6 @@
 "use client";
 
+import ConnectionGuard from "@/components/ConnectionGuard";
 import { SkeletonLine, SkeletonCard } from "@/components/LoadingSkeleton";
 import { useState, useEffect } from "react";
 import { useSession, getSession } from "next-auth/react";
@@ -206,7 +207,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Page content — extra bottom padding on mobile so the fixed
             bottom nav doesn't cover the last row of content. */}
-        <div className="flex-1 pb-24 md:pb-0">{children}</div>
+        <div className="flex-1 pb-24 md:pb-0"><ConnectionGuard>{children}</ConnectionGuard></div>
       </main>
 
       {/* Mobile bottom nav — fixed, persistent. Permission-filtered for

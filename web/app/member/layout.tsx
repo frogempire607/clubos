@@ -1,5 +1,6 @@
 "use client";
 
+import ConnectionGuard from "@/components/ConnectionGuard";
 import VerifyEmailBanner from "@/components/member/VerifyEmailBanner";
 import ScanCheckInCard from "@/components/member/ScanCheckInCard";
 import { sharedGet } from "@/lib/sharedGet";
@@ -430,7 +431,7 @@ export default function MemberLayout({ children }: { children: React.ReactNode }
         </div>
         <VerifyEmailBanner />
         {pathname === "/member" && <ScanCheckInCard />}
-        {children}
+        <ConnectionGuard>{children}</ConnectionGuard>
       </main>
 
       {/* COPPA: blocking consent overlay for guardians who still owe consent

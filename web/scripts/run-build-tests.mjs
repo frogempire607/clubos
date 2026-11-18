@@ -72,6 +72,10 @@ export const GATED = [
   // named ("6:00 PM EST"), never the server's UTC hour; class emails print the
   // class's own wall clock. The clock is a required argument.
   ["scripts/email-time-tests.ts"],
+  // Audit U3/U4: every data load has a time limit, a failed load shows a
+  // "can't reach the server" bar, and Try again re-runs the screen's loads.
+  // Saves are never timed out or replayed.
+  ["scripts/connection-guard-tests.ts"],
   ["scripts/account-deletion-tests.ts"],
   // The native app shell: a store build ships no debug logging, cleartext,
   // mixed content or open navigation; Android back, scanned codes and the
