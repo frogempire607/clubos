@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
@@ -65,7 +66,7 @@ function MemberDmThreadInner() {
     );
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      setError(d.error || "Could not load thread");
+      setError(memberErrorText(d, "Could not load thread"));
       setLoading(false);
       return;
     }
@@ -97,7 +98,7 @@ function MemberDmThreadInner() {
     setSending(false);
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      setError(d.error || "Failed to send");
+      setError(memberErrorText(d, "Failed to send"));
       return;
     }
     setDraft("");

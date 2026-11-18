@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { useEffect, useState } from "react";
 
@@ -58,7 +59,7 @@ export default function ParentalConsentGate() {
       });
       const d = await res.json();
       if (!res.ok) {
-        setError(typeof d.error === "string" ? d.error : "Could not record consent.");
+        setError(memberErrorText(d, "Could not record consent."));
       } else {
         // Advance to the next pending child (or unmount when done).
         setAccepted(false);

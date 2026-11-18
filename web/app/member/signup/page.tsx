@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
@@ -199,7 +200,7 @@ export default function MemberSignupPage() {
       const data = await res.json().catch(() => ({}));
       let msg = "Sign up failed. Please try again.";
       if (typeof data.error === "string") {
-        msg = data.error;
+        msg = memberErrorText(data, msg);
       } else if (Array.isArray(data.error) && data.error[0]?.message) {
         // Zod validation errors come back as an array.
         msg = data.error[0].message;

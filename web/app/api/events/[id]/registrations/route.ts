@@ -209,6 +209,11 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
           "edit",
         ),
       ),
+      // May THIS user remove someone who paid (refund or keep the money)?
+      // Display only: the DELETE route re-checks live.
+      canDecideMoney:
+        session.user.role === "OWNER" ||
+        hasPermission((session.user as unknown as { permissions?: Record<string, unknown> | null }).permissions ?? null, "billing", "full"),
     },
     pendingReviewCount,
     awaitingParentCount,

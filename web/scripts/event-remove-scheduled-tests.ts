@@ -54,7 +54,8 @@ const reg = async (id: string) => (await fake.client.eventRegistration.findFirst
 
   console.log("\nAlready paid:");
   r = await del("paid");
-  ok(r.status === 409 && /Refund them first/.test(r.d.error), "still refused — refund first");
+  // 2026-11-17: still refused without an explicit refund-or-keep choice.
+  ok(r.status === 409 && r.d.code === "PAID_CHOICE_REQUIRED" && /Remove and refund/.test(r.d.error), "still refused without a refund-or-keep choice");
 
   console.log(`\n${fail ? "✗" : "✓"} ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

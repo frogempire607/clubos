@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 // The coach proposed something different — accept or decline (plan.md §5.4.7).
 //
@@ -96,7 +97,7 @@ export default function ProposalResponsePage() {
     const d = await res.json().catch(() => ({}));
     setBusy(null);
     if (!res.ok) {
-      setErr(d.message || d.error || "That didn't go through. Try again.");
+      setErr(memberErrorText(d, "That didn't go through. Try again."));
       return;
     }
     setDone(action === "accept" ? "accepted" : "declined");

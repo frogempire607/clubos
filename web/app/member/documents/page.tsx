@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { useEffect, useState, useCallback } from "react";
 import { FileText } from "lucide-react";
@@ -96,7 +97,7 @@ export default function MemberDocumentsPage() {
     const result = await res.json().catch(() => ({}));
     setSigning(false);
     if (!res.ok) {
-      setSignError(result.error || "Could not record signature. Please try again.");
+      setSignError(memberErrorText(result, "Could not record signature. Please try again."));
       return;
     }
     setViewing(null);

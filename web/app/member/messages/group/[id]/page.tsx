@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
@@ -60,7 +61,7 @@ function MemberGroupThreadInner() {
     const res = await fetch(`/api/member/messages/groups/${id}`, { cache: "no-store" });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      setError(d.error || "Could not load group");
+      setError(memberErrorText(d, "Could not load group"));
       setLoading(false);
       return;
     }
@@ -88,7 +89,7 @@ function MemberGroupThreadInner() {
     setSending(false);
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      setError(d.error || "Failed to send");
+      setError(memberErrorText(d, "Failed to send"));
       return;
     }
     setDraft("");

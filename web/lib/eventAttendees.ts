@@ -90,6 +90,13 @@ export type LedgerRegistration = {
   /** Resolved through the family model; null = undeliverable. */
   recipientEmail?: string | null;
   recipientName?: string | null;
+  /** Money refunded on this registration's payment (from its Transaction:
+   *  refundedAmount, or the whole amount once it is REFUNDED). Only the
+   *  loader can know it; absent = nothing refunded. */
+  refundedAmount?: number | null;
+  /** Paid by card through AthletixOS (a Stripe PaymentIntent is on the row),
+   *  so "Remove and refund" can send the money back from here. */
+  paidByCard?: boolean;
 };
 
 export type LedgerBooking = {
@@ -144,8 +151,30 @@ export type AttendeeRow = {
   bookingStatus: string | null;
   /** True for CANCELED registrations and CANCELED bookings — hidden by default. */
   removed: boolean;
+  /** Money refunded on this row's payment. */
+  refunded: number;
+  /** See LedgerRegistration.paidByCard. */
+  paidByCard: boolean;
   createdAt: string | null;
 };
+
+/**
+ * The status line of a removed registrant who had paid. "Remove, keep the
+ * payment" (2026-11-17) takes someone off the event and leaves their money
+ * where it is, so the row has to say plainly which of the two happened.
+ */
+export function removedPaidLabel(paid: number, refunded: number): string {
+  const p = money(paid);
+  const r = money(Math.min(refunded, paid));
+  if (r <= 0) return `Removed, paid $${p.toFixed(2)}, not refunded`;
+  if (r >= p) return `Removed, refunded $${r.toFixed(2)}`;
+  return `Removed, paid $${p.toFixed(2)}, $${r.toFixed(2)} refunded`;
+}
+
+/** Money a removed registrant paid that the club still holds. */
+export function keptFromRemoved(r: Pick<AttendeeRow, "removed" | "paid" | "refunded">): number {
+  return r.removed ? money(Math.max(0, r.paid - r.refunded)) : 0;
+}
 
 export type AttendeeFilter = "all" | "owes" | "waiting" | "scheduled" | "settled";
 
@@ -156,6 +185,8 @@ export type AttendeeLedger = {
   removed: number;
   tiles: {
     collected: number;
+    /** Part of `collected` paid by people since removed with the payment kept. */
+    keptFromRemoved: number;
     outstanding: number;
     outstandingCount: number;
     scheduled: number;
@@ -268,6 +299,8 @@ export function buildAttendeeLedger(
     const owes = unpaid ? money(Math.max(0, due - paid)) : 0;
     const waitingOn = registrationWaitingOn(r, { now });
     const removed = r.status === "CANCELED" || r.approvalStatus === "DECLINED";
+    const paidAmount = r.status === "PAID" ? money(paid > 0 ? paid : due) : money(paid);
+    const refunded = money(Math.max(0, num(r.refundedAmount)));
     rows.push({
       id: r.id,
       registrationId: r.id,
@@ -282,16 +315,20 @@ export function buildAttendeeLedger(
       categoryValue: categoryValueOf(r.formResponses, ev.categoryKey),
       attending: attendingLabel(ev, r.sessionIds),
       owes,
-      paid: r.status === "PAID" ? money(paid > 0 ? paid : due) : money(paid),
+      paid: paidAmount,
       amountDue: money(due),
       scheduledAmount: r.status === "SCHEDULED" ? money(due) : 0,
       scheduledAt: r.status === "SCHEDULED" ? iso(r.scheduledChargeAt) : null,
       status,
-      label: status === "PAID" && paid > 0 ? `Paid $${money(paid).toFixed(2)}` : ui.label,
+      label: removed && paidAmount > 0
+        ? removedPaidLabel(paidAmount, refunded)
+        : status === "PAID" && paid > 0 ? `Paid $${money(paid).toFixed(2)}` : ui.label,
       tone: ui.tone,
       waitingOn,
       bookingStatus: booking?.status ?? null,
       removed,
+      refunded,
+      paidByCard: !!r.paidByCard,
       createdAt: iso(r.createdAt),
     });
   }
@@ -325,6 +362,8 @@ export function buildAttendeeLedger(
       waitingOn: null,
       bookingStatus: b.status,
       removed,
+      refunded: 0,
+      paidByCard: false,
       createdAt: iso(b.createdAt),
     });
   }
@@ -334,7 +373,10 @@ export function buildAttendeeLedger(
 
   const live = rows.filter((r) => !r.removed);
   const tiles = {
-    collected: money(live.reduce((s, r) => s + (r.status === "PAID" ? r.paid : 0), 0)),
+    // Money kept from a removed registrant ("Remove, keep the payment") was
+    // still collected for this event, so it counts here as it does in Financials.
+    collected: money(live.reduce((s, r) => s + (r.status === "PAID" ? r.paid : 0), 0) + rows.reduce((s, r) => s + keptFromRemoved(r), 0)),
+    keptFromRemoved: money(rows.reduce((s, r) => s + keptFromRemoved(r), 0)),
     outstanding: money(live.reduce((s, r) => s + (rowOwes(r) ? r.owes : 0), 0)),
     outstandingCount: live.filter(rowOwes).length,
     scheduled: money(live.reduce((s, r) => s + r.scheduledAmount, 0)),

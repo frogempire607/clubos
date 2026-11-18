@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { confirmDialog } from "@/lib/dialogs";
 import type { AutoDiscountView } from "@/lib/eventAutoDiscounts";
@@ -108,7 +109,17 @@ export default function MemberEventsPage() {
   const [isActiveMember, setIsActiveMember] = useState(false);
   const [hasMemberProfile, setHasMemberProfile] = useState(true);
   const [accessible, setAccessible] = useState<AccessibleProfile[]>([]);
-  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  // ?memberId= comes with ?event= when the Schedule page hands a registration
+  // over (lib/memberErrorText eventRegisterFlowPath): register THAT athlete.
+  // Read before the first load so the deep link never opens for the wrong
+  // child. The server checks the viewer may act for this member.
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(() => {
+    try {
+      return typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("memberId");
+    } catch {
+      return null;
+    }
+  });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -232,7 +243,7 @@ export default function MemberEventsPage() {
     const d = await res.json().catch(() => ({}));
     setBusy(null);
     if (!res.ok || !d.groupId) {
-      setError(d.error || "Couldn't open the event chat.");
+      setError(memberErrorText(d, "Couldn't open the event chat."));
       return;
     }
     router.push(`/member/messages/group/${d.groupId}`);
@@ -367,7 +378,7 @@ export default function MemberEventsPage() {
       setError(`${d.message} Add one under Profile → Payment & billing.`);
       return;
     }
-    if (!res.ok) { setError(d.message || d.error || "Could not register"); return; }
+    if (!res.ok) { setError(memberErrorText(d, "Could not register")); return; }
     // Coach approval (§5.4.5): a request, not a spot. Every branch of the
     // server's approval fork returns pendingReview with copy that already
     // says what happens to the money, so it is shown verbatim rather than
@@ -437,7 +448,7 @@ export default function MemberEventsPage() {
       });
       return;
     }
-    if (!res.ok) { setError(d.message || d.error || "Could not register"); return; }
+    if (!res.ok) { setError(memberErrorText(d, "Could not register")); return; }
     if (d.free) { setInfo(`Registered for all ${d.booked} events in the bundle.`); load(); return; }
     if (d.url) { window.location.href = d.url; return; }
     if (d.paid) { setInfo(d.message || "Paid — you're booked into every event."); load(); return; }

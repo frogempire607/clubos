@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 // Controls — per-child parental-controls editor (design 2b / 1d).
 // Permissions render as a scannable toggle grid with Co-Guardians promoted
@@ -115,7 +116,7 @@ export default function FamilyControlsPage() {
     });
     const d = await res.json().catch(() => ({}));
     setMovingKey(null);
-    if (!res.ok) { setPurchaseMsg(typeof d.error === "string" ? d.error : "Could not move purchase."); return; }
+    if (!res.ok) { setPurchaseMsg(memberErrorText(d, "Could not move purchase.")); return; }
     const name = targets.find((t) => t.id === target);
     setPurchaseMsg(`Moved "${p.label}"${name ? ` to ${name.firstName}` : ""}.`);
     loadPurchases();
@@ -167,7 +168,7 @@ export default function FamilyControlsPage() {
     });
     const d = await res.json().catch(() => ({}));
     setInvitingLogin(false);
-    if (!res.ok) { setLoginMsg(typeof d.error === "string" ? d.error : "Could not send invite."); return; }
+    if (!res.ok) { setLoginMsg(memberErrorText(d, "Could not send invite.")); return; }
     setLoginMsg(d.message || "Invite sent.");
     setOwnLogin({ hasLogin: true, email: childEmail.trim().toLowerCase() });
   }
@@ -205,7 +206,7 @@ export default function FamilyControlsPage() {
     setSaving(false);
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      setError(typeof d.error === "string" ? d.error : "Save failed");
+      setError(memberErrorText(d, "Save failed"));
       return;
     }
     setSaved(true);
@@ -228,7 +229,7 @@ export default function FamilyControlsPage() {
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
-        setError(typeof d.error === "string" ? d.error : "Could not update that.");
+        setError(memberErrorText(d, "Could not update that."));
         return;
       }
       // Re-read so the grid reflects what the server actually stored, rather
@@ -256,7 +257,7 @@ export default function FamilyControlsPage() {
     const d = await res.json().catch(() => ({}));
     setInvitingGuardian(false);
     if (!res.ok) {
-      setGuardianMsg(typeof d.error === "string" ? d.error : "Could not send the invite.");
+      setGuardianMsg(memberErrorText(d, "Could not send the invite."));
       return;
     }
     setGuardianMsg(d.message || "Request sent.");
@@ -289,7 +290,7 @@ export default function FamilyControlsPage() {
     const dd = await res.json().catch(() => ({}));
     setSavingDetails(false);
     if (!res.ok) {
-      setDetailsErr(typeof dd.error === "string" ? dd.error : "Could not save details.");
+      setDetailsErr(memberErrorText(dd, "Could not save details."));
       return;
     }
     setDetailsSaved(true);
@@ -311,7 +312,7 @@ export default function FamilyControlsPage() {
     const d = await res.json().catch(() => ({}));
     setOpeningBilling(false);
     if (!res.ok || !d.url) {
-      setBillingMsg(typeof d.error === "string" ? d.error : "Could not open billing.");
+      setBillingMsg(memberErrorText(d, "Could not open billing."));
       return;
     }
     window.location.href = d.url;

@@ -40,7 +40,7 @@ export function attendeeTiles(l: AttendeeLedger): AttendeeTile[] {
   const t = l.tiles;
   const collectedCount = l.rows.filter((r) => !r.removed && r.status === "PAID").length;
   return [
-    { key: "collected", label: "Collected", amount: t.collected, count: collectedCount, sub: collectedCount === 1 ? "1 paid" : `${collectedCount} paid`, tone: null },
+    { key: "collected", label: "Collected", amount: t.collected, count: collectedCount, sub: (collectedCount === 1 ? "1 paid" : `${collectedCount} paid`) + (t.keptFromRemoved > 0 ? ` · $${t.keptFromRemoved.toFixed(2)} from removed` : ""), tone: null },
     { key: "outstanding", label: "Outstanding", amount: t.outstanding, count: t.outstandingCount, sub: `${t.outstandingCount} owe`, tone: t.outstanding > 0 ? "warn" : null },
     { key: "scheduled", label: "Scheduled", amount: t.scheduled, count: t.scheduledCount, sub: `${t.scheduledCount} card${t.scheduledCount === 1 ? "" : "s"} on file`, tone: null },
     { key: "waiting", label: "Waiting on you", amount: null, count: t.waitingOnYou, sub: "coach decisions", tone: t.waitingOnYou > 0 ? "brand" : null },
@@ -220,13 +220,40 @@ export function rowActions(r: AttendeeRow, ctx: RowActionContext): RowAction[] {
  *  DELETE /api/events/[id]/registrations/[regId]; the server has the last word. */
 export type RemovePlan =
   | { kind: "registration"; registrationId: string; note: string }
+  /** They paid. Two choices, both owner / billing staff only:
+   *   refund  the existing card refund (same Stripe idempotency key as decline,
+   *           so the two can never refund twice), then remove
+   *   keep    remove and leave the payment exactly where it is */
+  | {
+      kind: "paid";
+      registrationId: string;
+      paid: number;
+      /** Why "Remove and refund" isn't offered, or null when it is. */
+      refundUnavailable: string | null;
+      /** Why this person can't do either, or null. */
+      notAllowed: string | null;
+    }
   | { kind: "booking"; memberId: string; note: string }
   | { kind: "blocked"; reason: string };
 
-export function removePlan(r: AttendeeRow, detail?: { transactionId?: string | null } | null): RemovePlan {
+export function removePlan(
+  r: AttendeeRow,
+  detail?: { transactionId?: string | null } | null,
+  viewer?: { canDecideMoney: boolean } | null,
+): RemovePlan {
   if (r.registrationId) {
     if (r.status === "PAID" || r.paid > 0) {
-      return { kind: "blocked", reason: `${r.name} has already paid. Refund them first, then remove them — removing never deletes money that was received.` };
+      return {
+        kind: "paid",
+        registrationId: r.registrationId,
+        paid: r.paid,
+        refundUnavailable: r.paidByCard
+          ? null
+          : "They didn't pay by card through AthletixOS, so there's nothing to send back from here. Hand the money back and record it in Financials.",
+        notAllowed: viewer?.canDecideMoney
+          ? null
+          : "Removing someone who paid means deciding what happens to their money. Only the owner or staff with billing permission can do that.",
+      };
     }
     // 2026-11-12: a SCHEDULED card charge hasn't happened yet — it runs on its
     // date. Removing cancels it (the charge only ever runs on SCHEDULED rows).

@@ -228,7 +228,11 @@ export default function AttendeesModal({
   );
   const now = useMemo(() => new Date(), [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const rows = useMemo(() => (ledger ? visibleRows(ledger, filter, showRemoved) : []), [ledger, filter, showRemoved]);
+  // Removed people are never mixed into the live list: they get their own
+  // "Removed" section below it (2026-11-17), where a payment that was kept
+  // reads "Removed, paid $X, not refunded".
+  const rows = useMemo(() => (ledger ? visibleRows(ledger, filter, false) : []), [ledger, filter]);
+  const removedRows = useMemo(() => (ledger ? ledger.rows.filter((r) => r.removed) : []), [ledger]);
   const allRows = ledger?.rows ?? [];
   const collect = useMemo(() => collectSummary(allRows, ctx), [allRows, ctx]);
   const selCollect = selectedCollect(selected, allRows, ctx);
@@ -286,7 +290,7 @@ export default function AttendeesModal({
   }
   const errText = (d: Record<string, unknown>, fallback: string) =>
     typeof d.message === "string" ? d.message : typeof d.error === "string" ? d.error : fallback;
-  const json = (body: unknown): RequestInit => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const json = (body: unknown, method = "POST"): RequestInit => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
   // ── Actions ────────────────────────────────────────────────────────────────
   function runAction(r: AttendeeRow, a: RowAction, method?: "CASH" | "CHECK") {
@@ -340,9 +344,20 @@ export default function AttendeesModal({
       : { ok: true, text: `Recorded cash for ${recorded} — receipts sent.` });
   }
 
-  async function remove(r: AttendeeRow) {
-    const plan = removePlan(r, { transactionId: detail(r)?.transactionId ?? null });
+  const canDecideMoney = !!regs?.event.canDecideMoney;
+  const planFor = (r: AttendeeRow) => removePlan(r, { transactionId: detail(r)?.transactionId ?? null }, { canDecideMoney });
+
+  async function remove(r: AttendeeRow, paid?: "refund" | "keep") {
+    const plan = planFor(r);
     if (plan.kind === "blocked") return;
+    if (plan.kind === "paid") {
+      if (!paid || plan.notAllowed || (paid === "refund" && plan.refundUnavailable)) return;
+      const { ok, d } = await call(`remove-${paid}`, `/api/events/${eventId}/registrations/${plan.registrationId}`, json({ paid }, "DELETE"));
+      if (!ok) return setSheetErr(errText(d, "Could not remove them."));
+      if (paid === "keep") return done({ ok: true, text: `${r.name} removed. The $${plan.paid.toFixed(2)} they paid was kept, not refunded.` });
+      if (d.refunded === false) return done({ ok: false, text: typeof d.refundError === "string" ? d.refundError : "They were removed, but the refund didn't go through. Check Stripe." });
+      return done({ ok: true, text: `${r.name} removed and refunded.` });
+    }
     const url = plan.kind === "registration"
       ? `/api/events/${eventId}/registrations/${plan.registrationId}`
       : `/api/events/${eventId}/bookings?memberId=${encodeURIComponent(plan.memberId)}`;
@@ -896,6 +911,22 @@ export default function AttendeesModal({
                   </div>
                 </>
               )}
+              {showRemoved && removedRows.length > 0 && (
+                <section aria-label="Removed" className="px-4 sm:px-5 py-3 border-t border-app-border">
+                  <h3 className="text-[12px] font-semibold uppercase tracking-[.05em] text-text-muted mb-2">Removed · {removedRows.length}</h3>
+                  <ul className="rounded-[12px] border border-app-border divide-y divide-hairline">
+                    {removedRows.map((r) => (
+                      <li key={r.id} className="px-3 py-2.5 flex items-center justify-between gap-3 text-[13.5px]">
+                        <div className="min-w-0">
+                          <button type="button" onClick={() => setOpenRow(r)} className="block max-w-full min-h-11 sm:min-h-0 text-left font-semibold text-text-primary truncate hover:text-brand hover:underline">{r.name}</button>
+                          <div className="text-[12.5px] text-text-muted truncate">{[r.email, r.attending].filter(Boolean).join(" · ")}</div>
+                        </div>
+                        <StatusPill r={r} />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
             </>
           )}
         </div>
@@ -904,12 +935,12 @@ export default function AttendeesModal({
         {ledger && !checkInMode && !answersMode && (
           <div className="px-4 sm:px-5 py-2.5 border-t border-app-border flex items-center justify-between gap-3 text-[12.5px] text-text-muted flex-wrap">
             <div>
-              Showing {rows.length === ledger.visible && filter === "all" && !showRemoved ? "all " : ""}{rows.length}
+              Showing {rows.length === ledger.visible && filter === "all" ? "all " : ""}{rows.length}
               {ledger.removed > 0 && (
                 <>
                   {" · "}
                   <button type="button" className="text-brand hover:underline min-h-11 sm:min-h-0" onClick={() => { setShowRemoved((v) => !v); setFilter("all"); }}>
-                    {showRemoved ? "Hide" : "Show"} {ledger.removed} removed attendee{ledger.removed === 1 ? "" : "s"}
+                    {showRemoved ? "Hide" : "Show"} {ledger.removed} removed
                   </button>
                 </>
               )}
@@ -1082,7 +1113,40 @@ export default function AttendeesModal({
         )}
 
         {sheet?.kind === "remove" && sheetRow && (() => {
-          const plan = removePlan(sheetRow, { transactionId: detail(sheetRow)?.transactionId ?? null });
+          const plan = planFor(sheetRow);
+          if (plan.kind === "paid") {
+            const working = busy === "remove-refund" || busy === "remove-keep";
+            return (
+              <Sheet
+                open
+                onClose={() => setSheet(null)}
+                title={`Remove ${sheetRow.name}?`}
+                footer={plan.notAllowed ? (
+                  <button type="button" className={`${btn} border border-app-border text-text-primary`} onClick={() => setSheet(null)}>OK</button>
+                ) : <>
+                  <button type="button" className={`${btn} border border-app-border text-text-primary`} onClick={() => setSheet(null)}>Cancel</button>
+                  <button type="button" className={`${btn} border border-app-border text-text-primary`} disabled={working} onClick={() => remove(sheetRow, "keep")}>
+                    {busy === "remove-keep" ? "Removing…" : "Remove, keep the payment"}
+                  </button>
+                  <button type="button" className={`${btn} bg-danger-text text-white`} disabled={working || !!plan.refundUnavailable} onClick={() => remove(sheetRow, "refund")}>
+                    {busy === "remove-refund" ? "Refunding…" : "Remove and refund"}
+                  </button>
+                </>}
+              >
+                <p className="text-[14px] text-text-primary">{sheetRow.name} paid ${plan.paid.toFixed(2)}. Removing them takes them off the roster and the billing list. Choose what happens to the money.</p>
+                {plan.notAllowed ? (
+                  <p className="mt-3 text-[14px] text-text-primary">{plan.notAllowed}</p>
+                ) : (
+                  <ul className="mt-3 space-y-2 text-[13.5px] text-text-primary">
+                    <li><span className="font-semibold">Remove and refund:</span> ${plan.paid.toFixed(2)} goes back to their card through Stripe.</li>
+                    <li><span className="font-semibold">Remove, keep the payment:</span> no refund. The payment stays in Financials and they show as “Removed, paid ${plan.paid.toFixed(2)}, not refunded”.</li>
+                    {plan.refundUnavailable && <li className="text-text-muted">{plan.refundUnavailable}</li>}
+                  </ul>
+                )}
+                {sheetErr && <p className="mt-3 text-[12.5px] rounded-[10px] px-3 py-2 bg-danger-surface text-danger-text border border-danger-border">{sheetErr}</p>}
+              </Sheet>
+            );
+          }
           return plan.kind === "blocked" ? (
             <Sheet open onClose={() => setSheet(null)} title={`${sheetRow.name} can't be removed yet`} footer={<button type="button" className={`${btn} border border-app-border text-text-primary`} onClick={() => setSheet(null)}>OK</button>}>
               <p className="text-[14px] text-text-primary">{plan.reason}</p>

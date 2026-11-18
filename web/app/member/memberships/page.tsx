@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { useEffect, useState } from "react";
 import { parseOptions, optionFacts, type MembershipOption } from "@/lib/membershipOptions";
@@ -84,7 +85,7 @@ export default function MemberMembershipsPage() {
     setGroupMsg("");
     const r = await fetch("/api/member/group-values", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ memberId: selectedMemberId, values: groupDraft }) });
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) { setGroupMsg(d.error || "Couldn't save."); return; }
+    if (!r.ok) { setGroupMsg(memberErrorText(d, "Couldn't save.")); return; }
     setGroupValues((v) => ({ ...v, [selectedMemberId]: d.groupValues ?? groupDraft }));
     setGroupDraft(null);
     setGroupMsg("Saved — prices below include any group rate this earns.");
@@ -112,7 +113,7 @@ export default function MemberMembershipsPage() {
         body: JSON.stringify({ memberId: selectedMemberId, membershipId, optionId, optionLabel }),
       });
       const d = await res.json().catch(() => null);
-      if (!res.ok) setError(d?.error || "Could not send that request.");
+      if (!res.ok) setError(memberErrorText(d, "Could not send that request."));
       else setNotice(d?.message || "Sent to your club.");
     } catch {
       setError("Could not send that request. Please try again.");
@@ -141,7 +142,7 @@ export default function MemberMembershipsPage() {
     }
     if (!res.ok || !d.url) {
       setSubmitting(null);
-      setError(d.error || "Could not start checkout");
+      setError(memberErrorText(d, "Could not start checkout"));
       return;
     }
     window.location.href = d.url;

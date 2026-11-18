@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 // Account (was "My Profile") — one calm place for identity, the family,
 // billing, and documents (design 2a / 1c). Information hierarchy:
@@ -341,7 +342,7 @@ export default function MemberAccountPage() {
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
       const fieldErr = d.error?.fieldErrors ? Object.entries(d.error.fieldErrors)[0] : null;
-      setError(typeof d.error === "string" ? d.error : fieldErr ? `${fieldErr[0]}: ${(fieldErr[1] as string[])[0]}` : "Save failed");
+      setError(typeof d.error === "string" ? memberErrorText(d, "Save failed") : fieldErr ? `${fieldErr[0]}: ${(fieldErr[1] as string[])[0]}` : "Save failed");
       return;
     }
     setSuccess(true);
@@ -365,7 +366,7 @@ export default function MemberAccountPage() {
     setOpeningPortal(false);
     if (!res.ok || !d.url) {
       setBillingMsg(
-        typeof d.error === "string" ? d.error : "Could not open the secure card form. Please contact your club.",
+        memberErrorText(d, "Could not open the secure card form. Please contact your club."),
       );
       return;
     }
@@ -385,9 +386,7 @@ export default function MemberAccountPage() {
     if (!res.ok || !d.url) {
       // Soft, contextual message — not the alarming top-of-page red banner.
       setBillingMsg(
-        typeof d.error === "string"
-          ? d.error
-          : "Could not open billing right now. Please contact your club.",
+        memberErrorText(d, "Could not open billing right now. Please contact your club."),
       );
       return;
     }
@@ -405,7 +404,7 @@ export default function MemberAccountPage() {
     setAddingSelf(false);
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      setError(typeof d.error === "string" ? d.error : "Could not set up your athlete profile.");
+      setError(memberErrorText(d, "Could not set up your athlete profile."));
       return;
     }
     invalidateAthleteProfiles();
@@ -425,7 +424,7 @@ export default function MemberAccountPage() {
     const d = await res.json().catch(() => ({}));
     setRequestingCancel(false);
     if (!res.ok) {
-      setError(typeof d.error === "string" ? d.error : "Could not send your request.");
+      setError(memberErrorText(d, "Could not send your request."));
       return;
     }
     setCancelMsg(
@@ -446,7 +445,7 @@ export default function MemberAccountPage() {
     });
     const data = await res.json().catch(() => ({}));
     setInviting(false);
-    setInviteMsg(res.ok ? data.message || "Invite sent." : data.error || "Could not send invite.");
+    setInviteMsg(res.ok ? data.message || "Invite sent." : memberErrorText(data, "Could not send invite."));
     if (res.ok) setInviteEmail("");
   }
 
@@ -463,7 +462,7 @@ export default function MemberAccountPage() {
     const data = await res.json().catch(() => ({}));
     setLinkingChild(false);
     if (!res.ok) {
-      setError(data.error || "Could not link that athlete.");
+      setError(memberErrorText(data, "Could not link that athlete."));
       return;
     }
     setChildEmail("");

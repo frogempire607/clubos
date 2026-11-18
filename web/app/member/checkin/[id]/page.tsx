@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { haptic } from "@/lib/native";
 import { useEffect, useRef, useState } from "react";
@@ -54,7 +55,7 @@ export default function MemberCheckinPage({ params }: { params: { id: string } }
     setDropIn(null);
     if (!res.ok) {
       haptic("error");
-      setError(typeof d.error === "string" ? d.error : "Could not check you in. Please try again.");
+      setError(memberErrorText(d, "Could not check you in. Please try again."));
       return;
     }
     haptic("success");
@@ -81,7 +82,7 @@ export default function MemberCheckinPage({ params }: { params: { id: string } }
     setPaying(false);
     if (res.ok && d.url) { window.location.href = d.url; return; }
     if (res.status === 202) { setError(d.message || "Sent to a parent for approval. You'll be checked in once they pay."); return; }
-    setError(typeof d.error === "string" ? d.error : "Could not start the payment. Pay at the front desk instead.");
+    setError(memberErrorText(d, "Could not start the payment. Pay at the front desk instead."));
   }
 
   useEffect(() => {
@@ -111,7 +112,7 @@ export default function MemberCheckinPage({ params }: { params: { id: string } }
       .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
         if (!ok) {
-          setError(typeof d.error === "string" ? d.error : "This check-in link is no longer available.");
+          setError(memberErrorText(d, "This check-in link is no longer available."));
           return;
         }
         setInfo(d);

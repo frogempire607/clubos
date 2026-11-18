@@ -196,6 +196,7 @@ export const GATED = [
   // events
   ["scripts/event-attendees-tests.ts"],
   ["scripts/event-attendees-actions-tests.ts"],
+  ["scripts/member-errors-and-remove-paid-tests.ts"],
   ["scripts/event-attendees-extras-tests.ts"],
   ["scripts/event-pricing-model-tests.ts"],
   ["scripts/event-roster-tests.ts"],

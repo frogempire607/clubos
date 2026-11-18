@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
@@ -117,7 +118,7 @@ export default function MemberMessagesPage() {
       .then(async (r) => {
         if (!r.ok) {
           const d = await r.json().catch(() => ({}));
-          setError(d.error || "Could not load messages");
+          setError(memberErrorText(d, "Could not load messages"));
           return null;
         }
         return r.json();
@@ -457,7 +458,7 @@ function NewMessageModal({
     const d = await res.json().catch(() => ({}));
     setSending(false);
     if (!res.ok) {
-      setErr(typeof d.error === "string" ? d.error : "Could not send your message.");
+      setErr(memberErrorText(d, "Could not send your message."));
       return;
     }
     onSent(recipientId, childAbout ?? "", subj && subj.kind === "child" ? subj.name : "");

@@ -41,6 +41,9 @@ const REG_SELECT = {
   invoiceCount: true,
   invoicedAt: true,
   paymentUrl: true,
+  // Removed-but-paid rows: which payment, so its refund state can be shown.
+  transactionId: true,
+  stripePaymentIntentId: true,
 } as const;
 
 const BOOKING_SELECT = {
@@ -167,6 +170,25 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
     }),
   ]);
 
+  // What has been refunded on removed registrants who had paid. The refund
+  // lives on the Transaction (charge.refunded webhook), never on the
+  // registration, so "Removed, paid $X, not refunded" is read from there.
+  const removedPaid = regs.filter((r) => r.status === "CANCELED" && Number(r.amountPaid ?? 0) > 0);
+  const refundedByReg = new Map<string, number>();
+  if (removedPaid.length > 0) {
+    const txIds = removedPaid.map((r) => r.transactionId).filter((x): x is string => !!x);
+    const pis = removedPaid.map((r) => r.stripePaymentIntentId).filter((x): x is string => !!x);
+    const txs = await prisma.transaction.findMany({
+      where: { clubId, OR: [...(txIds.length ? [{ id: { in: txIds } }] : []), ...(pis.length ? [{ stripePaymentIntentId: { in: pis } }] : [])] },
+      select: { id: true, stripePaymentIntentId: true, amount: true, refundedAmount: true, status: true },
+    }).catch(() => []);
+    for (const r of removedPaid) {
+      const tx = txs.find((t) => (r.transactionId && t.id === r.transactionId) || (r.stripePaymentIntentId && t.stripePaymentIntentId === r.stripePaymentIntentId));
+      if (!tx) continue;
+      refundedByReg.set(r.id, tx.status === "REFUNDED" ? Number(tx.amount) : Number(tx.refundedAmount ?? 0));
+    }
+  }
+
   // Where each bill would ACTUALLY go — the family model, not the snapshot
   // on the registration row (blank for minors without their own address).
   const recipients = await resolveRegistrationRecipients(clubId, regs);
@@ -183,6 +205,8 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
       formResponses: (r.formResponses ?? null) as Record<string, unknown> | null,
       recipientEmail: rec?.email ?? null,
       recipientName: rec?.displayName ?? null,
+      refundedAmount: refundedByReg.get(r.id) ?? null,
+      paidByCard: !!r.stripePaymentIntentId,
     };
   });
   const ledgerBookings: LedgerBooking[] = bookings.map((b) => ({ ...b, status: String(b.status) }));

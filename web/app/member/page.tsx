@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { sharedGet } from "@/lib/sharedGet";
 import { useEffect, useState } from "react";
@@ -622,7 +623,7 @@ function LinkChildModal({ onClose, onLinked }: { onClose: () => void; onLinked: 
     });
     const data = await res.json();
     setSaving(false);
-    if (!res.ok) { setError(data.error || "Failed to link child"); return; }
+    if (!res.ok) { setError(memberErrorText(data, "Failed to link child")); return; }
     if (data.linked === false) {
       // Queued for owner approval — no access granted yet.
       setPendingMsg(data.message || "Request sent to your club for approval.");

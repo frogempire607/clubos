@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 // Member store — product detail (B10 handoff screen 2e).
 //
@@ -102,7 +103,7 @@ export default function MemberProductDetailPage() {
       body: JSON.stringify({ ...p, memberId }),
     });
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) { setBusy(false); setError(d.error || "Couldn't book that."); return; }
+    if (!res.ok) { setBusy(false); setError(memberErrorText(d, "Couldn't book that.")); return; }
     if (d.url) { window.location.href = d.url; return; }
     setBusy(false);
     setBookedMsg(d.status === "PENDING" ? "Request sent — the club will confirm it." : "Booked. See you there!");
@@ -117,7 +118,7 @@ export default function MemberProductDetailPage() {
     });
     const d = await res.json().catch(() => ({}));
     if (res.status === 202) { setBusy(false); setError(d.message || "Sent to your parent for approval."); return; }
-    if (!res.ok || !d.url) { setBusy(false); setError(d.error || "Could not start checkout"); return; }
+    if (!res.ok || !d.url) { setBusy(false); setError(memberErrorText(d, "Could not start checkout")); return; }
     window.location.href = d.url;
   }
 

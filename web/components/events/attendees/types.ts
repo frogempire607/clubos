@@ -87,6 +87,8 @@ export type RegistrationsPayload = {
       holdSpotDuringReview: boolean;
     };
     canDecide?: boolean;
+    /** Owner or billing:full — may remove someone who paid. */
+    canDecideMoney?: boolean;
     categoryFields?: CategoryField[];
     extraEntryLabel?: string;
     proposalNotePlaceholder?: string;

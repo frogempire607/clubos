@@ -1,4 +1,5 @@
 "use client";
+import { memberErrorText } from "@/lib/memberErrorText";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -369,7 +370,7 @@ export default function MemberPrivatesPage() {
         return;
       }
       if (!res.ok || !d?.url) {
-        setError(d?.error || "Couldn't open checkout. Try again.");
+        setError(memberErrorText(d, "Couldn't open checkout. Try again."));
         return;
       }
       window.location.href = d.url;
@@ -577,7 +578,7 @@ export default function MemberPrivatesPage() {
     });
     const d = await res.json().catch(() => ({}));
     setSaving(false);
-    if (!res.ok) { setError(d.error || "Could not submit request"); return; }
+    if (!res.ok) { setError(memberErrorText(d, "Could not submit request")); return; }
     setDone(true);
     setTypeId(""); setOptionId(""); setCoachId("");
     setSlots([{ date: "", startTime: "" }]); setNotes("");
