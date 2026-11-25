@@ -17,6 +17,7 @@ import { loadEventMoneySummaries } from "@/lib/eventAttendeesServer";
 import { reserveSlug } from "@/lib/eventShareLink";
 import { requirePermission } from "@/lib/apiGuard";
 import { linkProblem, normalizeEventLinks } from "@/lib/eventLinks";
+import { normalizeRefundPolicy } from "@/lib/eventRefundPolicy";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -167,6 +168,11 @@ const eventFields = {
   // lib/eventAutoDiscounts.validateAutoDiscounts below, not by zod.
   autoDiscounts: z.unknown().optional(),
   cancellationPolicyText: z.string().max(2000).nullable().optional(),
+  // lib/eventRefundPolicy.normalizeRefundPolicy is the one rule.
+  refundPolicy: z.string().max(20).nullable().optional(),
+  refundUntilAt: z.string().max(40).nullable().optional(),
+  refundUntilDays: z.number().int().nullable().optional(),
+  refundNote: z.string().max(500).nullable().optional(),
   paymentDueBy: z.string().nullable().optional(),
   escalationEnabled: z.boolean().nullable().optional(),
   escalationAnchor: z.enum(["registrationDeadline", "eventStart", "autoChargeDate"]).nullable().optional(),
@@ -251,6 +257,9 @@ export async function POST(req: Request) {
     const audIssue = data.audience ? audienceProblem(data.audience) ?? (await audienceMembershipProblem(session.user.clubId, data.audience)) : null;
     if (audIssue) return NextResponse.json({ error: audIssue }, { status: 400 });
     const audience = normalizeAudience(data.audience);
+
+    const refund = normalizeRefundPolicy(data);
+    if (!refund.ok) return NextResponse.json({ error: refund.error }, { status: 400 });
 
     const startsAt = new Date(data.startsAt);
     const endsAt = new Date(data.endsAt);
@@ -357,6 +366,7 @@ export async function POST(req: Request) {
         entriesOnPublicLink: data.entriesOnPublicLink ?? false,
         autoDiscounts: (data.autoDiscounts ?? {}) as Prisma.InputJsonValue,
         cancellationPolicyText: data.cancellationPolicyText ?? undefined,
+        ...(refund.columns ?? {}),
         paymentDueBy: data.paymentDueBy ? new Date(data.paymentDueBy) : undefined,
         escalationEnabled: data.escalationEnabled ?? undefined,
         escalationAnchor: data.escalationAnchor ?? undefined,

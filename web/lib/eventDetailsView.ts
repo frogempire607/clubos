@@ -5,6 +5,8 @@
 // `confirmed`) and the details screen both take their payment sentences from
 // here, so "how and when you pay" reads the same before and after the tap.
 
+import type { RefundPolicyView } from "@/lib/eventRefundPolicy";
+
 export type PaymentMethodKey =
   | "CARD"
   | "SAVED_CARD"
@@ -259,6 +261,8 @@ export type RegisterReview = {
   split: { mode: string | null; perHead: number | null } | null;
   /** Documents the person agrees to by confirming (acknowledge-only). */
   acknowledge: { id: string; title: string }[];
+  /** The event's refund policy, when one is set and money is owed. */
+  refundPolicy?: RefundPolicyView | null;
   /** The plain sentence on when and how the money moves. */
   timing: string;
   /** The button's words. */

@@ -10,6 +10,7 @@ import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { normalizeRefundPolicy } from "@/lib/eventRefundPolicy";
 import { withEntryCounts } from "@/lib/eventRosterServer";
 import { reserveSlug } from "@/lib/eventShareLink";
 import { requirePermission, requirePermissionLive, requireStaff } from "@/lib/apiGuard";
@@ -113,6 +114,11 @@ const updateSchema = z.object({
   // lib/eventAutoDiscounts.validateAutoDiscounts below, not by zod.
   autoDiscounts: z.unknown().optional(),
   cancellationPolicyText: z.string().max(2000).nullable().optional(),
+  // lib/eventRefundPolicy.normalizeRefundPolicy is the one rule.
+  refundPolicy: z.string().max(20).nullable().optional(),
+  refundUntilAt: z.string().max(40).nullable().optional(),
+  refundUntilDays: z.number().int().nullable().optional(),
+  refundNote: z.string().max(500).nullable().optional(),
   paymentDueBy: z.string().nullable().optional(),
   escalationEnabled: z.boolean().nullable().optional(),
   escalationAnchor: z.enum(["registrationDeadline", "eventStart", "autoChargeDate"]).nullable().optional(),
@@ -306,8 +312,11 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       autoDiscounts,
       externalLinks: _el,
       audience: _aud,
+      refundPolicy, refundUntilAt, refundUntilDays, refundNote,
       ...flatRest
     } = rest;
+    const refund = normalizeRefundPolicy({ refundPolicy, refundUntilAt, refundUntilDays, refundNote });
+    if (!refund.ok) return NextResponse.json({ error: refund.error }, { status: 400 });
     void _pm; void _sa; void _siw; void _sis; void _mp; void _nmp; void _dif; void _vis; void _pa; void _pr; void _isa; void _el; void _aud;
     const modelWrite = model
       ? {
@@ -340,6 +349,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       where: { id: params.id },
       data: {
         ...flatRest,
+        ...(refund.columns ?? {}),
         ...modelWrite,
         ...(autoDiscounts !== undefined ? { autoDiscounts: autoDiscounts as Prisma.InputJsonValue } : {}),
         ...(cleanLinks !== undefined

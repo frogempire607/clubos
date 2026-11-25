@@ -163,6 +163,9 @@ export const GATED = [
   ["scripts/stripe-truth-tests.ts"],
   ["scripts/billing-data-tests.ts"],
   ["scripts/non-renewal-tests.ts"],
+  // What a membership will actually do, whatever its stored flag says
+  // (2026-11-25): every display case, on every screen.
+  ["scripts/renewal-truth-tests.ts"],
   ["scripts/billing-retire-tests.ts"],
   ["scripts/invoice-period-tests.ts"],
   ["scripts/bank-reconciliation-tests.ts"],
@@ -231,6 +234,14 @@ export const GATED = [
   ["scripts/event-attendees-tests.ts"],
   ["scripts/event-attendees-actions-tests.ts"],
   ["scripts/member-errors-and-remove-paid-tests.ts"],
+  // Event refunds (2026-11-25): how much, once only, plain words when Stripe
+  // says no, and "Remove and refund" that leaves people registered when it does.
+  ["scripts/event-refund-tests.ts"],
+  // Event refund policy (2026-11-25): each policy's words and date, the
+  // required checkbox, the staff warning, deadlines on the club's clock, and
+  // a family's own cancel.
+  ["scripts/event-refund-policy-tests.ts", [], { TZ: "UTC" }],
+  ["scripts/event-refund-policy-tests.ts", [], { TZ: "America/Los_Angeles" }],
   ["scripts/event-details-tests.ts"],
   ["scripts/push-tests.ts"],
   ["scripts/social-auth-tests.ts"],

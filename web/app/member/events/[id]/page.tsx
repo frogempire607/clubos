@@ -20,6 +20,8 @@ import type { AccessibleProfile } from "@/components/ProfileSwitcher";
 import { useEventRegisterFlow, type FlowMessage, type MemberEventCard } from "@/components/member/events/registerFlow";
 import { memberErrorText } from "@/lib/memberErrorText";
 import { isNativeApp, shareLink } from "@/lib/native";
+import RefundPolicyLines from "@/components/events/RefundPolicyLines";
+import type { RefundPolicyView } from "@/lib/eventRefundPolicy";
 import {
   athleteStatusText,
   deadlineText,
@@ -51,6 +53,7 @@ type Details = {
   registrationClosed: boolean;
   started: boolean;
   cancellationPolicy: string | null;
+  refundPolicy: RefundPolicyView | null;
   questions: { label: string; type: string; required: boolean; options: string[]; perEntry: boolean }[];
   documents: { id: string; title: string; requirement: string; requirementLabel: string; needsSignature: boolean }[];
   sessions: { id: string; name: string | null; startsAt: string; endsAt: string; price: number | null; pickable: boolean }[];
@@ -437,9 +440,10 @@ function Inner() {
         </Section>
       )}
 
-      {d.cancellationPolicy && (
+      {(d.refundPolicy || d.cancellationPolicy) && (
         <Section title="Cancellations and refunds" icon={<AlertTriangle className="h-4 w-4" strokeWidth={2} aria-hidden />}>
-          <DescriptionText text={d.cancellationPolicy} className="text-sm text-stone-700" />
+          {d.refundPolicy && <RefundPolicyLines view={d.refundPolicy} />}
+          {d.cancellationPolicy && <DescriptionText text={d.cancellationPolicy} className={`text-sm text-stone-700 ${d.refundPolicy ? "mt-2" : ""}`} />}
         </Section>
       )}
 

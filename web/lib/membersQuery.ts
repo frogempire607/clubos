@@ -18,6 +18,8 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { feePolicyFor } from "@/lib/fees";
+import { RENEWAL_SELECT, renewalViews } from "@/lib/renewalServer";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 import { groupDuplicates } from "@/lib/memberDuplicates";
 import {
@@ -481,7 +483,27 @@ export function matchesDerived(m: SerializedMember, f: MemberListFilters): boole
 }
 
 /** A roster row plus its household key (B6 family collapse). */
-export type RosterListMember = SerializedMember & { familyKey: string | null };
+export type RosterListMember = SerializedMember & {
+  familyKey: string | null;
+  /** Only on the two renewal queues: "Renews Dec 3 · $110" / "Ends Dec 3 · doesn't renew", one per live membership. */
+  renewalLines?: string[];
+};
+
+/** The renewal queues list both kinds on purpose (a charge to expect, a re-sign
+ *  to sell). Each row says which it is. One read for the page. */
+async function withRenewalLines(clubId: string, f: MemberListFilters, rows: RosterListMember[], now: Date): Promise<RosterListMember[]> {
+  if ((f.queue !== "renewingSoon" && f.queue !== "endingSoon") || rows.length === 0) return rows;
+  const [subs, club] = await Promise.all([
+    prisma.memberSubscription.findMany({
+      where: { memberId: { in: rows.map((r) => r.id) }, status: "active", member: { clubId } },
+      select: { ...RENEWAL_SELECT, memberId: true },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.club.findUnique({ where: { id: clubId }, select: { passProcessingFees: true, passPlatformFee: true, tier: true } }),
+  ]);
+  const views = await renewalViews(subs, club ? feePolicyFor(club) : false, now);
+  return rows.map((r) => ({ ...r, renewalLines: subs.filter((s) => s.memberId === r.id).map((s) => views[s.id].line) }));
+}
 
 export type MemberListResult = {
   members: RosterListMember[];
@@ -699,7 +721,7 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
 
     const start = (f.page - 1) * f.pageSize;
     return {
-      members: filtered.slice(start, start + f.pageSize),
+      members: await withRenewalLines(clubId, f, filtered.slice(start, start + f.pageSize), now),
       pagination: {
         total: filtered.length,
         page: f.page,
@@ -733,7 +755,7 @@ export async function listMembers(clubId: string, f: MemberListFilters): Promise
 
   const pageFamilyKeys = familyKeysFor(rows);
   return {
-    members: rows.map((m) => ({ ...serializeMemberForList(m, ctx), familyKey: pageFamilyKeys.get(m.id) ?? null })),
+    members: await withRenewalLines(clubId, f, rows.map((m) => ({ ...serializeMemberForList(m, ctx), familyKey: pageFamilyKeys.get(m.id) ?? null })), now),
     facets,
     pagination: {
       total,

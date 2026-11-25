@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { renewalViews } from "@/lib/renewalServer";
 import { requirePermission, requireStaff } from "@/lib/apiGuard";
 import { upsertGuardianProfile } from "@/lib/guardian";
 import { ensurePrimaryGuardian } from "@/lib/guardianLink";
@@ -492,6 +493,8 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
 
   return NextResponse.json({
     ...rest,
+    // What each membership will actually do at the end of its period.
+    renewals: await renewalViews(rest.subscriptions, feePolicyFor(_c), new Date()),
     relationships,
     family,
     familyMembers,

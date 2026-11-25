@@ -19,6 +19,8 @@
 // (pricingModel, signupAccess, splitInvoiceWhen, sellIndividualSessions,
 // sessions[].price, sessions[].id). The API writes both vocabularies.
 
+import { normalizeRefundPolicy, refundPolicyView, REFUND_POLICY_LABELS, type RefundPolicyKind } from "@/lib/eventRefundPolicy";
+import { tzOffsetMs, wallClockUTCToInstant } from "@/lib/datetime";
 import { backdropDismiss } from "@/lib/overlay";
 import { promptDialog } from "@/lib/dialogs";
 import Link from "next/link";
@@ -136,6 +138,10 @@ export type EditorEvent = {
   entriesOnPublicLink?: boolean;
   autoDiscounts?: unknown;
   cancellationPolicyText?: string | null;
+  refundPolicy?: string | null;
+  refundUntilAt?: string | null;
+  refundUntilDays?: number | null;
+  refundNote?: string | null;
   externalLinks?: unknown;
   /** lib/eventAudience — who the event is for, on top of who can sign up. */
   audience?: unknown;
@@ -157,6 +163,14 @@ export type EditorStaff = { id: string; firstName: string; lastName: string };
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
+/** A moment as a datetime-local value on the club's clock. */
+function wallInput(d: Date, tz: string) {
+  try {
+    return new Date(d.getTime() + tzOffsetMs(tz, d)).toISOString().slice(0, 16);
+  } catch {
+    return toLocalInput(d);
+  }
+}
 function toLocalInput(d: Date) {
   const tz = d.getTimezoneOffset() * 60000;
   return new Date(d.getTime() - tz).toISOString().slice(0, 16);
@@ -437,6 +451,42 @@ export default function EventEditor({
   const [capacity, setCapacity] = useState(ev?.capacity?.toString() || "");
   const [paymentDueBy, setPaymentDueBy] = useState<string>(ev?.paymentDueBy ? new Date(ev.paymentDueBy).toISOString().slice(0, 10) : "");
   const [cancellationPolicyText, setCancellationPolicyText] = useState<string>(ev?.cancellationPolicyText || "");
+  // ── Refunds (lib/eventRefundPolicy). Dates are typed in the CLUB's timezone. ──
+  const [clubTz, setClubTz] = useState<string | null>(null);
+  const [refundPolicy, setRefundPolicy] = useState<string>(ev?.refundPolicy || "");
+  const [refundBy, setRefundBy] = useState<"DATE" | "DAYS">(ev?.refundUntilAt ? "DATE" : "DAYS");
+  const [refundUntil, setRefundUntil] = useState<string>("");
+  const [refundUntilTouched, setRefundUntilTouched] = useState(false);
+  const [refundDays, setRefundDays] = useState<string>(ev?.refundUntilDays != null ? String(ev.refundUntilDays) : "");
+  const [refundNote, setRefundNote] = useState<string>(ev?.refundNote || "");
+  const [clubTzLoaded, setClubTzLoaded] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const show = (tz: string | null) => {
+      if (!live) return;
+      setClubTz(tz);
+      setClubTzLoaded(true);
+      if (ev?.refundUntilAt) setRefundUntil(tz ? wallInput(new Date(ev.refundUntilAt), tz) : toLocalInput(new Date(ev.refundUntilAt)));
+    };
+    fetch("/api/club/info")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => show(typeof d?.timezone === "string" && d.timezone ? d.timezone : typeof d?.club?.timezone === "string" && d.club.timezone ? d.club.timezone : null))
+      .catch(() => show(null));
+    return () => { live = false; };
+  }, [ev?.refundUntilAt]);
+  /** The columns this editor would save. An untouched date is sent back exactly as it was stored. */
+  const refundDraft = {
+    refundPolicy: refundPolicy || null,
+    refundUntilAt: refundPolicy === "UNTIL" && refundBy === "DATE"
+      ? !refundUntilTouched && ev?.refundUntilAt
+        ? new Date(ev.refundUntilAt).toISOString()
+        : refundUntil
+          ? (clubTz ? wallClockUTCToInstant(`${refundUntil}:00Z`, clubTz) : new Date(refundUntil)).toISOString()
+          : null
+      : null,
+    refundUntilDays: refundPolicy === "UNTIL" && refundBy === "DAYS" && refundDays.trim() !== "" ? Number(refundDays) : null,
+    refundNote: refundNote.trim() || null,
+  };
   const [publishAt, setPublishAt] = useState(ev?.publishAt ? toLocalInput(new Date(ev.publishAt)) : "");
   const [unpublishAt, setUnpublishAt] = useState(ev?.unpublishAt ? toLocalInput(new Date(ev.unpublishAt)) : "");
   const [escalationEnabled, setEscalationEnabled] = useState<boolean>(!!ev?.escalationEnabled);
@@ -491,6 +541,17 @@ export default function EventEditor({
     () => applyExclusions({ pricingModel, signupAccess, paymentMethods: payMethods, chargeOnApproval, requiresCoachApproval: approvalOn }),
     [pricingModel, signupAccess, payMethods, chargeOnApproval, approvalOn],
   );
+  const chargesOnDate = !exclusions.paymentMethodsLocked && exclusions.paymentMethods.includes("AUTO_CARD");
+  // What families will read, as it stands.
+  const refundPreview = (() => {
+    const start = new Date(startsAt);
+    if (!refundPolicy || isNaN(start.getTime())) return null;
+    return refundPolicyView(
+      { ...refundDraft, startsAt: start, autoChargeDate: chargesOnDate && autoChargeDate ? `${autoChargeDate}T12:00:00Z` : null },
+      { timezone: clubTz },
+      new Date(),
+    );
+  })();
   const bundle = useMemo(() => (pricingModel === "FIXED" && sellSessions ? bundleSanity(sessionPrices, mp ?? nmp) : { kind: "NONE" as const }), [pricingModel, sellSessions, sessionPrices, mp, nmp]);
   const moneyLine = moneySummary({
     pricingModel, memberPrice: mp, nonMemberPrice: nmp, sellIndividualSessions: sellSessions, sessionPrices,
@@ -517,6 +578,7 @@ export default function EventEditor({
   const linkCount = links.filter((l) => l.url.trim()).length;
   const capacityLine = [
     capacity ? `${capacity} spots` : "no cap",
+    refundPolicy ? REFUND_POLICY_LABELS[refundPolicy as RefundPolicyKind]?.toLowerCase() : null,
     paymentDueBy ? `payment due ${new Date(`${paymentDueBy}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}` : null,
     publishAt ? "scheduled publish" : null,
   ].filter(Boolean).join(" · ");
@@ -593,6 +655,13 @@ export default function EventEditor({
     const orphanLabel = links.find((l) => l.label.trim() && !l.url.trim());
     const linkIssue = orphanLabel ? `Add a web address for "${orphanLabel.label.trim()}", or remove that link.` : linkProblem(links);
     if (linkIssue) { setError(linkIssue); setOpen((o) => ({ ...o, basics: true })); return; }
+    const refundCheck = normalizeRefundPolicy(refundDraft);
+    const refundIssue = !refundCheck.ok
+      ? refundCheck.error
+      : refundPolicy === "UNTIL_CHARGED" && !chargesOnDate
+        ? "“Refundable until the card is charged” needs an event that charges saved cards on a date. Pick another refund choice, or turn that payment option on."
+        : null;
+    if (refundIssue) { setError(refundIssue); setOpen((o) => ({ ...o, capacity: true })); return; }
     const audIssue = (audMin.trim() !== "" && !/^\d{1,3}$/.test(audMin.trim())) || (audMax.trim() !== "" && !/^\d{1,3}$/.test(audMax.trim()))
       ? "Ages must be whole numbers."
       : audienceProblem(audienceDraft ?? {});
@@ -663,6 +732,7 @@ export default function EventEditor({
       paymentMethods: exclusions.paymentMethodsLocked ? [] : exclusions.paymentMethods,
       autoChargeDate: exclusions.paymentMethods.includes("AUTO_CARD") && autoChargeDate ? new Date(`${autoChargeDate}T12:00:00Z`).toISOString() : null,
       requirePaymentBeforeCheckin,
+      ...refundDraft,
       allowMultipleEntries,
       maxEntries: allowMultipleEntries && maxEntries ? Math.max(1, Math.min(20, parseInt(maxEntries, 10) || 1)) : null,
       additionalEntryPrice: allowMultipleEntries && extraEntryPriced && additionalEntryPrice !== "" ? Math.max(0, parseFloat(additionalEntryPrice) || 0) : null,
@@ -738,7 +808,7 @@ export default function EventEditor({
       {isCopy && (
         <div className="rounded-[14px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <strong>This is a copy.</strong> Everything came over except people and money. Change the <strong>name</strong>, the{" "}
-          <strong>dates</strong>{payMethods.includes("AUTO_CARD") ? <>, and the <strong>saved-card charge date</strong></> : null} before you share it —
+          <strong>dates</strong>{refundUntil ? <>, the <strong>refund deadline</strong></> : null}{payMethods.includes("AUTO_CARD") ? <>, and the <strong>saved-card charge date</strong></> : null} before you share it —
           {signupAccess === "PUBLIC_LINK" ? " a new public link is made from the new name when you save." : " then save."}
         </div>
       )}
@@ -1256,6 +1326,41 @@ export default function EventEditor({
         <div className="grid grid-cols-2 gap-3">
           <Field label="Capacity" hint="Blank = unlimited"><input type="number" min="1" value={capacity} onChange={(e) => setCapacity(e.target.value)} className={input} /></Field>
           <Field label="Payment due by"><input type="date" value={paymentDueBy} onChange={(e) => setPaymentDueBy(e.target.value)} className={input} /></Field>
+        </div>
+        <div className="rounded-xl border border-app-border px-3 py-3 space-y-2.5">
+          <Field label="Refunds" hint="Shown to families before they pay. Staff can still refund at any time.">
+            <select value={refundPolicy} onChange={(e) => setRefundPolicy(e.target.value)} className={input}>
+              <option value="">Not set</option>
+              {(Object.keys(REFUND_POLICY_LABELS) as RefundPolicyKind[])
+                .filter((k) => k !== "UNTIL_CHARGED" || chargesOnDate || refundPolicy === "UNTIL_CHARGED")
+                .map((k) => <option key={k} value={k}>{REFUND_POLICY_LABELS[k]}</option>)}
+            </select>
+          </Field>
+          {refundPolicy === "UNTIL" && (
+            <>
+              <div className="flex gap-1.5 flex-wrap" role="radiogroup" aria-label="Refunds stop">
+                {([["DAYS", "Days before the event"], ["DATE", "A date and time"]] as const).map(([k, l]) => (
+                  <button key={k} type="button" role="radio" aria-checked={refundBy === k} onClick={() => setRefundBy(k)} className={`text-[13px] px-3 min-h-11 rounded-lg border ${refundBy === k ? "border-brand bg-brand/10 text-brand font-medium" : "border-app-border text-text-primary"}`}>{l}</button>
+                ))}
+              </div>
+              {refundBy === "DAYS" ? (
+                <Field label="How many days before the event starts"><input inputMode="numeric" value={refundDays} onChange={(e) => setRefundDays(e.target.value.replace(/[^0-9]/g, ""))} placeholder="3" className={input} /></Field>
+              ) : (
+                <Field label="Refunds stop" hint={clubTz ? `Your club's time (${clubTz.replace(/_/g, " ")})` : undefined}>
+                  <input type="datetime-local" value={refundUntil} disabled={!clubTzLoaded} onChange={(e) => { setRefundUntil(e.target.value); setRefundUntilTouched(true); }} className={input} />
+                </Field>
+              )}
+            </>
+          )}
+          {refundPolicy && (
+            <Field label="Note (optional)"><input value={refundNote} maxLength={500} onChange={(e) => setRefundNote(e.target.value)} placeholder="Entry fees paid to the host are non-refundable" className={input} /></Field>
+          )}
+          {refundPolicy === "UNTIL_CHARGED" && !chargesOnDate && (
+            <p className="text-[12px] text-danger-text">This event doesn&apos;t charge saved cards on a date any more. Pick another choice.</p>
+          )}
+          {refundPreview && (
+            <p className="text-[12px] text-text-muted">Families read: {refundPreview.lines.join(" ")}</p>
+          )}
         </div>
         <Field label="Cancellation policy" hint="Shown to families before they sign up."><textarea value={cancellationPolicyText} onChange={(e) => setCancellationPolicyText(e.target.value)} rows={2} className={input} /></Field>
         <div className="grid grid-cols-2 gap-3">

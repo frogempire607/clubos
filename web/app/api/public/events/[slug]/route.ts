@@ -3,6 +3,7 @@ import { normalizeAudience } from "@/lib/eventAudience";
 import { publicMediaUrl } from "@/lib/publicMedia";
 import { autoDiscountView } from "@/lib/eventAutoDiscounts";
 import { prisma } from "@/lib/prisma";
+import { refundPolicyView } from "@/lib/eventRefundPolicy";
 import { publicClubLogoUrl } from "@/lib/clubLogo";
 import {
   eventAllowedPaymentMethods,
@@ -79,6 +80,10 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       requiresCoachApproval: true,
       approvalPaymentIntent: true,
       cancellationPolicyText: true,
+      refundPolicy: true,
+      refundUntilAt: true,
+      refundUntilDays: true,
+      refundNote: true,
       customEventType: { select: { defaultPolicy: true } },
       publishAt: true,
       unpublishAt: true,
@@ -97,6 +102,8 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
           timezone: true,
           stripeAccountId: true,
           stripeChargesEnabled: true,
+          passProcessingFees: true,
+          passPlatformFee: true,
         },
       },
       // Spot-holding registrations only — see capacityWhere: an in-flight
@@ -226,6 +233,8 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
       (publicPolicy.approvalPaymentIntent === "INVOICE" ||
         publicPolicy.approvalPaymentIntent === "APPROVAL_CHARGE"),
     cancellationPolicyText: publicPolicy.cancellationPolicyText,
+    // Plain lines only, and only when there is something to pay.
+    refundPolicy: (price ?? 0) > 0 || event.variableCostEnabled ? refundPolicyView(event, event.club, new Date()) : null,
     documents,
     autoChargeDate: event.autoChargeDate,
     // B16 — the roster's labels and open counts (never names), or null.

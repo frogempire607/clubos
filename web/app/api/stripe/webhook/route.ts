@@ -10,6 +10,7 @@ import { stripe } from "@/lib/stripe";
 import { applyNonRenewal, planNonRenewal } from "@/lib/autopay";
 import { invoicePeriodEnd, refundFeeFactsForCharge } from "@/lib/stripeTruth";
 import { prisma } from "@/lib/prisma";
+import { refundPolicyView } from "@/lib/eventRefundPolicy";
 import { releaseStock } from "@/lib/productStock";
 import { recordProductMoney } from "@/lib/productMoney";
 import { confirmBookingPayment } from "@/lib/productBookingServer";
@@ -39,7 +40,8 @@ import {
 
 // Resolve the best email + first name for a member. Falls back to guardian email
 // for minors, then to the linked User account.
-async function memberContact(memberId: string): Promise<{ email: string | null; firstName: string; clubName: string; timeZone: string | null }> {
+type MemberContact = { email: string | null; firstName: string; clubName: string; timeZone: string | null; timezone: string | null; passProcessingFees: boolean; passPlatformFee: boolean };
+async function memberContact(memberId: string): Promise<MemberContact> {
   const m = await prisma.member.findUnique({
     where: { id: memberId },
     select: {
@@ -49,14 +51,14 @@ async function memberContact(memberId: string): Promise<{ email: string | null; 
       guardianEmail: true,
       guardian: { select: { email: true } },
       user: { select: { email: true } },
-      club: { select: { name: true, timezone: true } },
+      club: { select: { name: true, timezone: true, passProcessingFees: true, passPlatformFee: true } },
     },
   });
-  if (!m) return { email: null, firstName: "", clubName: "", timeZone: null };
+  if (!m) return { email: null, firstName: "", clubName: "", timeZone: null, timezone: null, passProcessingFees: false, passPlatformFee: false };
   const email = m.isMinor
     ? (m.guardian?.email || m.guardianEmail || m.email || m.user?.email || null)
     : (m.email || m.user?.email || m.guardianEmail || null);
-  return { email, firstName: m.firstName, clubName: m.club?.name ?? "your club", timeZone: m.club?.timezone ?? null };
+  return { email, firstName: m.firstName, clubName: m.club?.name ?? "your club", timeZone: m.club?.timezone ?? null, timezone: m.club?.timezone ?? null, passProcessingFees: !!m.club?.passProcessingFees, passPlatformFee: !!m.club?.passPlatformFee };
 }
 
 // AWAITED. This used to fire the email and return at once; on serverless the
@@ -733,6 +735,7 @@ export async function POST(req: Request) {
                       startsAt: event.startsAt,
                       endsAt: event.endsAt,
                       amountPaid: amountStr,
+                      refundPolicy: refundPolicyView(event, contact, new Date())?.lines,
                       portalUrl: `${BASE_URL}${eventDetailsPath(event.id)}`,
                       clock: { kind: "moment", timeZone: contact.timeZone },
                     })
@@ -1102,7 +1105,6 @@ export async function POST(req: Request) {
       // subscribed to these two event types in the Stripe dashboard.
       case "charge.refunded": {
         const charge = event.data.object as Stripe.Charge;
-        const refunded = (charge.amount_refunded || 0) / 100;
         const piId =
           typeof charge.payment_intent === "string"
             ? charge.payment_intent
@@ -1114,12 +1116,16 @@ export async function POST(req: Request) {
               ...(piId ? [{ stripePaymentIntentId: piId }] : []),
             ],
           },
-          select: { id: true, amount: true, notes: true },
+          select: { id: true, amount: true, notes: true, refundedAmount: true },
         });
         if (!tx) {
           console.error(`charge.refunded: no local Transaction for charge ${charge.id}`);
           break;
         }
+        // amount_refunded is the total as of THIS event. Partial refunds can be
+        // delivered late or out of order, and the Refund button writes the
+        // total straight away, so an older event must never lower it.
+        const refunded = Math.max((charge.amount_refunded || 0) / 100, Number(tx.refundedAmount ?? 0));
         const fullyRefunded = refunded >= Number(tx.amount) - 0.005;
         // The fee movement on the refund, from the REFUND's own balance
         // transaction. Phase 12 built the ledger path for this and had nothing

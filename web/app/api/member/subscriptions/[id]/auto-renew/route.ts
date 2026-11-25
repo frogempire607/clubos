@@ -5,6 +5,7 @@ import { formatZodError } from "@/lib/zodErrors";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { loadStripeStops, stopOf } from "@/lib/stripeStops";
 import { setAutoRenew } from "@/lib/autopay";
 import {
   recordSubscriptionEvent,
@@ -61,9 +62,13 @@ async function authorize(subscriptionId: string, clubId: string, userId: string)
 }
 
 async function describe(sub: NonNullable<Awaited<ReturnType<typeof authorize>>["sub"]>, person: PayablePerson, clubId: string) {
-  const club = await prisma.club.findUnique({ where: { id: clubId }, select: { passProcessingFees: true, passPlatformFee: true, tier: true } });
+  const [club, stops] = await Promise.all([
+    prisma.club.findUnique({ where: { id: clubId }, select: { passProcessingFees: true, passPlatformFee: true, tier: true } }),
+    loadStripeStops([sub.stripeSubscriptionId]),
+  ]);
   return describeForPortal({
-    sub, person, passProcessingFees: club ? feePolicyFor(club) : false, card: null, lastPaidMethod: null, now: new Date(),
+    sub, person, passProcessingFees: club ? feePolicyFor(club) : false, card: null, lastPaidMethod: null,
+    stripeStop: stopOf(stops, sub.stripeSubscriptionId), now: new Date(),
   });
 }
 
@@ -112,6 +117,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return NextResponse.json({ error: "This membership has already ended." }, { status: 409 });
   }
   const before = await describe(sub, person, clubId);
+  // What will happen disagrees with the stored flag: the switch can't honestly
+  // be flipped from here (lib/memberAutoRenewAccess `locked`).
+  if (before.locked) {
+    return NextResponse.json({ error: `${before.renewal ?? before.copy.currentSentence}. ${before.copy.blockedReason}`, code: "ASK_CLUB" }, { status: 409 });
+  }
   if (!before.copy.canToggle && !body.autoRenew) {
     return NextResponse.json({ error: before.copy.blockedReason, code: "NOT_READY" }, { status: 409 });
   }

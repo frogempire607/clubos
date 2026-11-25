@@ -10,6 +10,8 @@ import type { SignupRoster } from "@/components/events/SpotPicker";
 import EntriesEditor, { entriesPayload, emptyEntry, type EntryDraft } from "@/components/events/EntriesEditor";
 import { eventFormFields } from "@/lib/eventForm";
 import { entriesTotalCents } from "@/lib/eventEntries";
+import RefundPolicyLines, { NonRefundableCheckbox } from "@/components/events/RefundPolicyLines";
+import { NON_REFUNDABLE_REQUIRED, type RefundPolicyView } from "@/lib/eventRefundPolicy";
 import EventInfoBlock from "@/components/events/EventInfoBlock";
 import { eventDetailsPath } from "@/lib/memberErrorText";
 
@@ -52,6 +54,7 @@ type PublicEvent = {
   requiresCoachApproval?: boolean;
   billOnApproval?: boolean;
   cancellationPolicyText?: string | null;
+  refundPolicy?: RefundPolicyView | null;
   documents?: { id: string; title: string; type: string; body: string | null; requirement: string }[];
   autoChargeDate?: string | null;
   // The only way to pay is a card saved on an account — sign in instead of
@@ -93,6 +96,7 @@ export default function PublicEventPage() {
   const [done, setDone] = useState<null | { message: string }>(null);
   const [payMethod, setPayMethod] = useState<string>("");
   const [docsAcknowledged, setDocsAcknowledged] = useState(false);
+  const [nonRefundable, setNonRefundable] = useState(false);
   // AUTO_CARD: the guest authorizes the later charge, in these words.
   const [cardConsent, setCardConsent] = useState(false);
   // Discount code. `applied` is the server's verdict — the page never does its
@@ -266,6 +270,10 @@ export default function PublicEventPage() {
       setError("Please review and acknowledge the event documents.");
       return;
     }
+    if (event?.refundPolicy?.mustAcknowledge && !nonRefundable) {
+      setError(NON_REFUNDABLE_REQUIRED);
+      return;
+    }
     const perEntryFields = eventFormFields(event?.registrationForm).filter((f) => f.perEntry);
     const built = entriesPayload(entryDrafts, {
       roster: event?.roster ?? null,
@@ -310,6 +318,7 @@ export default function PublicEventPage() {
         ...(applied ? { discountCode: applied.code } : {}),
         ...(event?.autoDiscounts?.group && groupValue.trim() ? { groupValue: groupValue.trim() } : {}),
         ...(gatedDocs.length > 0 ? { acknowledgeDocuments: docsAcknowledged } : {}),
+        ...(event?.refundPolicy?.mustAcknowledge ? { acknowledgeNonRefundable: nonRefundable } : {}),
       }),
     });
     const d = await res.json().catch(() => ({}));
@@ -472,6 +481,14 @@ export default function PublicEventPage() {
             </div>
           ) : null}
         </div>
+
+        {(event.refundPolicy || event.cancellationPolicyText) && (
+          <section className="bg-white rounded-xl border border-stone-200 p-5 mb-4">
+            <h2 className="text-sm font-semibold text-stone-900 mb-1">Cancellations and refunds</h2>
+            {event.refundPolicy && <RefundPolicyLines view={event.refundPolicy} />}
+            {event.cancellationPolicyText && <p className={`text-sm text-stone-700 whitespace-pre-line ${event.refundPolicy ? "mt-2" : ""}`}>{event.cancellationPolicyText}</p>}
+          </section>
+        )}
 
         {/* Status banners */}
         {(justRegistered || justPaid) && (
@@ -899,6 +916,8 @@ export default function PublicEventPage() {
                 {codeError && <p className="mt-1 text-xs text-red-600">{codeError}</p>}
               </div>
             )}
+
+            {event.refundPolicy?.mustAcknowledge && <NonRefundableCheckbox checked={nonRefundable} onChange={setNonRefundable} />}
 
             {quoteNotice && (
               <div className="text-sm text-stone-900 bg-stone-100 border border-stone-300 rounded-lg px-3 py-2" role="status">{quoteNotice}</div>

@@ -1959,6 +1959,14 @@ model Event {
   // CUSTOM only: day-offsets from the anchor, e.g. [-14, -7, -1, 0].
   escalationCustomDays   Json?
   cancellationPolicyText String?
+  // Refund policy (lib/eventRefundPolicy.ts — read it there, never directly).
+  // ANYTIME | UNTIL | UNTIL_CHARGED | NONE. Null = not set: families are shown
+  // nothing and a family's own cancel goes to the club, as before.
+  refundPolicy           String?
+  // UNTIL: the moment refunds stop, or N days before the event starts.
+  refundUntilAt          DateTime?
+  refundUntilDays        Int?
+  refundNote             String?
   // Hard payment deadline. Highest-precedence reminder anchor and the due
   // date the confirmation surface prints.
   paymentDueBy           DateTime?

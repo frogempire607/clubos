@@ -201,7 +201,7 @@ const writes = () => fake.writes().filter((w) => w.model !== "user"); // lastLog
   ok(/confirmed: z\.boolean\(\)\.optional\(\)/.test(reg) && /const reviewOnly = body\.confirmed !== true;/.test(reg), "register treats anything not explicitly confirmed as a review");
   const flow = code("components/member/events/registerFlow.tsx");
   ok(/function start\([^)]*\) \{\n\s*void register\(eventId, pricingType, undefined, undefined, sessionIds\);/.test(flow), "starting the flow never sends confirmed");
-  ok((flow.match(/, true\);/g) ?? []).length >= 2 && /onConfirm=\{/.test(flow) && /onChoose=\{/.test(flow), "confirmed is sent only from the review sheet and the payment-choice screen");
+  ok((flow.match(/sessionIds, true, nonRefundable\);/g) ?? []).length === 2 && /onConfirm=\{/.test(flow) && /onChoose=\{/.test(flow), "confirmed is sent only from the review sheet and the payment-choice screen");
   // No member page or component posts to the event register route except the shared flow.
   const files: string[] = [];
   const walk = (dir: string) => {

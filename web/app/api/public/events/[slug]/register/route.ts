@@ -3,6 +3,7 @@ import { withEventCapacityLock } from "@/lib/eventCapacityServer";
 import { z } from "zod";
 import { formatZodError } from "@/lib/zodErrors";
 import { prisma } from "@/lib/prisma";
+import { NON_REFUNDABLE_REQUIRED, refundPolicyView } from "@/lib/eventRefundPolicy";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem, feePolicyFor } from "@/lib/fees";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
@@ -59,6 +60,9 @@ const schema = z.object({
   // visitors can't produce an audited signature, so acknowledgement (stored on
   // the registration) is the strongest gate available here.
   acknowledgeDocuments: z.boolean().optional(),
+  // "I understand this is non-refundable." Required when the event's refund
+  // policy gives nothing back and something is owed.
+  acknowledgeNonRefundable: z.boolean().optional(),
   // B16 — the athlete's entries: a roster spot each (when the event has a
   // roster) and the answers to the questions asked for each entry.
   entries: z
@@ -366,6 +370,11 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     (policy.approvalPaymentIntent === "INVOICE" || policy.approvalPaymentIntent === "APPROVAL_CHARGE");
   const needsDecision = !isVariableCost && amountDue > 0 && !billOnApproval;
 
+  const refundView = isVariableCost || amountDue > 0 ? refundPolicyView(event, event.club, new Date()) : null;
+  if (refundView?.mustAcknowledge && body.acknowledgeNonRefundable !== true) {
+    return NextResponse.json({ error: NON_REFUNDABLE_REQUIRED, code: "NON_REFUNDABLE_ACK_REQUIRED" }, { status: 400 });
+  }
+
   let method: "CARD" | "AUTO_CARD" | "CASH" | "CHECK" | null = null;
   if (needsDecision) {
     // Saved card only — that needs an account, so the answer is "sign in",
@@ -429,6 +438,7 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
         ...(gatedDocs.length > 0
           ? { __documentsAcknowledged: `${new Date().toISOString()} — ${gatedDocs.map((d) => d.title).join("; ")}` }
           : {}),
+        ...(refundView?.mustAcknowledge ? { __nonRefundableAcknowledged: new Date().toISOString() } : {}),
         // Server-written, so staff can tell a private-link signup apart and
         // "Register again" can send the family back to the link they used.
         // Only a fingerprint of the token is kept — never the token.

@@ -28,6 +28,8 @@ type Row = {
   plan: string;
   billing: "CARD" | "OFFLINE";
   autoRenew: boolean;
+  renewal: string | null;
+  locked: boolean;
   amount: number;
   howYouPay: string;
   copy: {
@@ -93,6 +95,7 @@ export default function AutoRenewCard() {
             <div className="flex-1 min-w-0">
               <p className="text-[13px] font-semibold text-stone-900 truncate">{row.name}</p>
               <p className="text-[12px] text-stone-500">{row.plan}</p>
+              {row.renewal && <p className="text-[13px] font-medium text-stone-900 mt-1">{row.renewal}</p>}
               <p className="text-[12px] text-stone-700 mt-1">{row.howYouPay}</p>
               <p className="text-[12px] text-stone-700 mt-1">{row.copy.currentSentence}</p>
               {!row.copy.canToggle && row.copy.blockedReason && (
@@ -105,7 +108,7 @@ export default function AutoRenewCard() {
               role="switch"
               aria-checked={row.autoRenew}
               aria-label={`Auto-renew for ${row.name === "You" ? "your" : `${row.name}'s`} membership`}
-              disabled={!row.copy.canToggle && row.autoRenew}
+              disabled={row.locked || (!row.copy.canToggle && row.autoRenew)}
               onClick={() => { setError(null); setDone(null); setPending({ row, to: !row.autoRenew }); }}
               className="shrink-0 inline-flex h-11 min-w-[44px] items-center justify-center rounded-lg disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--club-accent-ring)]"
             >
