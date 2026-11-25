@@ -22,6 +22,7 @@ import { sendClubEmail } from "@/lib/sendClubEmail";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { resolveCardSnapshot, prettyBrand } from "@/lib/memberCard";
 import { resolveEventPolicy } from "@/lib/eventPayments";
+import { loadRegistrationRefunds } from "@/lib/eventRefundServer";
 import { resolveRegistrationNotifyRecipients } from "@/lib/eventRecipients";
 import {
   renderableRegistrationState,
@@ -322,6 +323,7 @@ export async function loadRegistrationRenderContext(
   }
 
   const policy = resolveEventPolicy(reg.event);
+  const refund = (await loadRegistrationRefunds(reg.clubId, [reg], { withFailed: false })).get(reg.id);
 
   return renderableRegistrationState({
     registration:
@@ -344,6 +346,8 @@ export async function loadRegistrationRenderContext(
         }
       : null,
     cancellationPolicyText: policy.cancellationPolicyText,
+    amountRefunded: refund?.refunded ?? null,
+    refundedAt: refund?.refundedAt ?? null,
   });
 }
 

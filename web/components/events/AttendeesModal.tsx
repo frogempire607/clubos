@@ -28,6 +28,10 @@
 //   Add an email           PATCH /api/members/[id]
 //   Remove                 DELETE registrations/[regId] (roster + bill together)
 //                          or DELETE bookings?memberId= for a spot with no bill
+//   Refund                 POST registrations/[regId]/refund (registrant sheet
+//                          and the Removed section; attendees/RefundSheet.tsx).
+//                          "Remove and refund" is the same sheet: they come off
+//                          only if the refund goes through
 //   + Add attendee         POST bookings (free) or POST charge (spot + bill)
 //   Export                 GET attendees/export (same loader + filter as here)
 //   Check-in mode          POST/DELETE /api/attendance (components/events/
@@ -50,6 +54,7 @@ import { ClipboardList, Download, Mail, UserCheck, X } from "lucide-react";
 import { PRIVATE_LINK_BADGE, type AttendeeFilter, type AttendeeRow } from "@/lib/eventAttendees";
 import {
   attendeeTiles,
+  canRefund,
   cashRecordable,
   collectAmount,
   collectSummary,
@@ -75,6 +80,7 @@ import LinkMemberSheet from "@/components/events/attendees/LinkMemberSheet";
 import InvoiceReviewSheet from "@/components/events/attendees/InvoiceReviewSheet";
 import ExportSheet from "@/components/events/attendees/ExportSheet";
 import CheckInView from "@/components/events/attendees/CheckInView";
+import RefundSheet from "@/components/events/attendees/RefundSheet";
 import RegistrantSheet from "@/components/events/attendees/RegistrantSheet";
 import AnswersView from "@/components/events/attendees/AnswersView";
 import EmailRegistrantsSheet from "@/components/events/attendees/EmailRegistrantsSheet";
@@ -150,6 +156,7 @@ type SheetState =
   | { kind: "record"; row: AttendeeRow; method: "CASH" | "CHECK" }
   | { kind: "recordBulk" }
   | { kind: "remove"; row: AttendeeRow }
+  | { kind: "refund"; row: AttendeeRow; remove: boolean }
   | { kind: "chargeNow"; row: AttendeeRow }
   | { kind: "decide"; row: AttendeeRow; mode: DecisionMode }
   | { kind: "approve"; rows: AttendeeRow[] }
@@ -231,7 +238,7 @@ export default function AttendeesModal({
 
   // Removed people are never mixed into the live list: they get their own
   // "Removed" section below it (2026-11-17), where a payment that was kept
-  // reads "Removed, paid $X, not refunded".
+  // reads "Removed, paid $X, not refunded" and can be refunded.
   const rows = useMemo(() => (ledger ? visibleRows(ledger, filter, false) : []), [ledger, filter]);
   const removedRows = useMemo(() => (ledger ? ledger.rows.filter((r) => r.removed) : []), [ledger]);
   const allRows = ledger?.rows ?? [];
@@ -348,16 +355,14 @@ export default function AttendeesModal({
   const canDecideMoney = !!regs?.event.canDecideMoney;
   const planFor = (r: AttendeeRow) => removePlan(r, { transactionId: detail(r)?.transactionId ?? null }, { canDecideMoney });
 
-  async function remove(r: AttendeeRow, paid?: "refund" | "keep") {
+  async function remove(r: AttendeeRow, paid?: "keep") {
     const plan = planFor(r);
     if (plan.kind === "blocked") return;
     if (plan.kind === "paid") {
-      if (!paid || plan.notAllowed || (paid === "refund" && plan.refundUnavailable)) return;
-      const { ok, d } = await call(`remove-${paid}`, `/api/events/${eventId}/registrations/${plan.registrationId}`, json({ paid }, "DELETE"));
+      if (!paid || plan.notAllowed) return;
+      const { ok, d } = await call("remove-keep", `/api/events/${eventId}/registrations/${plan.registrationId}`, json({ paid }, "DELETE"));
       if (!ok) return setSheetErr(errText(d, "Could not remove them."));
-      if (paid === "keep") return done({ ok: true, text: `${r.name} removed. The $${plan.paid.toFixed(2)} they paid was kept, not refunded.` });
-      if (d.refunded === false) return done({ ok: false, text: typeof d.refundError === "string" ? d.refundError : "They were removed, but the refund didn't go through. Check Stripe." });
-      return done({ ok: true, text: `${r.name} removed and refunded.` });
+      return done({ ok: true, text: plan.held > 0 ? `${r.name} removed. The ${money(plan.held)} the club holds was kept, not refunded.` : `${r.name} removed. Their payment had already been refunded.` });
     }
     const url = plan.kind === "registration"
       ? `/api/events/${eventId}/registrations/${plan.registrationId}`
@@ -562,7 +567,7 @@ export default function AttendeesModal({
   const phoneAmount = (r: AttendeeRow) =>
     r.owes > 0 ? { v: money(r.owes), n: "owes" }
     : r.status === "SCHEDULED" ? { v: money(r.scheduledAmount), n: r.scheduledAt ? `auto ${shortDate(r.scheduledAt)}` : "scheduled" }
-    : r.paid > 0 ? { v: money(r.paid), n: "paid" }
+    : r.paid > 0 ? { v: money(r.paid), n: r.refunded > 0 ? `paid, ${money(r.refunded)} refunded` : "paid" }
     : collectAmount(r, ctx) > 0 ? { v: money(collectAmount(r, ctx)), n: "unpaid" }
     : { v: "—", n: r.status === "COVERED" ? "covered" : "" };
 
@@ -922,7 +927,14 @@ export default function AttendeesModal({
                           <button type="button" onClick={() => setOpenRow(r)} className="block max-w-full min-h-11 sm:min-h-0 text-left font-semibold text-text-primary truncate hover:text-brand hover:underline">{r.name}</button>
                           <div className="text-[12.5px] text-text-muted truncate">{[r.email, r.attending].filter(Boolean).join(" · ")}</div>
                         </div>
-                        <StatusPill r={r} />
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0 max-w-[55%]">
+                          <span className={`text-[12px] font-semibold px-2 py-0.5 rounded-[10px] text-right tabular-nums ${r.refundFailed ? "bg-danger-surface text-danger-text" : "bg-chip-surface text-chip-text"}`}>{pill(r).label}</span>
+                          {canRefund(r, { canDecideMoney }) && (
+                            <button type="button" onClick={() => openSheet({ kind: "refund", row: r, remove: false })} className="min-h-11 px-3 rounded-[10px] text-[13px] font-semibold border border-app-border text-text-primary hover:bg-app-bg">
+                              Refund
+                            </button>
+                          )}
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -973,6 +985,7 @@ export default function AttendeesModal({
             detail={detail(openRow)}
             source={openRow.registrationId ? data?.answers?.[openRow.registrationId] ?? null : null}
             registrationForm={data?.registrationForm}
+            onRefund={canRefund(openRow, { canDecideMoney }) ? () => { const r = openRow; setOpenRow(null); openSheet({ kind: "refund", row: r, remove: false }); } : null}
             onClose={() => setOpenRow(null)}
           />
         )}
@@ -1116,7 +1129,7 @@ export default function AttendeesModal({
         {sheet?.kind === "remove" && sheetRow && (() => {
           const plan = planFor(sheetRow);
           if (plan.kind === "paid") {
-            const working = busy === "remove-refund" || busy === "remove-keep";
+            const working = busy === "remove-keep";
             return (
               <Sheet
                 open
@@ -1127,20 +1140,24 @@ export default function AttendeesModal({
                 ) : <>
                   <button type="button" className={`${btn} border border-app-border text-text-primary`} onClick={() => setSheet(null)}>Cancel</button>
                   <button type="button" className={`${btn} border border-app-border text-text-primary`} disabled={working} onClick={() => remove(sheetRow, "keep")}>
-                    {busy === "remove-keep" ? "Removing…" : "Remove, keep the payment"}
+                    {working ? "Removing…" : plan.held > 0 ? "Remove, keep the payment" : "Remove"}
                   </button>
-                  <button type="button" className={`${btn} bg-danger-text text-white`} disabled={working || !!plan.refundUnavailable} onClick={() => remove(sheetRow, "refund")}>
-                    {busy === "remove-refund" ? "Refunding…" : "Remove and refund"}
-                  </button>
+                  {!plan.refundUnavailable && (
+                    <button type="button" className={`${btn} bg-danger-text text-white`} disabled={working} onClick={() => openSheet({ kind: "refund", row: sheetRow, remove: true })}>
+                      Remove and refund
+                    </button>
+                  )}
                 </>}
               >
-                <p className="text-[14px] text-text-primary">{sheetRow.name} paid ${plan.paid.toFixed(2)}. Removing them takes them off the roster and the billing list. Choose what happens to the money.</p>
+                <p className="text-[14px] text-text-primary">{sheetRow.name} paid ${plan.paid.toFixed(2)}{sheetRow.refunded > 0 ? `, and ${money(sheetRow.refunded)} has been refunded` : ""}. Removing them takes them off the roster and the billing list.{plan.held > 0 ? " Choose what happens to the money." : ""}</p>
                 {plan.notAllowed ? (
                   <p className="mt-3 text-[14px] text-text-primary">{plan.notAllowed}</p>
                 ) : (
                   <ul className="mt-3 space-y-2 text-[13.5px] text-text-primary">
-                    <li><span className="font-semibold">Remove and refund:</span> ${plan.paid.toFixed(2)} goes back to their card through Stripe.</li>
-                    <li><span className="font-semibold">Remove, keep the payment:</span> no refund. The payment stays in Financials and they show as “Removed, paid ${plan.paid.toFixed(2)}, not refunded”.</li>
+                    {!plan.refundUnavailable && <>
+                      <li><span className="font-semibold">Remove and refund:</span> choose how much goes back. They come off only if the refund goes through.</li>
+                      <li><span className="font-semibold">Remove, keep the payment:</span> no refund. The payment stays in Financials, and you can still refund it later from “Show removed”.</li>
+                    </>}
                     {plan.refundUnavailable && <li className="text-text-muted">{plan.refundUnavailable}</li>}
                   </ul>
                 )}
@@ -1170,6 +1187,17 @@ export default function AttendeesModal({
             </Sheet>
           );
         })()}
+
+        {sheet?.kind === "refund" && sheetRow?.registrationId && (
+          <RefundSheet
+            eventId={eventId}
+            registrationId={sheetRow.registrationId}
+            name={sheetRow.name.trim()}
+            remove={sheet.remove}
+            onClose={() => { setSheet(null); load(); }}
+            onDone={(m) => done(m)}
+          />
+        )}
 
         {sheet?.kind === "chargeNow" && sheetRow && (
           <Sheet

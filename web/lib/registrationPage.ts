@@ -12,6 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppBaseUrl, baseUrlFromRequest } from "@/lib/baseUrl";
 import { resolveCardSnapshot, prettyBrand } from "@/lib/memberCard";
 import { resolveEventPolicy } from "@/lib/eventPayments";
+import { loadRegistrationRefunds } from "@/lib/eventRefundServer";
 import { confirmationCodeFor } from "@/lib/confirmationCode";
 import { viaLinkId, shareTokenForReturn } from "@/lib/eventShareLink";
 import { shareTokenForEvent, shareTokenFingerprint } from "@/lib/eventShareLinkServer";
@@ -98,6 +99,7 @@ export async function loadRegistrationPage(registrationId: string): Promise<Load
   });
 
   const policy = resolveEventPolicy(reg.event);
+  const refund = (await loadRegistrationRefunds(reg.clubId, [reg], { withFailed: false })).get(reg.id);
   const ctx = renderableRegistrationState({
     registration: { ...reg, confirmationCode: code },
     event: { ...reg.event, shareToken },
@@ -115,6 +117,8 @@ export async function loadRegistrationPage(registrationId: string): Promise<Load
         }
       : null,
     cancellationPolicyText: policy.cancellationPolicyText,
+    amountRefunded: refund?.refunded ?? null,
+    refundedAt: refund?.refundedAt ?? null,
   });
 
   return {

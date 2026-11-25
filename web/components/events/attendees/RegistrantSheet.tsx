@@ -3,7 +3,8 @@
 // One registrant's registration, opened by tapping their name on the
 // Attendees list: who to contact, where their payment stands, and every
 // answer they gave on the signup form, each under the question as the owner
-// worded it. Read-only; the row's own actions stay on the list.
+// worded it. The one action here is Refund (owner / billing staff, when the
+// club still holds some of what they paid); the rest stay on the list.
 
 import Sheet from "@/components/Sheet";
 import type { AttendeeRow } from "@/lib/eventAttendees";
@@ -20,6 +21,7 @@ export default function RegistrantSheet({
   detail,
   source,
   registrationForm,
+  onRefund,
   onClose,
 }: {
   row: AttendeeRow;
@@ -27,6 +29,8 @@ export default function RegistrantSheet({
   detail: RegDetail | null;
   source: AnswerSource | null;
   registrationForm: unknown;
+  /** Null = nothing to refund, or this person may not. */
+  onRefund: (() => void) | null;
   onClose: () => void;
 }) {
   const columns = source ? answerColumns(registrationForm, [source]) : answerColumns(registrationForm, []);
@@ -74,6 +78,12 @@ export default function RegistrantSheet({
               <dd className={`${dd} tabular-nums`}>{row.paid > 0 ? money(row.paid) : "—"}</dd>
             </div>
           </div>
+          {row.refunded > 0 && (
+            <div>
+              <dt className={dt}>Refunded</dt>
+              <dd className={`${dd} tabular-nums`}>{money(row.refunded)}</dd>
+            </div>
+          )}
           {(detail?.discountLabel || detail?.discountCode) && (
             <div>
               <dt className={dt}>Discount</dt>
@@ -87,6 +97,11 @@ export default function RegistrantSheet({
             </div>
           )}
         </dl>
+        {onRefund && (
+          <button type="button" onClick={onRefund} className="mt-3 min-h-11 px-4 rounded-[10px] text-[14px] font-semibold border border-app-border text-text-primary hover:bg-app-bg">
+            Refund
+          </button>
+        )}
       </section>
 
       <section className="mt-5">

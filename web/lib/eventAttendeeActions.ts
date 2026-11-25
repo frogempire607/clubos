@@ -13,6 +13,7 @@
 // rule; a stale screen gets a refusal, never a wrong write.
 
 import {
+  heldFrom,
   matchesFilter,
   rowOwes,
   type AttendeeFilter,
@@ -221,13 +222,15 @@ export function rowActions(r: AttendeeRow, ctx: RowActionContext): RowAction[] {
 export type RemovePlan =
   | { kind: "registration"; registrationId: string; note: string }
   /** They paid. Two choices, both owner / billing staff only:
-   *   refund  the existing card refund (same Stripe idempotency key as decline,
-   *           so the two can never refund twice), then remove
+   *   refund  the refund sheet (lib/eventRefundServer), and they come off only
+   *           if the refund goes through
    *   keep    remove and leave the payment exactly where it is */
   | {
       kind: "paid";
       registrationId: string;
       paid: number;
+      /** What the club still holds of it. */
+      held: number;
       /** Why "Remove and refund" isn't offered, or null when it is. */
       refundUnavailable: string | null;
       /** Why this person can't do either, or null. */
@@ -235,6 +238,12 @@ export type RemovePlan =
     }
   | { kind: "booking"; memberId: string; note: string }
   | { kind: "blocked"; reason: string };
+
+/** May this row be refunded by this person? Removed or not, card or cash: they
+ *  paid, and the club still holds some of it. The server re-checks. */
+export function canRefund(r: AttendeeRow, viewer?: { canDecideMoney: boolean } | null): boolean {
+  return !!r.registrationId && !!viewer?.canDecideMoney && r.paid > 0 && heldFrom(r) > 0;
+}
 
 export function removePlan(
   r: AttendeeRow,
@@ -247,9 +256,8 @@ export function removePlan(
         kind: "paid",
         registrationId: r.registrationId,
         paid: r.paid,
-        refundUnavailable: r.paidByCard
-          ? null
-          : "They didn't pay by card through AthletixOS, so there's nothing to send back from here. Hand the money back and record it in Financials.",
+        held: heldFrom(r),
+        refundUnavailable: heldFrom(r) > 0 ? null : "Their payment has already been refunded in full, so there's nothing left to send back.",
         notAllowed: viewer?.canDecideMoney
           ? null
           : "Removing someone who paid means deciding what happens to their money. Only the owner or staff with billing permission can do that.",

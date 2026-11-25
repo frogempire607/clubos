@@ -5,6 +5,7 @@
 import { prisma } from "@/lib/prisma";
 import { resolveRegistrationRecipients } from "@/lib/eventRecipients";
 import { resolveEventPolicy } from "@/lib/eventPayments";
+import { loadRegistrationRefunds } from "@/lib/eventRefundServer";
 import { resolveCategoryFields } from "@/lib/eventCategories";
 import { sendRegistrationId, type CheckInRecord, type RowExtras, type SendEntry } from "@/lib/eventAttendeeExtras";
 import type { AnswerSource } from "@/lib/eventFormAnswers";
@@ -170,24 +171,9 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
     }),
   ]);
 
-  // What has been refunded on removed registrants who had paid. The refund
-  // lives on the Transaction (charge.refunded webhook), never on the
-  // registration, so "Removed, paid $X, not refunded" is read from there.
-  const removedPaid = regs.filter((r) => r.status === "CANCELED" && Number(r.amountPaid ?? 0) > 0);
-  const refundedByReg = new Map<string, number>();
-  if (removedPaid.length > 0) {
-    const txIds = removedPaid.map((r) => r.transactionId).filter((x): x is string => !!x);
-    const pis = removedPaid.map((r) => r.stripePaymentIntentId).filter((x): x is string => !!x);
-    const txs = await prisma.transaction.findMany({
-      where: { clubId, OR: [...(txIds.length ? [{ id: { in: txIds } }] : []), ...(pis.length ? [{ stripePaymentIntentId: { in: pis } }] : [])] },
-      select: { id: true, stripePaymentIntentId: true, amount: true, refundedAmount: true, status: true },
-    }).catch(() => []);
-    for (const r of removedPaid) {
-      const tx = txs.find((t) => (r.transactionId && t.id === r.transactionId) || (r.stripePaymentIntentId && t.stripePaymentIntentId === r.stripePaymentIntentId));
-      if (!tx) continue;
-      refundedByReg.set(r.id, tx.status === "REFUNDED" ? Number(tx.amount) : Number(tx.refundedAmount ?? 0));
-    }
-  }
+  // Refunds live on the payment (Transaction), never on the registration, so
+  // "paid $X, not refunded" and the Collected tile are read from there.
+  const refunds = await loadRegistrationRefunds(clubId, regs);
 
   // Where each bill would ACTUALLY go — the family model, not the snapshot
   // on the registration row (blank for minors without their own address).
@@ -205,7 +191,8 @@ export async function loadEventAttendees(clubId: string, eventId: string): Promi
       formResponses: (r.formResponses ?? null) as Record<string, unknown> | null,
       recipientEmail: rec?.email ?? null,
       recipientName: rec?.displayName ?? null,
-      refundedAmount: refundedByReg.get(r.id) ?? null,
+      refundedAmount: refunds.get(r.id)?.refunded ?? null,
+      refundFailed: refunds.get(r.id)?.failed ?? false,
       paidByCard: !!r.stripePaymentIntentId,
     };
   });
@@ -313,6 +300,8 @@ export async function loadEventMoneySummaries(
     prisma.eventRegistration.findMany({ where: { eventId: { in: ids }, event: { clubId } }, select: REG_SELECT }),
     prisma.booking.findMany({ where: { eventId: { in: ids }, event: { clubId } }, select: BOOKING_SELECT }),
   ]);
+  // The events list shows Collected too: the same refunds come off it.
+  const refunds = await loadRegistrationRefunds(clubId, regs, { withFailed: false });
   const regsBy = new Map<string, LedgerRegistration[]>();
   for (const r of regs) {
     const row: LedgerRegistration = {
@@ -320,6 +309,7 @@ export async function loadEventMoneySummaries(
       amountDue: r.amountDue == null ? null : Number(r.amountDue),
       amountPaid: r.amountPaid == null ? null : Number(r.amountPaid),
       formResponses: null,
+      refundedAmount: refunds.get(r.id)?.refunded ?? null,
     };
     regsBy.set(r.eventId, [...(regsBy.get(r.eventId) ?? []), row]);
   }

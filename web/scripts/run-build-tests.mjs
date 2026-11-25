@@ -231,6 +231,9 @@ export const GATED = [
   ["scripts/event-attendees-tests.ts"],
   ["scripts/event-attendees-actions-tests.ts"],
   ["scripts/member-errors-and-remove-paid-tests.ts"],
+  // Event refunds (2026-11-25): how much, once only, plain words when Stripe
+  // says no, and "Remove and refund" that leaves people registered when it does.
+  ["scripts/event-refund-tests.ts"],
   ["scripts/event-details-tests.ts"],
   ["scripts/push-tests.ts"],
   ["scripts/social-auth-tests.ts"],

@@ -530,7 +530,7 @@ export function renderableRegistrationState(input: RenderInput): RegistrationRen
     case "PAID": {
       headline = "You're registered — payment received";
       const when = toDate(reg.paidAt);
-      chargeTiming = `${money(amountPaid ?? owed)} was charged ${when ? `on ${fmtDay(when, tz)}` : "today"}${cardLabel ? ` to your ${cardLabel}` : ""}.${reg.transactionId ? ` Receipt id ${reg.transactionId}.` : ""}`;
+      chargeTiming = `${money(amountPaid ?? owed)} was charged ${when ? `on ${fmtDay(when, tz)}` : "today"}${cardLabel ? ` to your ${cardLabel}` : ""}.${reg.transactionId ? ` Receipt id ${reg.transactionId}.` : ""}${amountRefunded && amountRefunded > 0 ? ` ${money(amountRefunded)} has been refunded.` : ""}`;
       primary = calendar;
       break;
     }

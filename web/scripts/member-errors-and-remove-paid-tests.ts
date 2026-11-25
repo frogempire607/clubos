@@ -125,7 +125,8 @@ const EV = { capacity: 20, coveredOrFree: false, categoryKey: null, categoryLabe
   const p = removePlan(row("live"), null, owner);
   check("paid card registrant → a refund-or-keep choice", p.kind === "paid" && p.refundUnavailable === null && p.notAllowed === null);
   const c = removePlan(row("cashpaid"), null, owner);
-  check("paid in cash → keep is offered, refund from here is not", c.kind === "paid" && !!c.refundUnavailable && c.notAllowed === null);
+  // 2026-11-25: a cash or check refund is recorded through the same sheet.
+  check("paid in cash → refund and keep are both offered", c.kind === "paid" && c.refundUnavailable === null && c.notAllowed === null);
   const s = removePlan(row("live"), null, coach);
   check("staff without billing permission → refused with a reason", s.kind === "paid" && !!s.notAllowed);
   check("no viewer given → refused (fails closed)", (() => { const x = removePlan(row("live")); return x.kind === "paid" && !!x.notAllowed; })());
@@ -136,13 +137,16 @@ console.log("\nB. Source guards on the DELETE route:");
   const route = code("app/api/events/[id]/registrations/[regId]/route.ts");
   check("a paid registrant still needs an explicit choice", /PAID_CHOICE_REQUIRED/.test(route));
   check("the choice needs billing:full, checked live", /hasPermissionLive\(session, "billing", "full"\)/.test(route));
-  const keep = route.slice(route.indexOf("async function removePaid"));
+  const keep = route.slice(route.indexOf("async function removeKeepingPayment"));
   const claim = keep.slice(keep.indexOf("prisma.eventRegistration.updateMany"), keep.indexOf("if (claimed.count === 0)"));
-  check("keep/refund claims the row once (conditional on not already CANCELED)", /status: \{ not: "CANCELED" \}/.test(claim));
+  check("keeping claims the row once (conditional on not already CANCELED)", /status: \{ not: "CANCELED" \}/.test(claim));
   check("the claim never touches amountPaid, transactionId or the payment intent", !/amountPaid|transactionId|stripePaymentIntentId|amountDue/.test(claim.slice(claim.indexOf("data:"))));
   check("keeping writes an audit row saying the payment was kept", /EVENT_REGISTRATION_REMOVED_PAYMENT_KEPT/.test(keep) && /was kept — not refunded/.test(keep));
-  check("refund reuses the decline path's idempotency key", /idempotencyKey: `aox-eventreg-refund-\$\{reg\.id\}`/.test(keep));
-  check("a failed refund is audited, never retried", /EVENT_REGISTRATION_REFUND_FAILED/.test(keep));
+  // 2026-11-25: refunds go through the one engine, refund first, removal after
+  // (scripts/event-refund-tests.ts runs it).
+  check("remove and refund hands the whole job to the refund engine", /refundEventRegistration\(\{[\s\S]*?remove: true/.test(route));
+  check("a refused refund returns an error status, never ok", /if \(!r\.ok\) return NextResponse\.json\(\{ error: r\.error[\s\S]{0,120}\{ status: r\.status \}\)/.test(route));
+  check("the route makes no Stripe call of its own", !/stripe\./.test(route));
   const modal = code("components/events/AttendeesModal.tsx");
   check("Attendees offers both choices in an in-app dialog", /Remove and refund/.test(modal) && /Remove, keep the payment/.test(modal));
   check("removed people have their own section", /aria-label="Removed"/.test(modal));

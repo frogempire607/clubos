@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
 import { resolveEventPolicy } from "@/lib/eventPayments";
+import { loadRegistrationRefunds } from "@/lib/eventRefundServer";
 import { renderableRegistrationState } from "@/lib/registrationRenderState";
 
 // GET /api/member/registrations
@@ -69,6 +70,7 @@ export async function GET(req: Request) {
   // browser, and a Netlify preview deploy must link back to itself (§5.2.3).
   const baseUrl = baseUrlFromRequest(req);
 
+  const refunds = await loadRegistrationRefunds(session.user.clubId, rows, { withFailed: false });
   const registrations = rows.map((reg) => {
     const ctx = renderableRegistrationState({
       registration: reg,
@@ -77,6 +79,8 @@ export async function GET(req: Request) {
       activeCount: activeByEvent.get(reg.eventId) ?? 1,
       baseUrl,
       cancellationPolicyText: resolveEventPolicy(reg.event).cancellationPolicyText,
+      amountRefunded: refunds.get(reg.id)?.refunded ?? null,
+      refundedAt: refunds.get(reg.id)?.refundedAt ?? null,
     });
     return {
       id: reg.id,
@@ -95,6 +99,7 @@ export async function GET(req: Request) {
       confirmationCode: ctx.meta.confirmationCode,
       amountDue: ctx.meta.amountDue,
       amountPaid: ctx.meta.amountPaid,
+      amountRefunded: ctx.meta.amountRefunded,
       declineReason: ctx.meta.declineReason,
       proposedChange: ctx.meta.proposedChange,
       primaryAction: ctx.actions.primary,

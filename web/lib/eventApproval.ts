@@ -31,7 +31,6 @@
 // Stripe idempotency key, the offline void's conditional updateMany. What the
 // lock guarantees is that only ONE caller ever reaches the dispatch.
 
-import { REFUND_APPLICATION_FEE } from "@/lib/fees";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { writeBillingAudit } from "@/lib/billingAudit";
@@ -48,7 +47,7 @@ import { proposableKeys, resolveCategoryFields, resolveExtraEntryLabel } from "@
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { bookingActionOnApprove, releasesBookingOnDecline, sharedMemberWarning } from "@/lib/registrationLink";
 import { claimSpotsOnApprove, loadRosterDef } from "@/lib/eventRosterServer";
-import { stripe } from "@/lib/stripe";
+import { refundEventRegistration } from "@/lib/eventRefundServer";
 
 export type MutationErrorCode =
   | "NOT_FOUND"
@@ -588,42 +587,22 @@ export async function declineRegistration(args: {
   };
 
   if (paidUpFront && reg.stripePaymentIntentId && reg.club.stripeAccountId) {
-    result.refund = { attempted: true };
-    try {
-      const refund = await stripe.refunds.create(
-        { payment_intent: reg.stripePaymentIntentId, refund_application_fee: REFUND_APPLICATION_FEE },
-        {
-          stripeAccount: reg.club.stripeAccountId,
-          // A replay returns Stripe's cached refund rather than issuing a second one.
-          idempotencyKey: `aox-eventreg-refund-${reg.id}`,
-        },
-      );
-      result.refund.refundId = refund.id;
-      await writeBillingAudit({
-        clubId: args.clubId,
-        memberId: reg.memberId,
-        actorUserId: args.actorUserId,
-        action: "EVENT_REGISTRATION_REFUNDED",
-        before: { registrationId: reg.id, amountPaid: Number(reg.amountPaid ?? 0) },
-        after: { registrationId: reg.id, refundId: refund.id, amount: refund.amount / 100 },
-        note: `Refund issued on decline of ${reg.name} for ${reg.event.name}.`,
-      });
-    } catch (e) {
-      // Never retried inline: a refund that failed needs a human to look at
-      // Stripe, and a retry loop here would risk a second refund on a
-      // response we never saw. The audit row is the durable signal.
-      console.error("[eventApproval] refund failed", reg.id, e);
-      result.refund.error = String(e);
-      await writeBillingAudit({
-        clubId: args.clubId,
-        memberId: reg.memberId,
-        actorUserId: args.actorUserId,
-        action: "EVENT_REGISTRATION_REFUND_FAILED",
-        before: { registrationId: reg.id, paymentIntentId: reg.stripePaymentIntentId },
-        after: { registrationId: reg.id, error: String(e).slice(0, 300) },
-        note: `Refund FAILED on decline of ${reg.name} for ${reg.event.name}. Check Stripe.`,
-      });
-    }
+    // The one refund engine (lib/eventRefundServer): same single-refund rule as
+    // the Refund button, and it records the payment, the audit row and any
+    // refusal. The lifecycle email below says the money went back, so no
+    // separate receipt. A refused refund leaves them in Attendees → Removed
+    // with a working Refund button.
+    const r = await refundEventRegistration({
+      clubId: args.clubId,
+      eventId: reg.eventId,
+      registrationId: reg.id,
+      mode: "all",
+      expectedRefundedCents: null,
+      actorUserId: args.actorUserId,
+      reason: "The coach declined this registration",
+      sendReceipt: false,
+    });
+    result.refund = r.ok ? { attempted: true, refundId: r.refundId } : { attempted: true, error: r.error };
   }
 
   await sendRegistrationLifecycleEmail({
@@ -1107,35 +1086,17 @@ export async function respondToProposal(args: {
     // A family that already paid gets their money back — unconditionally.
     // There is no finance permission to test here: the actor is the payer.
     if ((reg.status === "PAID" || Number(reg.amountPaid ?? 0) > 0) && reg.stripePaymentIntentId && reg.club.stripeAccountId) {
-      result.refund = { attempted: true };
-      try {
-        const refund = await stripe.refunds.create(
-          { payment_intent: reg.stripePaymentIntentId, refund_application_fee: REFUND_APPLICATION_FEE },
-          { stripeAccount: reg.club.stripeAccountId, idempotencyKey: `aox-eventreg-refund-${reg.id}` },
-        );
-        result.refund.refundId = refund.id;
-        await writeBillingAudit({
-          clubId: args.clubId,
-          memberId: reg.memberId,
-          actorUserId: args.actorUserId,
-          action: "EVENT_REGISTRATION_REFUNDED",
-          before: { registrationId: reg.id, amountPaid: Number(reg.amountPaid ?? 0) },
-          after: { registrationId: reg.id, refundId: refund.id, amount: refund.amount / 100 },
-          note: `Refund issued after the family declined the proposed change for ${reg.event.name}.`,
-        });
-      } catch (e) {
-        console.error("[eventApproval] parent-decline refund failed", reg.id, e);
-        result.refund.error = String(e);
-        await writeBillingAudit({
-          clubId: args.clubId,
-          memberId: reg.memberId,
-          actorUserId: args.actorUserId,
-          action: "EVENT_REGISTRATION_REFUND_FAILED",
-          before: { registrationId: reg.id, paymentIntentId: reg.stripePaymentIntentId },
-          after: { registrationId: reg.id, error: String(e).slice(0, 300) },
-          note: `Refund FAILED after a declined proposal on ${reg.event.name}. Check Stripe.`,
-        });
-      }
+      const r = await refundEventRegistration({
+        clubId: args.clubId,
+        eventId: reg.eventId,
+        registrationId: reg.id,
+        mode: "all",
+        expectedRefundedCents: null,
+        actorUserId: args.actorUserId,
+        reason: "The family declined the proposed change",
+        sendReceipt: false,
+      });
+      result.refund = r.ok ? { attempted: true, refundId: r.refundId } : { attempted: true, error: r.error };
     }
     await sendRegistrationLifecycleEmail({
       registrationId: reg.id,
