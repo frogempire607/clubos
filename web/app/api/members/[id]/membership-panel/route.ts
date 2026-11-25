@@ -1,3 +1,5 @@
+import { renewalTruth, switchLine } from "@/lib/renewalTruth";
+import { loadStripeStops, stopOf } from "@/lib/stripeStops";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -62,7 +64,10 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       : Promise.resolve(null),
   ]);
 
+  // What Stripe last told us it will do with each card membership.
+  const stops = await loadStripeStops(member.subscriptions.map((s) => s.stripeSubscriptionId));
   const subs: PanelSub[] = member.subscriptions.map((s) => {
+    const stop = stopOf(stops, s.stripeSubscriptionId);
     const snap = (s.stripeSnapshot ?? null) as { defaultPaymentMethod?: { brand?: string; last4?: string } | null; cancelAt?: string | null; unitAmount?: number | null } | null;
     return {
       stripeUnitCents: typeof snap?.unitAmount === "number" ? snap.unitAmount : null,
@@ -82,7 +87,8 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       autoRenew: s.autoRenew,
       minimumTermEndsAt: s.minimumTermEndsAt,
       deliberateFree: s.deliberateFree,
-      cancelAt: snap?.cancelAt ? new Date(snap.cancelAt) : null,
+      cancelAt: stop !== undefined ? stop : snap?.cancelAt ? new Date(snap.cancelAt) : null,
+      stripeStopKnown: stop !== undefined || !!snap,
       card: snap?.defaultPaymentMethod ? { brand: snap.defaultPaymentMethod.brand ?? null, last4: snap.defaultPaymentMethod.last4 ?? null } : null,
       createdAt: s.createdAt,
       pausedAt: s.pausedAt,
@@ -205,11 +211,6 @@ type PlanRow = { id: string; name: string; options: unknown; contractMonths: num
 const MEMBERSHIP_TX_TYPES = ["MEMBERSHIP", "SUBSCRIPTION"];
 const MONEY_KINDS = ["PAYMENT_RECORDED", "PAYMENT_WAIVED", "PAYMENT_REFUNDED", "RENEWAL_CHANGED", "PLAN_CHANGED", "CHARGE_DATE_MOVED"];
 
-function renewsText(m: MoneyRow, renews: boolean): string {
-  if (renews) return `On — renews ${periodWord(m.billingPeriod)} until someone cancels`;
-  const ends = m.hasStripe ? stripeEndsAt(m) : m.endDate;
-  return ends ? `Off — ends ${fmtDate(ends)}, no renewal` : "Off — ends at the end of the paid period";
-}
 
 async function buildMoney(
   clubId: string,
@@ -258,7 +259,14 @@ async function buildMoney(
 
   const commitment = commitmentView(m, { optionContractMonths, paymentsInTerm, now });
   const next = nextPayment(m, { chargeAmount: charge, skippedAt: live?.skipAt ?? null, now });
-  const renews = renewsNow(m);
+  // The switch shows what will happen, not the stored flag. Turning it runs the
+  // same actions as before (they re-read Stripe first).
+  const truth = renewalTruth({
+    hasStripe: cur.hasStripe, status: cur.status, autoRenew: cur.autoRenew, endDate: cur.endDate,
+    stripeStop: live ? live.cancelAt : cur.stripeStopKnown || cur.cancelAt ? cur.cancelAt : undefined,
+    currentPeriodEnd: m.currentPeriodEnd, paidThroughDate: cur.paidThroughDate, amount: charge,
+  });
+  const renews = truth.kind === "RENEWS" || (truth.kind === "WHEN_PAID" && renewsNow(m));
   const toggle = autoRenewPlan(m, !renews, now);
 
   const events = await prisma.memberSubscriptionEvent.findMany({
@@ -302,7 +310,7 @@ async function buildMoney(
       && !(cur.paidThroughDate && cur.paidThroughDate > now)
         ? { endsAt: live.nextInvoiceAt, amount: charge }
         : null,
-    autoRenew: { on: renews, nowText: renewsText(m, renews), toggle: toggle.ok ? { endsAt: toggle.endsAt, sentence: toggle.sentence } : { endsAt: null, sentence: toggle.error, blocked: true } },
+    autoRenew: { on: renews, nowText: truth.kind === "WHEN_PAID" && renews ? "On · renews when paid" : switchLine(truth, now), toggle: toggle.ok ? { endsAt: toggle.endsAt, sentence: toggle.sentence } : { endsAt: null, sentence: toggle.error, blocked: true } },
     payments: shown.map((t) => {
       const src = (t.paymentSource ?? (t.manual ? t.paymentMethod : "STRIPE") ?? "").toUpperCase();
       const left = refundable({ amount: Number(t.amount), refundedAmount: t.refundedAmount != null ? Number(t.refundedAmount) : null, status: t.status });

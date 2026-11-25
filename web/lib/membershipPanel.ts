@@ -11,6 +11,7 @@
 // the owner-set sticky label, and the row carries no pause date until the
 // slice-2 migration, so the label is what we have.
 
+import { renewalLine, renewalTruth } from "@/lib/renewalTruth";
 import { feeBreakdown, passesAnyFee, type FeePolicyInput } from "@/lib/fees";
 import { prettyPeriod } from "@/lib/billingAdmin";
 
@@ -31,8 +32,11 @@ export type PanelSub = {
   autoRenew: boolean;
   minimumTermEndsAt: Date | null;
   deliberateFree: boolean;
-  /** Stripe cancel_at from the snapshot, when known. */
+  /** Stripe's stop date (lib/stripeStops, else the snapshot), when there is one. */
   cancelAt: Date | null;
+  /** True when we know what Stripe holds, so a null `cancelAt` means "no stop".
+   *  Not known: the row's own end date is the best answer (lib/renewalTruth). */
+  stripeStopKnown?: boolean;
   card: { brand: string | null; last4: string | null } | null;
   createdAt: Date;
   /** B13 slice 2 — set while paused; `pausedUntil` null = open-ended. */
@@ -159,7 +163,13 @@ export function derivePanel(input: PanelInput): PanelView {
     const charged = current.stripeUnitCents != null && current.stripeUnitCents > 0
       ? current.stripeUnitCents / 100
       : passesAnyFee(input.passProcessingFees) ? feeBreakdown(current.price, input.passProcessingFees).total : current.price;
-    const ending = current.cancelAt ?? (current.autoRenew ? null : current.endDate);
+    // What will happen, never the stored flag (lib/renewalTruth).
+    const truth = renewalTruth({
+      hasStripe: true, status: current.status, autoRenew: current.autoRenew, endDate: current.endDate,
+      stripeStop: current.stripeStopKnown || current.cancelAt ? current.cancelAt : undefined,
+      currentPeriodEnd: current.currentPeriodEnd, amount: charged,
+    });
+    const ending = truth.kind === "ENDS" ? truth.endsAt : null;
     const next = current.currentPeriodEnd;
     let moneyLine: string;
     if (current.price <= 0) moneyLine = current.deliberateFree ? "Free — comped on purpose" : "$0 — not marked as a comp";
@@ -175,7 +185,7 @@ export function derivePanel(input: PanelInput): PanelView {
       moneyLine,
       committedThrough: futureOrNull(current.minimumTermEndsAt, now),
       ending,
-      facts: { paysWith: paysWithFor(current), started: current.startDate, renews: ending ? `No — ends ${fmt(ending)}` : "Yes · auto", payer },
+      facts: { paysWith: paysWithFor(current), started: current.startDate, renews: renewalLine(truth, now), payer },
       actions: { primary: pastDue ? "retry_payment" : "change_plan", others, more: ["sync_stripe", "transfer", "comp"] },
       currentSubId: current.id,
       upcoming: upcomingView,
@@ -187,7 +197,12 @@ export function derivePanel(input: PanelInput): PanelView {
   if (current) {
     const paidTo = current.paidThroughDate ?? current.endDate;
     const overdue = paidTo ? paidTo.getTime() < now.getTime() : false;
-    const ending = current.autoRenew ? null : current.endDate;
+    // Cash and check stop on their end date, whatever the flag says.
+    const truth = renewalTruth({
+      hasStripe: false, status: current.status, autoRenew: current.autoRenew, endDate: current.endDate, stripeStop: undefined,
+      currentPeriodEnd: current.currentPeriodEnd, paidThroughDate: current.paidThroughDate, amount: current.price,
+    });
+    const ending = truth.kind === "ENDS" ? truth.endsAt : null;
     const free = current.price <= 0;
     const method = input.requestedPaymentMethod === "CHECK" ? "check" : "cash";
     const moneyLine = free
@@ -200,7 +215,7 @@ export function derivePanel(input: PanelInput): PanelView {
       moneyLine,
       committedThrough: futureOrNull(current.minimumTermEndsAt, now),
       ending,
-      facts: { paysWith: paysWithFor(current), started: current.startDate, renews: free ? "—" : ending ? `No — ends ${fmt(ending)}` : "When paid", payer },
+      facts: { paysWith: paysWithFor(current), started: current.startDate, renews: free && !ending ? "—" : ending ? renewalLine(truth, now) : "When paid", payer },
       actions: {
         primary: free ? "change_plan" : "record_payment",
         others: free ? ["change_dates", "cancel"] : ["change_plan", "change_dates", "pause", "cancel"],

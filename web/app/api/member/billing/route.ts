@@ -3,6 +3,8 @@ import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { endsBeforeNextCharge, renewalLine, renewalTruth } from "@/lib/renewalTruth";
+import { loadStripeStops, stopOf } from "@/lib/stripeStops";
 import { cardSnapshotLookup, type CardSnapshot } from "@/lib/memberCard";
 import { liveStripeFacts } from "@/lib/membershipMoneyServer";
 import { paidWithLine, type PaidWith } from "@/lib/membershipMoney";
@@ -54,6 +56,7 @@ const memberSelect = Prisma.validator<Prisma.MemberSelect>()({
       paidThroughDate: true,
       billingAnchorDate: true,
       endDate: true,
+      autoRenew: true,
       // Reconciled-from-Stripe facts (lib/stripeSync.ts). currentPeriodEnd is
       // Stripe's real next-billing date; stripeStatus is the raw sub status;
       // stripeSnapshot carries the last invoice + card brand/last4.
@@ -198,6 +201,8 @@ export async function GET() {
     ).map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]),
   );
 
+  // What Stripe last said it will do, for anyone the live read below misses.
+  const stops = await loadStripeStops(persons.map(({ m }) => pickActive(m.subscriptions)?.stripeSubscriptionId));
   // One Stripe read per distinct customer however many athletes share it, and
   // one ledger query for the whole family (was: per athlete, in sequence).
   const cardOf = cardSnapshotLookup(stripeAccountId);
@@ -259,6 +264,14 @@ export async function GET() {
         club && passesAnyFee(feePolicyFor(club)) && active?.billingType === "RECURRING" && price != null && price > 0
           ? feeBreakdown(price, feePolicyFor(club))
           : null;
+      const renewal = active
+        ? renewalTruth({
+            hasStripe: !isOffline(active), status: active.status, autoRenew: active.autoRenew, endDate: active.endDate,
+            stripeStop: live ? live.cancelAt : stopOf(stops, active.stripeSubscriptionId),
+            currentPeriodEnd: live?.currentPeriodEnd ?? active.currentPeriodEnd, paidThroughDate: active.paidThroughDate,
+            amount: fees ? fees.total : price,
+          })
+        : null;
       const lastTx = lastTxRows.find((t) => t.memberId === m.id) ?? null;
       const lastPayment = lastTx
         ? {
@@ -323,15 +336,22 @@ export async function GET() {
         // So: a card-billed row still reports its real next charge. An offline
         // row reports how far the money reaches, and says who collects.
         billingMode: active ? (isOffline(active) ? "OFFLINE" : "CARD") : null,
-        nextBilling: active && !isOffline(active)
-          ? active.currentPeriodEnd ?? active.endDate ?? null
+        // And a membership that stops first has no next charge to name.
+        nextBilling: active && !isOffline(active) && renewal && !endsBeforeNextCharge(renewal, active.currentPeriodEnd)
+          ? active.currentPeriodEnd ?? null
+          : null,
+        // "Renews Dec 3 · $110" / "Ends Dec 3 · doesn't renew": what will
+        // happen, not the stored flag. With and without the amount, because
+        // the club may have turned prices off.
+        renewal: renewal && (renewal.kind === "RENEWS" || renewal.kind === "ENDS")
+          ? { line: renewalLine(renewal, new Date()), lineNoAmount: renewalLine(renewal, new Date(), { showAmount: false }) }
           : null,
         // Offline only. How far they are paid up, when that is known — never
         // an import anchor standing in for it.
         paidThrough: active && isOffline(active)
           ? active.paidThroughDate ?? active.currentPeriodEnd ?? null
           : null,
-        endsOn: active?.endDate ?? null,
+        endsOn: renewal?.kind === "ENDS" ? renewal.endsAt : null,
         lastPayment,
         subscriptionId: active?.id ?? null,
         hasCard: !!customerId,

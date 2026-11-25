@@ -526,7 +526,7 @@ export async function sendMembershipActivatedEmail({
         <p style="color:#1c1917;margin:0 0 4px;font-weight:600">${membershipName}</p>
         ${amountPaid ? `<p style="color:#57534e;margin:0;font-size:14px">Paid: <strong>${amountPaid}</strong></p>` : ""}
         ${nextBillingDate ? `<p style="color:#57534e;margin:4px 0 0;font-size:14px">First billing date: <strong>${nextBillingDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</strong></p>` : ""}
-        ${endDate ? `<p style="color:#57534e;margin:4px 0 0;font-size:14px">Renews ${endDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</p>` : ""}
+        ${endDate ? `<p style="color:#57534e;margin:4px 0 0;font-size:14px">Ends ${endDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</p>` : ""}
       </div>
       <a href="${portalUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
         Go to your portal

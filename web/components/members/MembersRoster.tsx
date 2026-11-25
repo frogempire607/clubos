@@ -103,6 +103,8 @@ export type RosterMember = {
   nextAction: NextAction;
   /** B6 — household key from lib/membersListB6.familyKeyFor; null = stands alone. */
   familyKey?: string | null;
+  /** On the renewal queues: what each live membership will actually do. */
+  renewalLines?: string[];
 };
 
 type Counts = {
@@ -755,6 +757,7 @@ export default function MembersRoster({
         </td>
         <td className="py-3 pr-3">
           <MembershipPill {...m.tracks.membership} />
+          {(m.renewalLines ?? []).map((l, i) => <div key={i} className="mt-0.5 text-[12px] text-text-muted">{l}</div>)}
         </td>
         <td className="py-3 pr-3">
           <AccountSetupCell {...m.tracks.accountSetup} />
@@ -810,6 +813,7 @@ export default function MembersRoster({
               <MembershipPill {...m.tracks.membership} />
               <AccountSetupCell {...m.tracks.accountSetup} showMeter={false} />
             </div>
+            {(m.renewalLines ?? []).map((l, i) => <div key={i} className="mt-1 text-[12px] text-text-muted">{l}</div>)}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <NextActionButton
                 action={m.nextAction}
@@ -1398,7 +1402,7 @@ const QUEUE_LABELS: Record<string, string> = {
   neverInvited: "Never invited",
   blocked: "Blocked",
   missingContact: "Missing contact",
-  renewingSoon: "Renewing this week",
+  renewingSoon: "Renewing or ending this week",
   paused: "Paused",
   endingSoon: "Membership ending soon",
 };
@@ -1476,7 +1480,7 @@ function WorkQueueStrip({
     // B14 — the two cards Julian asked for on 2026-09-22/23: the renewal
     // conversation for this week, and the people on a break who would otherwise
     // vanish into an expired row.
-    { key: "renewingSoon", label: "renewing this week", accent: "#15803D", action: "Confirm payment is set" },
+    { key: "renewingSoon", label: "renewing or ending this week", accent: "#15803D", action: "Confirm payment is set" },
     { key: "paused", label: "paused", accent: "var(--color-warn-text)", action: "Check in when they're back" },
   ] as const;
 

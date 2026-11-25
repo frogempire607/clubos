@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { loadStripeStops, stopOf } from "@/lib/stripeStops";
 import { cardSnapshotLookup } from "@/lib/memberCard";
 import {
   payablePeopleFor,
@@ -71,6 +72,7 @@ export async function GET() {
         })
       : Promise.resolve([]),
   ]);
+  const stops = await loadStripeStops(shown.flatMap(({ m }) => m.subscriptions.map((s) => s.stripeSubscriptionId)));
   for (let i = 0; i < shown.length; i++) {
     const { person, m } = shown[i];
     const card = cards[i];
@@ -83,6 +85,7 @@ export async function GET() {
           passProcessingFees: club ? feePolicyFor(club) : false,
           card,
           lastPaidMethod: lastTx?.paymentSource ?? lastTx?.paymentMethod ?? null,
+          stripeStop: stopOf(stops, sub.stripeSubscriptionId),
           now,
         }),
       );

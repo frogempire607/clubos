@@ -18,6 +18,7 @@ import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 import { feeBreakdown, passesAnyFee, type FeePolicyInput } from "@/lib/fees";
 import { autoRenewCopy, howYouPayLine, paymentMethodLabel, type AutoRenewCopy } from "@/lib/autoRenewCopy";
 import type { CardSnapshot } from "@/lib/memberCard";
+import { renewalLine, renewalTruth } from "@/lib/renewalTruth";
 
 export type PayablePerson = { memberId: string; firstName: string; lastName: string; isSelf: boolean };
 
@@ -84,7 +85,12 @@ export type AutoRenewRow = {
   isSelf: boolean;
   plan: string;
   billing: "CARD" | "OFFLINE";
+  /** What will happen, not the stored flag. */
   autoRenew: boolean;
+  /** "Renews Dec 3 · $110" / "Ends Dec 3 · doesn't renew". */
+  renewal: string | null;
+  /** The stored flag disagrees, so the family can't flip it here. */
+  locked: boolean;
   amount: number;
   howYouPay: string;
   copy: Omit<AutoRenewCopy, "stopsOn" | "nextChargeOn" | "commitmentEndsOn"> & {
@@ -100,16 +106,27 @@ export function describeForPortal(input: {
   card: CardLike;
   /** paymentMethod of the last SUCCEEDED membership payment (CASH, CHECK, STRIPE…). */
   lastPaidMethod: string | null;
+  /** Stripe's stop date: a date, null = none, undefined = not known (lib/stripeStops). */
+  stripeStop: Date | null | undefined;
   now: Date;
 }): AutoRenewRow {
   const { sub, person, card, now } = input;
   const billing: "CARD" | "OFFLINE" = sub.billingType === "MANUAL" || !sub.stripeSubscriptionId ? "OFFLINE" : "CARD";
   const base = Number(sub.price ?? 0) || 0;
   const amount = billing === "CARD" && passesAnyFee(input.passProcessingFees) && base > 0 ? feeBreakdown(base, input.passProcessingFees).total : base;
+  // What will happen, not the stored flag.
+  const truth = renewalTruth({
+    hasStripe: billing === "CARD", status: sub.status, autoRenew: sub.autoRenew, endDate: sub.endDate, stripeStop: input.stripeStop,
+    currentPeriodEnd: sub.currentPeriodEnd, paidThroughDate: sub.paidThroughDate, amount,
+  });
+  const renews = truth.kind === "RENEWS" || (truth.kind === "WHEN_PAID" && sub.autoRenew);
   const copy = autoRenewCopy(
     {
-      billing, autoRenew: sub.autoRenew, status: sub.status,
-      startDate: sub.startDate, minimumTermEndsAt: sub.minimumTermEndsAt, endDate: sub.endDate,
+      billing, autoRenew: renews, status: sub.status,
+      startDate: sub.startDate, minimumTermEndsAt: sub.minimumTermEndsAt,
+      // Once it ends, this is the stop date. A card membership Stripe will
+      // renew has none, so a leftover end date is never shown as a promise.
+      endDate: truth.kind === "ENDS" ? truth.endsAt : billing === "CARD" && input.stripeStop === null ? null : sub.endDate,
       currentPeriodEnd: sub.currentPeriodEnd, paidThroughDate: sub.paidThroughDate,
       amount, billingPeriod: sub.billingPeriod,
     },
@@ -129,11 +146,22 @@ export function describeForPortal(input: {
     isSelf: person.isSelf,
     plan: [sub.membership?.name, sub.optionLabel].filter(Boolean).join(" · ") || "Membership",
     billing,
-    autoRenew: sub.autoRenew,
+    autoRenew: renews,
+    renewal: truth.kind === "RENEWS" || truth.kind === "ENDS" ? renewalLine(truth, now) : null,
+    // The stored setting disagrees with what will happen. Families see the
+    // truth; changing it is the club's call, because pressing a switch whose
+    // stored value is already "on" would do nothing and say it worked.
+    locked: !!truth.mismatch,
     amount,
-    howYouPay: howYouPayLine({ billing, methodLabel, nextChargeOn: copy.nextChargeOn, amount, autoRenew: sub.autoRenew, stopsOn: copy.stopsOn }),
+    howYouPay: howYouPayLine({ billing, methodLabel, nextChargeOn: copy.nextChargeOn, amount, autoRenew: renews, stopsOn: copy.stopsOn }),
     copy: {
       ...copy,
+      ...(truth.mismatch
+        ? {
+            canToggle: false,
+            blockedReason: truth.mismatch === "FLAG_ON_BUT_ENDS" ? "Want to keep it going? Ask your club." : "Want to stop it? Ask your club.",
+          }
+        : {}),
       stopsOn: iso(copy.stopsOn),
       nextChargeOn: iso(copy.nextChargeOn),
       commitmentEndsOn: iso(copy.commitmentEndsOn),

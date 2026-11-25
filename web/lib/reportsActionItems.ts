@@ -4,6 +4,9 @@
 // tasks, not just KPIs. Each item is permission-gated and drills through to
 // the exact fix.
 
+import { endsBeforeNextCharge, renewalLine } from "@/lib/renewalTruth";
+import { RENEWAL_SELECT, truthFor } from "@/lib/renewalServer";
+import { loadStripeStops } from "@/lib/stripeStops";
 import { prisma } from "@/lib/prisma";
 import { ENDING_SOON_WINDOW_DAYS } from "@/lib/membersQuery";
 
@@ -158,16 +161,14 @@ export async function buildActionItems(
   // the snooze table is already keyed by (kind, targetId) so an owner can
   // clear the ones they have already handled without silencing the rest.
   const windowEnd = new Date(now.getTime() + ENDING_SOON_WINDOW_DAYS * 86400000);
-  const ending = await prisma.memberSubscription.findMany({
+  const endingRows = await prisma.memberSubscription.findMany({
     where: {
       status: "active",
       endDate: { gte: now, lte: windowEnd },
       member: { clubId, deletedAt: null },
     },
     select: {
-      id: true,
-      endDate: true,
-      price: true,
+      ...RENEWAL_SELECT,
       optionLabel: true,
       member: { select: { id: true, firstName: true, lastName: true } },
       membership: { select: { name: true } },
@@ -175,6 +176,13 @@ export async function buildActionItems(
     orderBy: { endDate: "asc" },
     take: 100,
   });
+  // An end date Stripe never received is not an ending: that card is charged
+  // again. Only memberships that will really stop are listed, on the day they
+  // stop (lib/renewalTruth).
+  const endingStops = await loadStripeStops(endingRows.map((s) => s.stripeSubscriptionId));
+  const ending = endingRows
+    .map((s) => ({ ...s, truth: truthFor(s, endingStops, false) }))
+    .filter((s) => s.truth.kind === "ENDS" && !!s.truth.endsAt && s.truth.endsAt >= now && s.truth.endsAt <= windowEnd);
 
   // Per-member cards for the nearest ones; anything past PER_MEMBER_LIMIT is
   // rolled into a single trailing card so a large roster cannot bury every
@@ -186,11 +194,12 @@ export async function buildActionItems(
   const overflow = ending.length - visible.length;
 
   const dayFmt = (d: Date) =>
-    d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
   for (const sub of visible) {
     if (isSnoozed("EXPIRING_MEMBERSHIP", sub.member.id)) continue;
-    const days = Math.max(0, Math.round((sub.endDate!.getTime() - now.getTime()) / 86400000));
+    const endsAt = sub.truth.endsAt as Date;
+    const days = Math.max(0, Math.round((endsAt.getTime() - now.getTime()) / 86400000));
     items.push({
       id: itemId("EXPIRING_MEMBERSHIP", sub.member.id),
       kind: "EXPIRING_MEMBERSHIP",
@@ -198,11 +207,11 @@ export async function buildActionItems(
       // ending in three months are the same fact and completely different
       // tasks.
       severity: renewalSeverity(days),
-      title: `${sub.member.firstName} ${sub.member.lastName} — membership ends ${dayFmt(sub.endDate!)}`,
+      title: `${sub.member.firstName} ${sub.member.lastName} — membership ends ${dayFmt(endsAt)}`,
       detail:
         `${sub.membership?.name ?? "Membership"}` +
         `${sub.optionLabel ? ` · ${sub.optionLabel}` : ""} · $${Number(sub.price ?? 0).toFixed(2)} · ` +
-        `${days === 0 ? "ends today" : `${days} day${days === 1 ? "" : "s"} away`}. ` +
+        `${days === 0 ? "ends today" : `${days} day${days === 1 ? "" : "s"} away`}. ${renewalLine(sub.truth, now)}. ` +
         `Re-sign them before it lapses.`,
       count: null,
       amount: Number(sub.price ?? 0) || null,
@@ -323,7 +332,7 @@ export async function buildActionItems(
   // 6. UPCOMING_RENEWAL_LARGE — MemberSubscription price >= threshold with
   //    a next-billing within 7 days. Best-effort with existing schema.
   const in7d = new Date(now.getTime() + 7 * 86400000);
-  const upcomingRenewals = await prisma.memberSubscription.findMany({
+  const upcomingRows = await prisma.memberSubscription.findMany({
     where: {
       status: "active",
       member: { clubId, deletedAt: null },
@@ -334,15 +343,16 @@ export async function buildActionItems(
       ],
     },
     select: {
-      id: true,
-      price: true,
-      currentPeriodEnd: true,
-      endDate: true,
+      ...RENEWAL_SELECT,
       member: { select: { firstName: true, lastName: true } },
       membership: { select: { name: true } },
     },
-    take: 25,
+    take: 100,
   });
+  // Money that will actually come in: one that stops on (or before) its next
+  // charge is not a renewal.
+  const upcomingStops = await loadStripeStops(upcomingRows.map((s) => s.stripeSubscriptionId));
+  const upcomingRenewals = upcomingRows.filter((s) => !endsBeforeNextCharge(truthFor(s, upcomingStops, false), s.currentPeriodEnd));
   if (upcomingRenewals.length > 0 && !isSnoozed("UPCOMING_RENEWAL_LARGE")) {
     const total = upcomingRenewals.reduce((s, r) => s + Number(r.price ?? 0), 0);
     items.push({

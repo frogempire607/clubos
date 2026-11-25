@@ -1,5 +1,6 @@
 "use client";
 
+import type { RenewalView } from "@/lib/renewalServer";
 import { confirmDialog, promptDialog } from "@/lib/dialogs";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -138,6 +139,8 @@ type MemberDetail = {
   trialEndsAt?: string | null;
   passProcessingFees?: boolean;
   feePolicy?: FeePolicy;
+  /** Per membership: what will actually happen (lib/renewalTruth). */
+  renewals?: Record<string, RenewalView>;
   // Phase 4.5.3 — the SAME derived tracks the roster row renders, so the
   // profile can never disagree with the list it was opened from.
   tracks?: ProfileTracks | null;
@@ -662,10 +665,16 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
     migrationStatus: m.migrationStatus ?? null,
     meter: tracks.accountSetup.meter,
   });
-  // Next charge = the live recurring subscription's current period end. A
-  // subscription set not to renew, or already canceled, has no next charge.
+  // Next charge = the live recurring subscription's current period end. One
+  // that stops first has no next charge: what Stripe will do decides that
+  // (lib/renewalTruth), not the stored auto-renew flag.
+  const activeRenewal = activeSub ? m.renewals?.[activeSub.id] ?? null : null;
+  const chargesAgain = activeRenewal
+    ? activeRenewal.kind === "RENEWS" ||
+      (activeRenewal.kind === "ENDS" && !!activeRenewal.endsAt && !!activeSub?.currentPeriodEnd && new Date(activeRenewal.endsAt).getTime() > new Date(activeSub.currentPeriodEnd).getTime() + 60_000)
+    : activeSub?.autoRenew !== false;
   const nextCharge =
-    activeSub && activeSub.billingType === "RECURRING" && activeSub.autoRenew !== false && !activeSub.canceledAt && Number(activeSub.price) > 0
+    activeSub && activeSub.billingType === "RECURRING" && chargesAgain && !activeSub.canceledAt && Number(activeSub.price) > 0
       ? {
           amount:
             passesAnyFee(m.feePolicy) ? feeBreakdown(Number(activeSub.price), m.feePolicy!).total : Number(activeSub.price),
@@ -1082,7 +1091,7 @@ export default function MemberProfilePage({ params }: { params: { id: string } }
           ) : (
             <div className="space-y-2">
               {[activeSub, ...pastSubs].filter(Boolean).map((s) => (
-                <SubRow key={s!.id} sub={s!} passFees={m.feePolicy ?? false} onEdit={() => setEditingSub(s!)} onTransfer={canTransfer ? () => setTransferringSubId(s!.id) : undefined} />
+                <SubRow key={s!.id} sub={s!} renewal={m.renewals?.[s!.id] ?? null} passFees={m.feePolicy ?? false} onEdit={() => setEditingSub(s!)} onTransfer={canTransfer ? () => setTransferringSubId(s!.id) : undefined} />
               ))}
             </div>
           )}
@@ -1756,11 +1765,13 @@ function SendReaderModal({ id, onClose }: { id: string; onClose: () => void }) {
 
 function SubRow({
   sub,
+  renewal,
   passFees = false,
   onEdit,
   onTransfer,
 }: {
   sub: Sub;
+  renewal: RenewalView | null;
   passFees?: FeePolicy | false;
   onEdit: () => void;
   /** Undefined when the viewer may not move memberships. */
@@ -1783,7 +1794,7 @@ function SubRow({
             : fmtMoney(sub.price)} · {sub.billingType.toLowerCase()} · {sub.status}
         </div>
         <div className="text-xs text-text-muted">
-          {fmtDate(sub.startDate)} → {sub.endDate ? fmtDate(sub.endDate) : "open-ended"}
+          {renewal ? `Started ${fmtDate(sub.startDate)} · ${renewal.line}` : <>{fmtDate(sub.startDate)} → {sub.endDate ? fmtDate(sub.endDate) : "open-ended"}</>}
         </div>
         {sub.notes && <div className="text-xs text-text-muted mt-0.5 italic">{sub.notes}</div>}
       </div>

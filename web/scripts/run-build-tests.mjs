@@ -163,6 +163,9 @@ export const GATED = [
   ["scripts/stripe-truth-tests.ts"],
   ["scripts/billing-data-tests.ts"],
   ["scripts/non-renewal-tests.ts"],
+  // What a membership will actually do, whatever its stored flag says
+  // (2026-11-25): every display case, on every screen.
+  ["scripts/renewal-truth-tests.ts"],
   ["scripts/billing-retire-tests.ts"],
   ["scripts/invoice-period-tests.ts"],
   ["scripts/bank-reconciliation-tests.ts"],

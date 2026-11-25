@@ -34,7 +34,7 @@ check("headline is plan · option", v1.headline === "MS/HS · Monthly Full Membe
 // ($175 + 2.9% + $0.30, grossed up) is shown: $180.54, not the legacy $180.08.
 check("money line has the fee-inclusive charge and the next charge", v1.moneyLine === "$180.54 monthly on the saved card · next charge Oct 22", v1.moneyLine);
 check("existing (legacy) subscription shows what Stripe actually bills", derivePanel(input({ subs: [sub({ stripeUnitCents: 18008 })] })).moneyLine.startsWith("$180.08 monthly"));
-check("facts", v1.facts?.paysWith === "Visa ····4242" && v1.facts.renews === "Yes · auto" && v1.facts.payer === "Adam Chorba", v1.facts);
+check("facts", v1.facts?.paysWith === "Visa ····4242" && v1.facts.renews === "Renews Oct 22 · $180.54" && v1.facts.payer === "Adam Chorba", v1.facts);
 check("actions", v1.actions.primary === "change_plan" && JSON.stringify(v1.actions.others) === JSON.stringify(["change_dates", "pause", "cancel"]) && v1.actions.more.includes("sync_stripe"), v1.actions);
 const v1b = derivePanel(input({ subs: [sub({ cancelAt: d("2026-10-22"), autoRenew: false, endDate: d("2026-10-22") })] }));
 check("scheduled cancel at the period end → 'ends' pill, Keep membership offered, Cancel not", v1b.pill.label === "Ends Oct 22" && v1b.moneyLine.endsWith("ends Oct 22 — no renewal") && v1b.actions.others.includes("keep") && !v1b.actions.others.includes("cancel"), v1b);

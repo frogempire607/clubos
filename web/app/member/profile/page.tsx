@@ -167,6 +167,7 @@ type PersonBilling = {
   }[];
   paidThrough: string | null;
   endsOn: string | null;
+  renewal?: { line: string; lineNoAmount: string } | null;
   lastPayment: { amount: number; paidAt: string } | null;
   subscriptionId: string | null;
   hasCard: boolean;
@@ -1135,13 +1136,8 @@ export default function MemberAccountPage() {
                               {/* When it ends, whichever way it is billed. An end
                                   date the family cannot see is how a membership
                                   quietly runs out. */}
-                              {p.endsOn && p.status !== "canceled" && p.status !== "expired" && (
-                                <ProfileRow
-                                  label="Ends on"
-                                  value={new Date(p.endsOn).toLocaleDateString("en-US", {
-                                    month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
-                                  })}
-                                />
+                              {p.renewal && p.status !== "canceled" && p.status !== "expired" && p.status !== "pending" && (showNextBilling || !!p.endsOn) && (
+                                <ProfileRow label="Renewal" value={showPrice ? p.renewal.line : p.renewal.lineNoAmount} />
                               )}
                               {/* Both sides of a membership transfer. The money
                                   deliberately stays with whoever paid it, so
