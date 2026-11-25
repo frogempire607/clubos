@@ -17,6 +17,10 @@ import { loadSelfCancel, runSelfCancel } from "@/lib/eventSelfCancelServer";
 // and money is never refunded automatically; staff get a DM to review. Private
 // lessons keep their own richer route (/api/member/privates/[id]).
 //
+// With or without a policy, a card charge that hasn't run yet is stopped when
+// the family cancels (2026-11-25): it used to run anyway, because only the
+// booking was canceled. One that may be running right now refuses the cancel.
+//
 // An event WITH a refund policy (2026-11-25) applies it, and says so first:
 // GET answers what canceling means for their money, and POST must send back
 // what they agreed to (`agreed`). Before the deadline the event price goes
@@ -183,7 +187,9 @@ export async function POST(req: Request) {
     await notifyStaff(
       `${who} canceled their registration for "${booking.event.name}" and may be owed a refund if they paid.${
         data.reason ? ` Reason: ${data.reason}` : ""
-      } Refunds are not automatic — please review and follow up.`,
+      } Refunds are not automatic — please review and follow up.${
+        policyCancel?.scheduledLeft ? " A card charge is STILL SCHEDULED for this athlete: open the event's Attendees and remove the registration if it should not run." : ""
+      }`,
     );
     return NextResponse.json({
       ok: true,

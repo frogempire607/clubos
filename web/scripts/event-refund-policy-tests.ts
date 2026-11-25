@@ -10,7 +10,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  CHARGE_MARGIN_MS,
   NON_REFUNDABLE_CHECKBOX,
+  chargeMayBeRunning,
   daysBeforeInZone,
   longDeadline,
   normalizeRefundPolicy,
@@ -168,7 +170,19 @@ console.log("\n§5 a family cancels itself");
   check("being charged right now: wait", P(until(at(2, 17)), [{ ...R, status: "SCHEDULED", paidCents: 0, charging: true }]).kind === "BLOCKED");
   check("paid in cash: the club returns it", P(until(at(2, 17)), [{ ...R, byCard: false }]).kind === "RETURN_BY_HAND");
   check("already refunded: nothing more", P(until(at(2, 17)), [{ ...R, priceLeftCents: 0, leftCents: 211 }]).kind === "NO_REFUND");
-  check("no policy set: exactly as before, the club reviews it", P(null).kind === "LEGACY");
+  check("no policy set and paid: exactly as before, the club reviews it", P(null).kind === "LEGACY");
+  // No policy, but the card hasn't been charged (2026-11-25): it must not be.
+  const S = { ...R, status: "SCHEDULED", paidCents: 0, priceLeftCents: 0, leftCents: 0, feeCents: 0, byCard: false };
+  check("no policy, card charge still to come: canceling stops it, and says so", P(null, [S]).kind === "NOT_CHARGED" && P(null, [S]).text === "You haven't been charged for this. If you cancel, you won't be.", P(null, [S]));
+  check("no policy, charge may be running: can't cancel right now", P(null, [{ ...S, charging: true }]).kind === "BLOCKED");
+  check("no policy, owes cash or an invoice: unchanged", P(null, [{ ...S, status: "AWAITING_CASH" }]).kind === "LEGACY" && P(null, [{ ...S, status: "REGISTERED" }]).kind === "LEGACY");
+  check("no policy, two registrations with a charge to come: a person decides, and they're told about the charge", P(null, [S, S]).kind === "LEGACY" && /card charge is still scheduled/.test(P(null, [S, S]).text));
+  check("…the same with a policy", P(until(at(2, 17)), [S, R]).kind === "LEGACY" && /card charge is still scheduled/.test(P(until(at(2, 17)), [S, R]).text));
+  const charge = (o: Partial<Parameters<typeof chargeMayBeRunning>[0]>) => chargeMayBeRunning({ status: "SCHEDULED", stripePaymentIntentId: null, scheduledChargeAt: at(3, 7), lastChargeError: null, ...o }, now);
+  check("days away with nothing started: safe to take back", !charge({}) && !charge({ scheduledChargeAt: null }));
+  check("due, or seconds from due: not safe (the runner reads a due row, then charges)", charge({ scheduledChargeAt: now }) && charge({ scheduledChargeAt: new Date(now.getTime() + CHARGE_MARGIN_MS - 1000) }) && !charge({ scheduledChargeAt: new Date(now.getTime() + CHARGE_MARGIN_MS + 1000) }));
+  check("a payment exists, or an earlier try never got an answer: not safe", charge({ stripePaymentIntentId: "pi" }) && charge({ lastChargeError: "timeout" }));
+  check("only scheduled cards are ever 'charging'", !charge({ status: "PAID", stripePaymentIntentId: "pi" }) && !charge({ status: "AWAITING_CASH" }));
   check("no money record: no refund after the deadline, the club before it", P(until(passed), []).kind === "NO_REFUND" && P(until(at(2, 17)), []).kind === "LEGACY" && P(until(passed), [], false).kind === "LEGACY");
   check("two registrations: a person decides", P(until(at(2, 17)), [R, R]).kind === "LEGACY");
   check("what they agreed to changes when the deadline passes", open.token !== late.token);
@@ -178,6 +192,10 @@ console.log("\n§5 a family cancels itself");
   check("it refunds the event price only, through the one engine, and removes only after", /mode: "price"/.test(run) && /remove: true,\s*keepBooking: true/.test(run));
   check("a refused refund cancels nothing, and never tells the family about the club's balance", /nothing was canceled and you still have your spot/.test(run) && !/message: r\.error/.test(run));
   check("a canceled scheduled charge can't run, and can't race one that started", /scheduledChargeAt: null/.test(run) && /stripePaymentIntentId: null/.test(run));
+  check("…checked again in the write itself, not just when the sheet opened", /lastChargeError: null, OR: \[\{ scheduledChargeAt: null \}, \{ scheduledChargeAt: \{ gt: new Date\(Date\.now\(\) \+ CHARGE_MARGIN_MS\) \} \}\]/.test(run));
+  check("registrations are read with or without a policy", !/policy\s*\?\s*await prisma\.eventRegistration/.test(run));
+  check("the runner still charges SCHEDULED rows only", /reg\.status !== "SCHEDULED"/.test(code("lib/eventAutoCharge.ts")));
+  check("staff are told when a charge is left for them to decide", /policyCancel\?\.scheduledLeft/.test(route) && /STILL SCHEDULED/.test(route));
 }
 
 console.log("\n§6 saving it");

@@ -190,6 +190,28 @@ export function refundOverride(e: RefundPolicyEvent, tz: string | null | undefin
 
 const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
 
+/** How close to its charge time a scheduled card counts as already being charged. */
+export const CHARGE_MARGIN_MS = 60_000;
+
+/**
+ * Could this registration's scheduled card charge be happening, or have
+ * happened without our knowing? The charge runner reads a due row and then
+ * calls Stripe, so a row is only safe to take back when none of these hold:
+ *   · a payment exists for it
+ *   · its charge time has arrived (or is seconds away)
+ *   · an earlier try ended without an answer (a recorded error, no payment):
+ *     Stripe may have charged it, and the runner's next pass is what finds out
+ */
+export function chargeMayBeRunning(
+  r: { status: string; stripePaymentIntentId: string | null; scheduledChargeAt: Date | string | null; lastChargeError?: string | null },
+  now: Date,
+): boolean {
+  if (r.status !== "SCHEDULED") return false;
+  if (r.stripePaymentIntentId || r.lastChargeError) return true;
+  const at = asDate(r.scheduledChargeAt);
+  return !!at && at.getTime() <= now.getTime() + CHARGE_MARGIN_MS;
+}
+
 export type SelfCancelPlan = {
   /** LEGACY = no policy set (or nothing to apply it to): the club reviews it, as before. */
   kind: "LEGACY" | "REFUND" | "NO_REFUND" | "NOT_CHARGED" | "RETURN_BY_HAND" | "BLOCKED";
@@ -212,7 +234,21 @@ export function selfCancelPlan(input: {
 }): SelfCancelPlan {
   const plan = (kind: SelfCancelPlan["kind"], text: string, refundCents = 0): SelfCancelPlan => ({ kind, text, refundCents, token: `${kind}:${refundCents}` });
   const legacy = plan("LEGACY", "Already paid? Refunds aren't automatic. Canceling sends your club a refund request and they'll follow up.");
-  if (!input.policy) return legacy;
+  const blocked = plan("BLOCKED", "Your card is being charged for this right now, so it can't be canceled here yet. Try again later, or ask your club.");
+  const notCharged = plan("NOT_CHARGED", "You haven't been charged for this. If you cancel, you won't be.");
+  const scheduled = input.registrations.filter((r) => r.status === "SCHEDULED" && r.paidCents <= 0);
+  // More than one registration on this athlete: a person decides which. A card
+  // charge that is still going to run is never left out of what they read.
+  if (input.registrations.length > 1 && scheduled.length > 0) {
+    return plan("LEGACY", "More than one registration is linked to this athlete, and a card charge is still scheduled. Canceling tells your club, and they'll check whether to stop the charge.");
+  }
+  if (!input.policy) {
+    // No refund policy: money already paid still goes to the club to review.
+    // But a card that hasn't been charged must not be, once they cancel.
+    // Until 2026-11-25 the spot was freed and the charge still ran.
+    if (scheduled.length === 1) return scheduled[0].charging ? blocked : notCharged;
+    return legacy;
+  }
   const closed = (p: RefundPolicy) =>
     plan("NO_REFUND", p.deadline ? `The refund deadline was ${longDeadline(p.deadline, input.tz, input.now)}. If you cancel now, you won't get a refund.` : "This event is non-refundable. If you cancel, you won't get a refund.");
   // A spot with no money record of its own: after the deadline the answer is
@@ -221,8 +257,8 @@ export function selfCancelPlan(input: {
   // More than one to choose between: a person decides.
   if (input.registrations.length > 1) return legacy;
   const r = input.registrations[0];
-  if (r.charging) return plan("BLOCKED", "Your card is being charged for this right now. Wait a few minutes and try again.");
-  if (r.paidCents <= 0) return plan("NOT_CHARGED", "You haven't been charged for this. If you cancel, you won't be.");
+  if (r.charging) return blocked;
+  if (r.paidCents <= 0) return notCharged;
   const p = input.policy;
   if (!refundIsOpen(p, input.now)) return closed(p);
   if (r.priceLeftCents <= 0) return plan("NO_REFUND", "The event price has already been refunded, so there's nothing more to send back.");

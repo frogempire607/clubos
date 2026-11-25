@@ -1,4 +1,5 @@
-// A family canceling its own event booking, when the event has a refund policy.
+// A family canceling its own event booking: what its refund policy gives back,
+// and (policy or not) stopping a card charge that hasn't run yet.
 //
 // lib/eventRefundPolicy.selfCancelPlan decides what they get back and says so
 // before they confirm; this reads the facts and carries it out. The refund
@@ -9,7 +10,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { writeBillingAudit } from "@/lib/billingAudit";
-import { REFUND_POLICY_SELECT, readRefundPolicy, selfCancelPlan, type SelfCancelPlan } from "@/lib/eventRefundPolicy";
+import { CHARGE_MARGIN_MS, REFUND_POLICY_SELECT, chargeMayBeRunning, readRefundPolicy, selfCancelPlan, type SelfCancelPlan } from "@/lib/eventRefundPolicy";
 import { centsText, refundFacts, refundFee, refundLeft, refundOptions } from "@/lib/eventRefunds";
 import { loadRegistrationRefunds, refundEventRegistration } from "@/lib/eventRefundServer";
 
@@ -20,6 +21,8 @@ export type SelfCancel = {
   eventId: string;
   eventName: string;
   plan: SelfCancelPlan;
+  /** A person has to decide, and a card charge is still going to run. Staff are told. */
+  scheduledLeft: boolean;
   /** The one live registration the plan is about, when there is exactly one. */
   reg: { id: string; status: string; amountDue: number | null; amountPaid: number; transactionId: string | null; refundedCents: number } | null;
 };
@@ -38,12 +41,10 @@ export async function loadSelfCancel(clubId: string, bookingId: string, now: Dat
   if (!booking) return null;
   const tz = booking.event.club.timezone;
   const policy = readRefundPolicy(booking.event, tz);
-  const rows = policy
-    ? await prisma.eventRegistration.findMany({
-        where: { clubId, eventId: booking.eventId, memberId: booking.memberId, status: { not: "CANCELED" }, OR: [{ approvalStatus: null }, { approvalStatus: { not: "DECLINED" } }] },
-        select: { id: true, status: true, amountDue: true, amountPaid: true, transactionId: true, stripePaymentIntentId: true },
-      })
-    : [];
+  const rows = await prisma.eventRegistration.findMany({
+    where: { clubId, eventId: booking.eventId, memberId: booking.memberId, status: { not: "CANCELED" }, OR: [{ approvalStatus: null }, { approvalStatus: { not: "DECLINED" } }] },
+    select: { id: true, status: true, amountDue: true, amountPaid: true, transactionId: true, stripePaymentIntentId: true, scheduledChargeAt: true, lastChargeError: true },
+  });
   const refunds = await loadRegistrationRefunds(clubId, rows, { withFailed: false });
   const read = rows.map((r) => {
     const f = refundFacts({ amountPaid: r.amountPaid, amountDue: r.amountDue, refundedCents: Math.round((refunds.get(r.id)?.refunded ?? 0) * 100) });
@@ -63,7 +64,7 @@ export async function loadSelfCancel(clubId: string, bookingId: string, now: Dat
       leftCents: refundLeft(f),
       feeCents: refundFee(f),
       byCard: !!r.stripePaymentIntentId,
-      charging: r.status === "SCHEDULED" && !!r.stripePaymentIntentId,
+      charging: chargeMayBeRunning(r, now),
     })),
   });
   const only = read.length === 1 ? read[0] : null;
@@ -74,6 +75,7 @@ export async function loadSelfCancel(clubId: string, bookingId: string, now: Dat
     eventId: booking.eventId,
     eventName: booking.event.name,
     plan,
+    scheduledLeft: plan.kind === "LEGACY" && read.some(({ r, f }) => r.status === "SCHEDULED" && f.paidCents <= 0),
     reg: only
       ? { id: only.r.id, status: only.r.status, amountDue: only.r.amountDue == null ? null : Number(only.r.amountDue), amountPaid: Number(only.r.amountPaid ?? 0), transactionId: only.r.transactionId, refundedCents: only.f.refundedCents }
       : null,
@@ -129,7 +131,17 @@ export async function runSelfCancel(c: SelfCancel, ctx: { clubId: string; actorU
   // a tap and a charge that just started) can't both act on it.
   const paid = reg.amountPaid > 0;
   const claimed = await prisma.eventRegistration.updateMany({
-    where: { id: reg.id, clubId: ctx.clubId, status: reg.status, ...(paid ? {} : { stripePaymentIntentId: null }) },
+    where: {
+      id: reg.id,
+      clubId: ctx.clubId,
+      status: reg.status,
+      ...(paid ? {} : { stripePaymentIntentId: null }),
+      // Checked again at the moment of the write: a charge that became due, or
+      // ended without an answer, since they read the sheet is left alone.
+      ...(!paid && reg.status === "SCHEDULED"
+        ? { lastChargeError: null, OR: [{ scheduledChargeAt: null }, { scheduledChargeAt: { gt: new Date(Date.now() + CHARGE_MARGIN_MS) } }] }
+        : {}),
+    },
     data: { status: "CANCELED", paymentUrl: null, ...(paid ? {} : { amountDue: null, scheduledChargeAt: null, nextReminderAt: null }) },
   });
   if (claimed.count === 0) {
