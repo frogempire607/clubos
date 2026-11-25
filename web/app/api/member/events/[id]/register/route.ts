@@ -44,6 +44,7 @@ import { resolveCardSnapshot, prettyBrand } from "@/lib/memberCard";
 import { applyProcessingFee } from "@/lib/fees";
 import { ACTIVE_GUARDIAN_LINK } from "@/lib/familyAccess";
 import { memberVisibleEventWhere } from "@/lib/memberEventsServer";
+import { NON_REFUNDABLE_REQUIRED, refundPolicyView } from "@/lib/eventRefundPolicy";
 import { confirmLabel, reviewTiming, type PaymentMethodKey, type PricingKind, type RegisterReview } from "@/lib/eventDetailsView";
 
 async function emailBookingConfirmation(args: {
@@ -54,6 +55,8 @@ async function emailBookingConfirmation(args: {
   startsAt: Date;
   endsAt: Date;
   coveredByMembership: boolean;
+  /** The event's refund policy in plain lines, when money is owed. */
+  refundPolicy?: string[] | null;
 }) {
   const m = await prisma.member.findUnique({
     where: { id: args.memberId },
@@ -81,6 +84,7 @@ async function emailBookingConfirmation(args: {
       startsAt: args.startsAt,
       endsAt: args.endsAt,
       coveredByMembership: args.coveredByMembership,
+      refundPolicy: args.refundPolicy,
       // The event's details screen: the same one every event link opens.
       portalUrl: `${baseUrl}${eventDetailsPath(args.eventId, args.memberId)}`,
       // An event start is a real moment: print it in the club's timezone.
@@ -120,6 +124,9 @@ const schema = z.object({
   // request with confirmed: true. So no tap anywhere registers or charges on
   // its own.
   confirmed: z.boolean().optional(),
+  // "I understand this is non-refundable." Required to confirm when the
+  // event's refund policy gives nothing back (lib/eventRefundPolicy).
+  acknowledgeNonRefundable: z.boolean().optional(),
   // The event's own questions (Event.registrationForm — weight class,
   // division, …). Validated by lib/eventForm exactly as the public link
   // validates them; before 2026-09-24 this route never asked.
@@ -229,9 +236,19 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // ── Review, not write, until confirmed ───────────────────────────────────
     const reviewOnly = body.confirmed !== true;
     let reviewAck: { id: string; title: string }[] = [];
-    const reviewTz = reviewOnly
-      ? (await prisma.club.findUnique({ where: { id: session.user.clubId }, select: { timezone: true } }))?.timezone ?? null
-      : null;
+    const policyClub = await prisma.club.findUnique({
+      where: { id: session.user.clubId },
+      select: { timezone: true, passProcessingFees: true, passPlatformFee: true },
+    });
+    const reviewTz = policyClub?.timezone ?? null;
+    // What the family is told about refunds, on every screen that confirms,
+    // and the one check that they ticked the box when there are none. Only
+    // where money is owed: a free or covered spot has nothing to refund.
+    const refundView = refundPolicyView(event, policyClub ?? {}, new Date());
+    const refundNotAcknowledged = () =>
+      refundView?.mustAcknowledge && body.acknowledgeNonRefundable !== true
+        ? NextResponse.json({ error: "NON_REFUNDABLE_ACK_REQUIRED", message: NON_REFUNDABLE_REQUIRED, refundPolicy: refundView }, { status: 400 })
+        : null;
     const reviewResponse = (r: {
       pricing: PricingKind;
       approval: boolean;
@@ -258,6 +275,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         event: { id: event.id, name: event.name },
         ...base,
         acknowledge: reviewAck,
+        refundPolicy: r.pricing === "FREE" || r.pricing === "COVERED" ? null : refundView,
         timing: reviewTiming(base, reviewTz),
         confirmLabel: confirmLabel(base),
       };
@@ -313,8 +331,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       }
       formAnswers = checked.answers;
     }
+    // Kept with the answers as a server-written stamp (`__` keys can't be
+    // forged and never show as answers): when they ticked the box.
+    const ackStamp = refundView?.mustAcknowledge && body.acknowledgeNonRefundable === true ? { __nonRefundableAcknowledged: new Date().toISOString() } : {};
     const formData: { formResponses?: Prisma.InputJsonValue } =
-      Object.keys(formAnswers).length > 0 ? { formResponses: formAnswers as Prisma.InputJsonValue } : {};
+      Object.keys(formAnswers).length > 0 ? { formResponses: { ...formAnswers, ...ackStamp } as Prisma.InputJsonValue } : {};
     // The registration's contact email. A child's member row usually has no
     // email of its own (the guardian's login is the account), which left the
     // row blank and the confirmation email with nowhere to go.
@@ -571,6 +592,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           split: { mode: event.variableCostMode ?? "ESTIMATED", perHead: estPerHead },
         });
       }
+      const noAck = refundNotAcknowledged();
+      if (noAck) return noAck;
       if (policy.requiresCoachApproval) {
         const reg = await requestCoachReview(estPerHead);
         return NextResponse.json({
@@ -824,6 +847,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     // the approval flow can re-invoke this endpoint cleanly.
     // Queuing a guardian approval writes a row, so it happens only once the
     // person has confirmed the review.
+    if (!reviewOnly) {
+      const noAck = refundNotAcknowledged();
+      if (noAck) return noAck;
+    }
     const gate = reviewOnly ? ({ kind: "allow" } as const) : await applyParentalControls({
       member: {
         id: member.id,
@@ -846,6 +873,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         memberId: member.id,
         ...(discount ? { discountCode: discount.code } : {}),
         ...(groupDisplay ? { groupValue: groupDisplay } : {}),
+        ...(body.acknowledgeNonRefundable ? { acknowledgeNonRefundable: true } : {}),
       },
     });
     if (gate.kind === "block") {
@@ -1024,6 +1052,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
               offlineTotal: price,
             },
             savedCard: card ? { label: `${prettyBrand(card.brand)} ····${card.last4}` } : null,
+            refundPolicy: refundView,
           },
           { status: 400 },
         );
@@ -1338,6 +1367,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             offlineTotal: price,
           },
           savedCard: card ? { label: `${prettyBrand(card.brand)} ····${card.last4}` } : null,
+          refundPolicy: refundView,
           documents: allDocs.map((d) => ({
             id: d.id,
             title: d.title,
@@ -1497,6 +1527,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             startsAt: event.startsAt,
             endsAt: event.endsAt,
             coveredByMembership: false,
+            refundPolicy: refundView?.lines,
           });
         }
         return NextResponse.json({
@@ -1536,6 +1567,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
           startsAt: event.startsAt,
           endsAt: event.endsAt,
           coveredByMembership: false,
+          refundPolicy: refundView?.lines,
         });
       }
       return NextResponse.json({

@@ -8,6 +8,7 @@ import { requirePermissionLive } from "@/lib/apiGuard";
 import { stripe, calculatePlatformFee } from "@/lib/stripe";
 import { processingFeeLineItem, feePolicyFor } from "@/lib/fees";
 import { sendBookingConfirmationEmail } from "@/lib/email";
+import { refundPolicyView } from "@/lib/eventRefundPolicy";
 import { getAppBaseUrl } from "@/lib/baseUrl";
 import { resolveStaffDiscount, quotePayment, discountAppliedLabel } from "@/lib/staffPayments";
 import { recordDiscountUse } from "@/lib/discounts";
@@ -407,6 +408,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
             startsAt: event.startsAt,
             endsAt: event.endsAt,
             amountPaid: amount.toFixed(2),
+            refundPolicy: refundPolicyView(event, club, new Date())?.lines,
             portalUrl: `${baseUrl}${eventDetailsPath(event.id)}`,
             clock: { kind: "moment", timeZone: club.timezone },
           }).catch((e) => console.error("Booking email failed:", e));

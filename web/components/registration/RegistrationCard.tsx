@@ -202,6 +202,12 @@ export default function RegistrationCard({
           )}
         </div>
 
+        {m.refundPolicy.length > 0 && (
+          <div className="border-t border-stone-200 px-5 sm:px-6 py-3">
+            <p className="text-[13px] font-semibold text-stone-900">Refunds</p>
+            {m.refundPolicy.map((l) => <p key={l} className="text-[13px] text-stone-600 mt-0.5 whitespace-pre-line">{l}</p>)}
+          </div>
+        )}
         {m.cancellationPolicyText && (
           <details className="border-t border-stone-200 px-5 sm:px-6 py-3">
             <summary className="text-xs text-stone-500 cursor-pointer">Cancellation policy</summary>

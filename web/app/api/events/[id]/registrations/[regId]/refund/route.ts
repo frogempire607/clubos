@@ -65,6 +65,7 @@ export async function POST(req: Request, context: Ctx) {
     expectedRefundedCents: body.expectedRefundedCents,
     actorUserId: session.user.id ?? null,
     reason: "Refunded from the event's attendees",
+    byStaff: true,
   });
   if (!r.ok) return NextResponse.json({ error: r.error, code: r.code }, { status: r.status });
   return NextResponse.json(r);

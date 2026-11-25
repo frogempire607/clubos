@@ -28,6 +28,7 @@ import { REFUND_APPLICATION_FEE } from "@/lib/fees";
 import type { Prisma } from "@prisma/client";
 import { writeBillingAudit, type BillingAuditEntry } from "@/lib/billingAudit";
 import { isUniqueViolation } from "@/lib/transactionOnce";
+import { REFUND_POLICY_SELECT, refundOverride, type RefundPolicyEvent } from "@/lib/eventRefundPolicy";
 import { sendRefundReceipt, type RefundReceipt } from "@/lib/eventRefundEmail";
 import {
   REFUNDED_ACTION,
@@ -60,7 +61,7 @@ const TARGET_SELECT = {
   paidVia: true,
   transactionId: true,
   stripePaymentIntentId: true,
-  event: { select: { id: true, name: true, startsAt: true, autoChargeDate: true } },
+  event: { select: { id: true, name: true, ...REFUND_POLICY_SELECT } },
   club: { select: { id: true, name: true, timezone: true, stripeAccountId: true, contactEmail: true, contactPhone: true } },
 } as const;
 
@@ -91,7 +92,7 @@ export type RefundTarget = {
     paidVia: string | null;
     transactionId: string | null;
     stripePaymentIntentId: string | null;
-    event: { id: string; name: string; startsAt: Date; autoChargeDate?: Date | null };
+    event: { id: string; name: string } & RefundPolicyEvent;
     club: { id: string; name: string; timezone: string | null; stripeAccountId: string | null; contactEmail: string | null; contactPhone: string | null };
   };
   tx: {
@@ -166,8 +167,10 @@ export type RefundDeps = {
   /** The audit row for a refund that happened, written once per refund id.
    *  False = it's already there (a replayed tap got Stripe's original refund back). */
   auditOnce(refundId: string, entry: BillingAuditEntry): Promise<boolean>;
-  /** Take them off the event: registration CANCELED, roster spot freed. Money columns untouched. */
-  remove(reg: RefundTarget["reg"]): Promise<void>;
+  /** Take them off the event: registration CANCELED, roster spot freed. Money
+   *  columns untouched. `keepBooking` = a family canceled itself, so its
+   *  booking stays in their history as Canceled. */
+  remove(reg: RefundTarget["reg"], keepBooking: boolean): Promise<void>;
   receipt: typeof sendRefundReceipt;
   now(): Date;
 };
@@ -241,7 +244,7 @@ export const liveDeps: RefundDeps = {
     }
   },
   audit: writeBillingAudit,
-  async remove(reg) {
+  async remove(reg, keepBooking) {
     await prisma.eventRegistration.updateMany({
       where: { id: reg.id, clubId: reg.clubId, status: { not: "CANCELED" } },
       // Only status and the link. amountPaid, transactionId and the payment
@@ -249,7 +252,9 @@ export const liveDeps: RefundDeps = {
       data: { status: "CANCELED", paymentUrl: null },
     });
     if (reg.memberId) {
-      await prisma.booking.deleteMany({ where: { eventId: reg.eventId, memberId: reg.memberId } });
+      const where = { eventId: reg.eventId, memberId: reg.memberId };
+      if (keepBooking) await prisma.booking.updateMany({ where, data: { status: "CANCELED" } });
+      else await prisma.booking.deleteMany({ where });
     }
   },
   receipt: sendRefundReceipt,
@@ -270,6 +275,8 @@ export type RefundSheetData = {
   removed: boolean;
   /** Set when nothing can be refunded, with why. */
   blocked: string | null;
+  /** Past the event's refund policy. Information, not a lock. */
+  policyWarning: string | null;
 };
 
 const NO_PAYMENT = "There's no payment recorded on this registration, so there's nothing to refund.";
@@ -322,7 +329,8 @@ export async function refundSheetData(clubId: string, eventId: string, regId: st
     read.facts.paidCents <= 0 ? NO_PAYMENT
     : left <= 0 ? `The whole ${centsText(read.facts.paidCents)} has already been refunded.`
     : blockedReason(t, read.via) ?? unreadable;
-  return { ...base, via: read.via, card: read.card, facts: read.facts, leftCents: left, blocked };
+  const policyWarning = refundOverride(t.reg.event, t.reg.club.timezone, deps.now())?.warning ?? null;
+  return { ...base, via: read.via, card: read.card, facts: read.facts, leftCents: left, blocked, policyWarning };
 }
 
 // ── Doing it ────────────────────────────────────────────────────────────────
@@ -338,13 +346,14 @@ export type RefundInput = {
   actorUserId: string | null;
   /** Take them off the event too, but only once the refund has gone through. */
   remove?: boolean;
+  /** With `remove`: the family canceled itself, keep its booking as Canceled. */
+  keepBooking?: boolean;
+  /** A person chose this, so a refund past the event's policy is recorded as an override. */
+  byStaff?: boolean;
   /** "Refunded from Attendees", "Coach declined"… shown on the payment. */
   reason: string;
   /** false when the caller sends its own email about this. */
   sendReceipt?: boolean;
-  /** Extra facts for the audit row (a refund made past the event's deadline). */
-  auditExtra?: Record<string, unknown>;
-  auditNote?: string | null;
 };
 
 export type RefundResult =
@@ -368,6 +377,7 @@ export async function refundEventRegistration(input: RefundInput, deps: RefundDe
     return { ok: false, status: 502, code: "STRIPE_UNREADABLE", error: CANT_READ_STRIPE };
   }
   const { facts, card } = read;
+  const override = input.byStaff ? refundOverride(reg.event, reg.club.timezone, deps.now()) : null;
   if (input.expectedRefundedCents != null) {
     const stale = refundIsStale(input.expectedRefundedCents, facts);
     if (stale) return { ok: false, status: 409, code: "CHANGED", error: stale };
@@ -391,7 +401,7 @@ export async function refundEventRegistration(input: RefundInput, deps: RefundDe
         kind: f.kind,
         definite: f.definite,
         error: String((raw as { message?: unknown } | null)?.message ?? raw).slice(0, 300),
-        ...(input.auditExtra ?? {}),
+        ...(override?.audit ?? {}),
       },
       note: `Refund of ${centsText(want.cents)} to ${reg.name.trim()} for ${reg.event.name} did not go through. ${f.text}${input.remove ? " They are still registered." : ""}`,
     });
@@ -455,7 +465,7 @@ export async function refundEventRegistration(input: RefundInput, deps: RefundDe
   let removed = reg.status === "CANCELED";
   if (input.remove && !removed) {
     try {
-      await deps.remove(reg);
+      await deps.remove(reg, !!input.keepBooking);
       removed = true;
     } catch (e) {
       // Refunded but still on the list. That is said, never hidden.
@@ -495,9 +505,9 @@ export async function refundEventRegistration(input: RefundInput, deps: RefundDe
       full,
       mode: input.mode,
       via,
-      ...(input.auditExtra ?? {}),
+      ...(override?.audit ?? {}),
     },
-    note: `${centsText(want.cents)} refunded to ${reg.name.trim()} for ${reg.event.name}. ${input.reason}.${tookOff ? " They were removed from the event." : ""}${input.auditNote ? ` ${input.auditNote}` : ""}`,
+    note: `${centsText(want.cents)} refunded to ${reg.name.trim()} for ${reg.event.name}. ${input.reason}.${tookOff ? " They were removed from the event." : ""}${override ? ` ${override.auditNote}` : ""}`,
   });
   // A replayed tap gets Stripe's original refund back; it has its audit row
   // and its receipt already.

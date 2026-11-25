@@ -121,7 +121,7 @@ function pill(r: AttendeeRow): { label: string; cls: string } {
 
 function StatusPill({ r }: { r: AttendeeRow }) {
   const p = pill(r);
-  return <span className={`inline-block text-[12px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap tabular-nums ${p.cls}`}>{p.label}</span>;
+  return <span className={`inline-block text-[12px] font-semibold px-2 py-0.5 tabular-nums ${p.label.length > 22 ? "rounded-[10px]" : "rounded-full whitespace-nowrap"} ${p.cls}`}>{p.label}</span>;
 }
 
 function SourceChip({ r }: { r: AttendeeRow }) {

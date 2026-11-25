@@ -116,7 +116,7 @@ function world(over: Partial<RefundTarget["reg"]> = {}, txOver: Partial<NonNulla
       return true;
     },
     audit: (async (e: never) => { w.audits.push(e); }) as never,
-    remove: async () => { if (w.removeFails) throw new Error("db"); w.reg.status = "CANCELED"; w.removed.push(reg.id); },
+    remove: async (_r, _keep) => { if (w.removeFails) throw new Error("db"); w.reg.status = "CANCELED"; w.removed.push(reg.id); },
     receipt: (async (e: never) => { w.receipts.push(e); return { sent: 1 }; }) as never,
     now: () => now,
   };

@@ -211,12 +211,13 @@ export function renderLifecycleEmailHtml(ctx: RegistrationRenderContext, tz?: st
   <table style="width:100%;border-collapse:collapse;border-top:1px solid #e7e5e4;border-bottom:1px solid #e7e5e4">${rows.join("")}</table>
   ${links}
   <p style="margin:20px 0">${buttons}</p>
+  ${m.refundPolicy.length ? `<p style="margin:0 0 12px;color:#57534e;font-size:13px;line-height:1.6"><strong style="color:#1c1917">Refunds</strong><br/>${m.refundPolicy.map((l) => escapeHtml(l)).join("<br/>")}</p>` : ""}
   ${m.cancellationPolicyText ? `<p style="color:#a8a29e;font-size:12px;line-height:1.6">${escapeHtml(m.cancellationPolicyText)}</p>` : ""}
   <p style="color:#a8a29e;font-size:12px;line-height:1.6">
     View this registration any time: <a href="${ctx.confirmationUrl}" style="color:#534AB7">${ctx.confirmationUrl}</a><br/>
     ${escapeHtml(m.clubName)}${m.clubContact ? ` · ${escapeHtml(m.clubContact)}` : ""}
   </p>
-  <p style="color:#a8a29e;font-size:11px;line-height:1.6;margin-top:16px">
+  <p style="color:#a8a29e;font-size:12px;line-height:1.6;margin-top:16px">
     This is a transactional notification about your registration for ${escapeHtml(m.eventName)}.
     You'll receive one for every material change.
   </p>
@@ -241,6 +242,8 @@ export function renderLifecycleEmailText(ctx: RegistrationRenderContext, tz?: st
     ...(m.amountDue ? [`Amount due: ${money(m.amountDue)}`] : []),
     ...(m.amountRefunded ? [`Refunded: ${money(m.amountRefunded)}`] : []),
     ...(m.declineReason ? ["", `Reason from your coach: ${m.declineReason}`] : []),
+    ...(m.refundPolicy.length ? ["", "Refunds:", ...m.refundPolicy] : []),
+    ...(m.cancellationPolicyText ? ["", m.cancellationPolicyText] : []),
     ...(m.links.length ? ["", "Links:", ...m.links.map((l) => `${l.label}: ${l.url}`)] : []),
     "",
     ...(ctx.actions.primary ? [`${ctx.actions.primary.label}: ${ctx.actions.primary.href}`] : []),
@@ -262,6 +265,8 @@ const REG_INCLUDE = {
       contactPhone: true,
       timezone: true,
       stripeAccountId: true,
+      passProcessingFees: true,
+      passPlatformFee: true,
     },
   },
   member: {

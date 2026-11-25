@@ -10,6 +10,7 @@ import { stripe } from "@/lib/stripe";
 import { applyNonRenewal, planNonRenewal } from "@/lib/autopay";
 import { invoicePeriodEnd, refundFeeFactsForCharge } from "@/lib/stripeTruth";
 import { prisma } from "@/lib/prisma";
+import { refundPolicyView } from "@/lib/eventRefundPolicy";
 import { releaseStock } from "@/lib/productStock";
 import { recordProductMoney } from "@/lib/productMoney";
 import { confirmBookingPayment } from "@/lib/productBookingServer";
@@ -39,7 +40,8 @@ import {
 
 // Resolve the best email + first name for a member. Falls back to guardian email
 // for minors, then to the linked User account.
-async function memberContact(memberId: string): Promise<{ email: string | null; firstName: string; clubName: string; timeZone: string | null }> {
+type MemberContact = { email: string | null; firstName: string; clubName: string; timeZone: string | null; timezone: string | null; passProcessingFees: boolean; passPlatformFee: boolean };
+async function memberContact(memberId: string): Promise<MemberContact> {
   const m = await prisma.member.findUnique({
     where: { id: memberId },
     select: {
@@ -49,14 +51,14 @@ async function memberContact(memberId: string): Promise<{ email: string | null; 
       guardianEmail: true,
       guardian: { select: { email: true } },
       user: { select: { email: true } },
-      club: { select: { name: true, timezone: true } },
+      club: { select: { name: true, timezone: true, passProcessingFees: true, passPlatformFee: true } },
     },
   });
-  if (!m) return { email: null, firstName: "", clubName: "", timeZone: null };
+  if (!m) return { email: null, firstName: "", clubName: "", timeZone: null, timezone: null, passProcessingFees: false, passPlatformFee: false };
   const email = m.isMinor
     ? (m.guardian?.email || m.guardianEmail || m.email || m.user?.email || null)
     : (m.email || m.user?.email || m.guardianEmail || null);
-  return { email, firstName: m.firstName, clubName: m.club?.name ?? "your club", timeZone: m.club?.timezone ?? null };
+  return { email, firstName: m.firstName, clubName: m.club?.name ?? "your club", timeZone: m.club?.timezone ?? null, timezone: m.club?.timezone ?? null, passProcessingFees: !!m.club?.passProcessingFees, passPlatformFee: !!m.club?.passPlatformFee };
 }
 
 // AWAITED. This used to fire the email and return at once; on serverless the
@@ -733,6 +735,7 @@ export async function POST(req: Request) {
                       startsAt: event.startsAt,
                       endsAt: event.endsAt,
                       amountPaid: amountStr,
+                      refundPolicy: refundPolicyView(event, contact, new Date())?.lines,
                       portalUrl: `${BASE_URL}${eventDetailsPath(event.id)}`,
                       clock: { kind: "moment", timeZone: contact.timeZone },
                     })

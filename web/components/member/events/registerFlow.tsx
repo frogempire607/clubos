@@ -26,6 +26,8 @@ import EntriesEditor, { entriesPayload, emptyEntry, type EntryDraft } from "@/co
 import { maxEntriesFor } from "@/lib/eventEntries";
 import { memberErrorText } from "@/lib/memberErrorText";
 import type { RegisterReview } from "@/lib/eventDetailsView";
+import RefundPolicyLines, { NonRefundableCheckbox } from "@/components/events/RefundPolicyLines";
+import type { RefundPolicyView } from "@/lib/eventRefundPolicy";
 
 /** One event as GET /api/member/events (and /api/member/events/[id]) sends it. */
 export type MemberEventCard = {
@@ -138,6 +140,7 @@ export function useEventRegisterFlow(opts: {
     acknowledgeDocuments?: boolean,
     sessionIds?: string[],
     confirmed?: boolean,
+    acknowledgeNonRefundable?: boolean,
   ) {
     const ev = getEvent(eventId);
     const fields = eventFormFields(ev?.registrationForm);
@@ -192,6 +195,7 @@ export function useEventRegisterFlow(opts: {
           ...(answers && typeof answers[GROUP_KEY] === "string" && answers[GROUP_KEY] ? { groupValue: answers[GROUP_KEY] } : {}),
           ...(built && built.payload.length > 0 ? { entries: built.payload } : {}),
           ...(confirmed ? { confirmed: true } : {}),
+          ...(acknowledgeNonRefundable ? { acknowledgeNonRefundable: true } : {}),
         }),
       });
     } catch {
@@ -240,6 +244,7 @@ export function useEventRegisterFlow(opts: {
         quote: d.quote ?? null,
         savedCard: d.savedCard ?? null,
         documents: d.documents ?? [],
+        refundPolicy: d.refundPolicy ?? null,
         requiresCoachApproval: !!d.requiresCoachApproval,
       });
       return;
@@ -247,7 +252,7 @@ export function useEventRegisterFlow(opts: {
     if (res.status === 400 && d.error === "DOCUMENTS_ACKNOWLEDGE_REQUIRED") {
       const titles = (d.documents ?? []).map((x: { title: string }) => x.title).join(", ");
       if (await confirmDialog(`This event requires acknowledging: ${titles}. Acknowledge and continue?`)) {
-        register(eventId, pricingType, payment, true, sessionIds, confirmed);
+        register(eventId, pricingType, payment, true, sessionIds, confirmed, acknowledgeNonRefundable);
       }
       return;
     }
@@ -315,12 +320,12 @@ export function useEventRegisterFlow(opts: {
           prompt={payPrompt}
           event={payPrompt.eventId ? (getEvent(payPrompt.eventId) ?? null) : null}
           onClose={() => setPayPrompt(null)}
-          onChoose={(method, consentLabel, acknowledged) => {
+          onChoose={(method, consentLabel, acknowledged, nonRefundable) => {
             const p = payPrompt;
             setPayPrompt(null);
             // The choice screen showed the athlete, the exact total and when it
             // moves: choosing IS the confirm.
-            if (p.eventId) void register(p.eventId, p.pricingType ?? "MEMBER", { method, consentLabel }, acknowledged, p.sessionIds, true);
+            if (p.eventId) void register(p.eventId, p.pricingType ?? "MEMBER", { method, consentLabel }, acknowledged, p.sessionIds, true, nonRefundable);
           }}
         />
       )}
@@ -329,11 +334,11 @@ export function useEventRegisterFlow(opts: {
           review={review}
           busy={busy === review.request.eventId}
           onClose={() => setReview(null)}
-          onConfirm={(consentLabel) => {
+          onConfirm={(consentLabel, nonRefundable) => {
             const r = review;
             setReview(null);
             const payment = r.method ? { method: r.method, consentLabel: consentLabel ?? r.request.payment?.consentLabel } : r.request.payment;
-            void register(r.request.eventId, r.request.pricingType, payment, r.acknowledge.length > 0, r.request.sessionIds, true);
+            void register(r.request.eventId, r.request.pricingType, payment, r.acknowledge.length > 0, r.request.sessionIds, true, nonRefundable);
           }}
         />
       )}
@@ -356,10 +361,12 @@ export function ReviewSheet({
   review: RegisterReview;
   busy: boolean;
   onClose: () => void;
-  onConfirm: (consentLabel?: string) => void;
+  onConfirm: (consentLabel?: string, nonRefundable?: boolean) => void;
 }) {
   const needsConsent = review.method === "AUTO_CARD" || review.method === "APPROVAL_CHARGE";
   const [consented, setConsented] = useState(false);
+  const [nonRefundable, setNonRefundable] = useState(false);
+  const needsRefundAck = !!review.refundPolicy?.mustAcknowledge;
   const a = review.amount;
   const showCard = !!a && (review.method === "CARD" || review.method === "SAVED_CARD" || review.method === "AUTO_CARD" || review.method === "APPROVAL_CHARGE");
   const consentLabel = needsConsent && a ? `I authorize this charge of ${money(a.cardTotal)}. ${review.timing}` : undefined;
@@ -390,6 +397,12 @@ export function ReviewSheet({
             <dt className="text-stone-500 mb-0.5">When and how you pay</dt>
             <dd className="text-stone-900">{review.timing}</dd>
           </div>
+          {review.refundPolicy && (
+            <div>
+              <dt className="text-stone-500 mb-0.5">Refunds</dt>
+              <dd className="text-stone-900"><RefundPolicyLines view={review.refundPolicy} /></dd>
+            </div>
+          )}
           {review.acknowledge.length > 0 && (
             <div>
               <dt className="text-stone-500 mb-0.5">By confirming you acknowledge</dt>
@@ -404,10 +417,11 @@ export function ReviewSheet({
               <span className="text-xs text-stone-700">{consentLabel}</span>
             </label>
           )}
+          {needsRefundAck && <NonRefundableCheckbox checked={nonRefundable} onChange={setNonRefundable} />}
           <button
             type="button"
-            disabled={busy || (needsConsent && !consented)}
-            onClick={() => onConfirm(consentLabel)}
+            disabled={busy || (needsConsent && !consented) || (needsRefundAck && !nonRefundable)}
+            onClick={() => onConfirm(consentLabel, nonRefundable)}
             className="w-full min-h-11 py-2.5 rounded-lg text-white text-sm font-semibold disabled:opacity-40 pbtn-accent"
           >
             {busy ? "Working…" : review.confirmLabel}
@@ -438,6 +452,8 @@ export type PayPromptData = {
   options: string[];
   quote?: { base: number; cardFee: number; cardTotal: number; offlineTotal: number } | null;
   savedCard?: { label: string } | null;
+  /** The event's refund policy, when one is set. */
+  refundPolicy?: RefundPolicyView | null;
   documents?: {
     id: string;
     title: string;
@@ -458,11 +474,13 @@ export function PaymentChoiceModal({
   prompt: PayPromptData;
   event: MemberEventCard | null;
   onClose: () => void;
-  onChoose: (method: string, consentLabel?: string, acknowledged?: boolean) => void;
+  onChoose: (method: string, consentLabel?: string, acknowledged?: boolean, nonRefundable?: boolean) => void;
 }) {
   const [method, setMethod] = useState<string>(prompt.options[0] ?? "");
   const [consented, setConsented] = useState(false);
   const [ackChecked, setAckChecked] = useState(false);
+  const [nonRefundable, setNonRefundable] = useState(false);
+  const needsRefundAck = !!prompt.refundPolicy?.mustAcknowledge;
 
   const chargeDay = event?.autoChargeDate ?? event?.startsAt ?? null;
   const chargeDayLabel = chargeDay
@@ -526,7 +544,8 @@ export function PaymentChoiceModal({
   const blocked =
     ((method === "AUTO_CARD" || method === "APPROVAL_CHARGE") && !consented) ||
     (prompt.kind === "event" && signBlocked.length > 0) ||
-    (prompt.kind === "event" && ackDocs.length > 0 && !ackChecked);
+    (prompt.kind === "event" && ackDocs.length > 0 && !ackChecked) ||
+    (needsRefundAck && !nonRefundable);
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
@@ -642,9 +661,17 @@ export function PaymentChoiceModal({
             </label>
           )}
 
+          {prompt.refundPolicy && (
+            <div className="rounded-lg border border-stone-200 px-3 py-2.5">
+              <p className="text-sm font-medium text-stone-900 mb-0.5">Refunds</p>
+              <RefundPolicyLines view={prompt.refundPolicy} />
+            </div>
+          )}
+          {needsRefundAck && <NonRefundableCheckbox checked={nonRefundable} onChange={setNonRefundable} />}
+
           <button
             disabled={!method || blocked}
-            onClick={() => onChoose(method, consentLabel, ackChecked)}
+            onClick={() => onChoose(method, consentLabel, ackChecked, nonRefundable)}
             className="w-full mt-2 py-2.5 rounded-lg bg-stone-900 text-white text-sm font-semibold disabled:opacity-40"
           >
             {method === "SAVED_CARD"

@@ -6,20 +6,51 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveFamilyContext } from "@/lib/memberContext";
 import { classHasStarted } from "@/lib/datetime";
+import { loadSelfCancel, runSelfCancel } from "@/lib/eventSelfCancelServer";
 
 // POST /api/member/bookings/cancel
 //
 // A member (or their guardian) cancels their own CLASS booking (an
-// AttendanceRecord created ahead of the session) or EVENT booking. Mirrors the
-// private-lesson cancel rules: the cancel always goes through, but money is
-// NEVER auto-refunded — when the spot was paid for, staff get a DM flagging a
-// refund request to review. Private lessons keep their own richer route
-// (/api/member/privates/[id]).
+// AttendanceRecord created ahead of the session) or EVENT booking.
+//
+// Classes, and events with no refund policy: the cancel always goes through
+// and money is never refunded automatically; staff get a DM to review. Private
+// lessons keep their own richer route (/api/member/privates/[id]).
+//
+// An event WITH a refund policy (2026-11-25) applies it, and says so first:
+// GET answers what canceling means for their money, and POST must send back
+// what they agreed to (`agreed`). Before the deadline the event price goes
+// back automatically; after it, no refund. Rules: lib/eventRefundPolicy
+// selfCancelPlan; money: lib/eventSelfCancelServer.
 const schema = z.object({
   kind: z.enum(["class", "event"]),
   id: z.string().min(1),
   reason: z.string().trim().max(1000).optional().nullable(),
+  // The plan they were shown (GET's token). Only events with a policy use it.
+  agreed: z.string().max(60).optional().nullable(),
 });
+
+export const maxDuration = 60;
+
+// GET /api/member/bookings/cancel?kind=event&id=<bookingId>
+// What canceling would mean for their money. Reads only.
+export async function GET(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "MEMBER") {
+    return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
+  }
+  const clubId = session.user.clubId;
+  const q = new URL(req.url).searchParams;
+  if (q.get("kind") !== "event" || !q.get("id")) return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+  const found = await loadSelfCancel(clubId, q.get("id") as string, new Date());
+  if (!found) return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+  const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { email: true } });
+  const resolved = user ? await resolveFamilyContext(session.user.id, clubId, user.email, found.memberId) : "FORBIDDEN";
+  if (resolved === "FORBIDDEN" || resolved?.context?.id !== found.memberId) {
+    return NextResponse.json({ error: "You can't manage this booking." }, { status: 403 });
+  }
+  return NextResponse.json({ text: found.plan.text, token: found.plan.token, blocked: found.plan.kind === "BLOCKED" }, { headers: { "cache-control": "no-store" } });
+}
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
@@ -121,6 +152,21 @@ export async function POST(req: Request) {
   }
   if (booking.event.startsAt < new Date()) {
     return NextResponse.json({ error: "This event has already started." }, { status: 400 });
+  }
+
+  const policyCancel = await loadSelfCancel(clubId, booking.id, new Date());
+  if (policyCancel && policyCancel.plan.kind !== "LEGACY") {
+    const shown = { text: policyCancel.plan.text, token: policyCancel.plan.token, blocked: policyCancel.plan.kind === "BLOCKED" };
+    if (policyCancel.plan.kind === "BLOCKED") return NextResponse.json({ error: policyCancel.plan.text, plan: shown }, { status: 409 });
+    // Never cancel on terms they weren't shown: a deadline that passed while
+    // the sheet was open, or an older screen that shows no terms at all.
+    if (data.agreed !== policyCancel.plan.token) {
+      return NextResponse.json({ error: "What you get back has changed. Read it again, then confirm.", code: "PLAN_CHANGED", plan: shown }, { status: 409 });
+    }
+    const done = await runSelfCancel(policyCancel, { clubId, actorUserId: session.user.id ?? null, reason: data.reason ?? null });
+    await notifyStaff(done.staffMessage);
+    if (!done.ok) return NextResponse.json({ error: done.message }, { status: 409 });
+    return NextResponse.json({ ok: true, refunded: done.refunded, message: done.message });
   }
 
   await prisma.booking.update({ where: { id: booking.id }, data: { status: "CANCELED" } });

@@ -121,6 +121,12 @@ export default function RefundSheet({
             ))}
           </dl>
 
+          {data.policyWarning && !data.blocked && (
+            <p className="mt-3 text-[13px] rounded-[10px] px-3 py-2 bg-warn-surface text-warn-text border border-warn-border">
+              {data.policyWarning} You can still refund them. It&apos;s recorded in the history.
+            </p>
+          )}
+
           {data.blocked ? (
             <p className="mt-3 text-[14px] text-text-primary">{data.blocked}</p>
           ) : (

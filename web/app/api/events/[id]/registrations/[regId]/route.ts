@@ -82,6 +82,7 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
         expectedRefundedCents: int(body?.expectedRefundedCents),
         actorUserId: session.user.id ?? null,
         remove: true,
+        byStaff: true,
         reason: "Removed from the event and refunded",
       });
       // Not refunded: nothing was written, and they are still registered.

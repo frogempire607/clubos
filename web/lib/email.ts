@@ -443,6 +443,7 @@ export async function sendBookingConfirmationEmail({
   location,
   coveredByMembership,
   amountPaid,
+  refundPolicy,
   portalUrl,
   clock,
 }: {
@@ -455,6 +456,8 @@ export async function sendBookingConfirmationEmail({
   location?: string | null;
   coveredByMembership?: boolean;
   amountPaid?: string;
+  /** An event's refund policy in plain lines (lib/eventRefundPolicy). */
+  refundPolicy?: string[] | null;
   portalUrl: string;
   /** Which kind of time `startsAt` is. Required: see lib/emailTime.ts. */
   clock: EmailClock;
@@ -482,6 +485,7 @@ export async function sendBookingConfirmationEmail({
             ? `<p style="color:#57534e;margin:8px 0 0;font-size:13px">Paid: <strong>${amountPaid}</strong></p>`
             : ""}
       </div>
+      ${refundPolicy?.length ? `<p style="color:#57534e;line-height:1.6;margin:0 0 16px;font-size:13px"><strong style="color:#1c1917">Refunds</strong><br/>${refundPolicy.map(escapeReceipt).join("<br/>")}</p>` : ""}
       <a href="${portalUrl}" style="display:inline-block;background:#534AB7;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">
         View in your portal
       </a>

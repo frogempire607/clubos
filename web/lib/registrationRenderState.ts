@@ -27,6 +27,7 @@
 // price directly — a discounted registrant owes the discounted number, and the
 // page, the email and the Stripe line item must all print the same one.
 
+import { refundPolicyView } from "@/lib/eventRefundPolicy";
 import { cameViaPrivateLink, registerAgainPath } from "@/lib/eventShareLink";
 import { eventLinksForRead, type EventLink } from "./eventLinks";
 import {
@@ -106,6 +107,9 @@ export type RegistrationRenderContext = {
     declineReason: string | null;
     escalationStage: number;
     cancellationPolicyText: string | null;
+    /** The event's refund policy in plain lines. Empty when none is set, when
+     *  nothing is paid or owed, and once the registration is canceled. */
+    refundPolicy: string[];
     /** The event's labeled external links (host page, hotel block …). Empty once canceled. */
     links: EventLink[];
     clubName: string;
@@ -154,6 +158,11 @@ export type RenderEvent = PricingEvent & {
   paymentDueBy?: Date | null;
   registrationDeadline?: Date | null;
   cancellationPolicyText?: string | null;
+  /** lib/eventRefundPolicy reads these. */
+  refundPolicy?: string | null;
+  refundUntilAt?: Date | string | null;
+  refundUntilDays?: number | null;
+  refundNote?: string | null;
   /** Raw Event.externalLinks / registrationLink — read through lib/eventLinks. */
   externalLinks?: unknown;
   registrationLink?: string | null;
@@ -165,7 +174,7 @@ export type RenderEvent = PricingEvent & {
 export type RenderInput = {
   registration: RenderRegistration;
   event: RenderEvent;
-  club: { name: string; contactEmail?: string | null; contactPhone?: string | null; timezone?: string | null };
+  club: { name: string; contactEmail?: string | null; contactPhone?: string | null; timezone?: string | null; passProcessingFees?: boolean | null; passPlatformFee?: boolean | null };
   /** Active (non-canceled) registrations — the divisor for a variable-cost split. */
   activeCount: number;
   /** baseUrlFromRequest(req) on a request path; getAppBaseUrl() in cron + email. */
@@ -662,6 +671,10 @@ export function renderableRegistrationState(input: RenderInput): RegistrationRen
       proposedChange: key === "PROPOSED_CHANGE_PENDING" ? proposal : null,
       declineReason: reg.declinedReason ?? null,
       escalationStage: Math.max(0, reg.reminderStage ?? 0),
+      refundPolicy:
+        canceled || ((amountPaid ?? 0) <= 0 && owed <= 0)
+          ? []
+          : refundPolicyView(event, club, now)?.lines ?? [],
       cancellationPolicyText: canceled ? null : (input.cancellationPolicyText ?? event.cancellationPolicyText ?? null),
       links: canceled ? [] : eventLinksForRead(event),
       clubName: club.name,

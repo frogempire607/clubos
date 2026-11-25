@@ -234,6 +234,11 @@ export const GATED = [
   // Event refunds (2026-11-25): how much, once only, plain words when Stripe
   // says no, and "Remove and refund" that leaves people registered when it does.
   ["scripts/event-refund-tests.ts"],
+  // Event refund policy (2026-11-25): each policy's words and date, the
+  // required checkbox, the staff warning, deadlines on the club's clock, and
+  // a family's own cancel.
+  ["scripts/event-refund-policy-tests.ts", [], { TZ: "UTC" }],
+  ["scripts/event-refund-policy-tests.ts", [], { TZ: "America/Los_Angeles" }],
   ["scripts/event-details-tests.ts"],
   ["scripts/push-tests.ts"],
   ["scripts/social-auth-tests.ts"],

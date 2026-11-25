@@ -55,7 +55,7 @@ export async function GET(req: Request) {
 
   const club = await prisma.club.findUnique({
     where: { id: session.user.clubId },
-    select: { name: true, contactEmail: true, contactPhone: true, timezone: true },
+    select: { name: true, contactEmail: true, contactPhone: true, timezone: true, passProcessingFees: true, passPlatformFee: true },
   });
 
   // The divisor for a variable-cost split, per event, in one query.
@@ -104,6 +104,7 @@ export async function GET(req: Request) {
       proposedChange: ctx.meta.proposedChange,
       primaryAction: ctx.actions.primary,
       cancellationPolicyText: ctx.meta.cancellationPolicyText,
+      refundPolicy: ctx.meta.refundPolicy,
     };
   });
 

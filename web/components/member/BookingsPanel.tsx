@@ -24,6 +24,7 @@ import SegmentedControl from "@/components/member/SegmentedControl";
 import { EmptyState, AccentButton } from "@/components/member/ui";
 import { kindIsWallClockUTC, wallClockUTCToInstant } from "@/lib/datetime";
 import { effectiveClassStaff, staffNames } from "@/lib/staffAssignments";
+import { refundPolicyView, type RefundPolicyEvent } from "@/lib/eventRefundPolicy";
 import { CANCELED_LABEL, bookingIsActionable, classBookingState, isPastBooking, isUpcomingBooking } from "@/lib/memberClassCancel";
 
 // Classes store the owner's wall clock pinned to UTC; events/privates are true
@@ -67,8 +68,16 @@ type Booking = {
     endsAt: string;
     capacity?: number | null;
     customEventType: { name: string; color: string; textColor: string } | null;
-  };
+    pricingModel?: string | null;
+  } & Partial<Omit<RefundPolicyEvent, "startsAt">>;
 };
+
+/** The event's refund policy under its booking: the sentence and the club's note. */
+function refundLine(b: Booking, tz: string | null): string | null {
+  if (b.event.pricingModel === "FREE") return null;
+  const v = refundPolicyView(b.event, { timezone: tz }, new Date());
+  return v ? v.lines.join(" ") : null;
+}
 
 type MemberContext = {
   id: string;
@@ -256,6 +265,7 @@ type PendingRegistration = {
   startsAt: string;
   headline: string;
   chargeTiming: string;
+  refundPolicy?: string[];
   waitingOn: "COACH" | "PARENT" | "PAYMENT" | "COMPLETE" | "CANCELED";
   waitingOnLabel: string;
   confirmationCode: string;
@@ -299,6 +309,7 @@ function RegistrationRequests({ memberId }: { memberId: string | null }) {
                 </p>
                 <p className="text-xs text-stone-600 mt-0.5">{r.headline}</p>
                 <p className="text-[12px] text-stone-500 mt-0.5">{r.chargeTiming}</p>
+                {(r.refundPolicy ?? []).map((l) => <p key={l} className="text-[12px] text-stone-500 mt-0.5">{l}</p>)}
               </div>
               {needsReply ? (
                 <Link
@@ -336,6 +347,28 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
     memberId: string;
   } | null>(null);
   const [manageMode, setManageMode] = useState<"menu" | "cancel" | "change">("menu");
+  // What canceling this event means for their money, from the server, shown
+  // before they confirm and sent back with the confirm (lib/eventRefundPolicy).
+  const [cancelPlan, setCancelPlan] = useState<{ text: string; token: string; blocked: boolean } | null>(null);
+  const [planError, setPlanError] = useState("");
+  const [cancelError, setCancelError] = useState("");
+  const planFor = manage?.kind === "event" && manageMode === "cancel" ? manage.id : null;
+  useEffect(() => {
+    setCancelPlan(null);
+    setPlanError("");
+    setCancelError("");
+    if (!planFor) return;
+    let live = true;
+    fetch(`/api/member/bookings/cancel?kind=event&id=${encodeURIComponent(planFor)}`, { cache: "no-store" })
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!live) return;
+        if (r.ok) setCancelPlan(d);
+        else setPlanError(memberErrorText(d, "We couldn't check what canceling would mean. Close this and try again."));
+      })
+      .catch(() => live && setPlanError("We couldn't check what canceling would mean. Check your connection and try again."));
+    return () => { live = false; };
+  }, [planFor]);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -516,7 +549,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
         : await fetch(`/api/member/bookings/cancel`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ kind: manage.kind, id: manage.id, reason: reason.trim() || null }),
+            body: JSON.stringify({ kind: manage.kind, id: manage.id, reason: reason.trim() || null, ...(cancelPlan ? { agreed: cancelPlan.token } : {}) }),
           });
     setBusy(false);
     if (res.ok) {
@@ -554,7 +587,13 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
       setReason("");
     } else {
       const d = await res.json().catch(() => ({}));
-      setToast(memberErrorText(d, "Something went wrong. Please try again."));
+      const text = memberErrorText(d, "Something went wrong. Please try again.");
+      if (manage.kind === "event") {
+        // Still registered: the reason stays on the sheet, and what they'd be
+        // agreeing to now if it changed (a deadline that just passed).
+        setCancelError(text);
+        if (d.plan) setCancelPlan(d.plan);
+      } else setToast(text);
     }
     setTimeout(() => setToast(null), 3500);
   }
@@ -717,6 +756,9 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                           {new Date(b.event.startsAt).toLocaleTimeString("en-US", timeOpts(b.kind))}
                           {b.coach ? ` · ${b.coach}` : ""}
                         </div>
+                        {b.kind === "event" && refundLine(b, clubTz) && (
+                          <div className="text-[12px] text-stone-500">{refundLine(b, clubTz)}</div>
+                        )}
                         {b.dayCanceled && (
                           <div className="text-[12px] text-red-700">{b.cancelReason ? `${CANCELED_LABEL}: ${b.cancelReason}` : "The club canceled this class day."}</div>
                         )}
@@ -792,6 +834,9 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                         {new Date(b.event.endsAt).toLocaleTimeString("en-US", timeOpts(b.kind))}
                         {b.coach ? ` · Coach ${b.coach}` : ""}
                       </p>
+                      {b.kind === "event" && refundLine(b, clubTz) && (
+                        <p className="text-xs text-stone-500 mt-0.5">{refundLine(b, clubTz)}</p>
+                      )}
                       {b.dayCanceled && (
                         <p className="text-xs text-red-700 mt-0.5">{b.cancelReason ? `${CANCELED_LABEL}: ${b.cancelReason}` : "The club canceled this class day."}</p>
                       )}
@@ -847,7 +892,13 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                   placeholder={manageMode === "cancel" ? "Let your coach know why…" : "e.g. Can we move to Thursday evening?"}
                   className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-stone-900"
                 />
-                {manageMode === "cancel" && (
+                {manageMode === "cancel" && manage.kind === "event" && (
+                  planError
+                    ? <p role="alert" className="text-[13px] text-red-700">{planError}</p>
+                    : <p className="text-[13px] text-stone-900 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">{cancelPlan ? cancelPlan.text : "Checking your refund…"}</p>
+                )}
+                {cancelError && <p role="alert" className="text-[13px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{cancelError}</p>}
+                {manageMode === "cancel" && manage.kind !== "event" && (
                   <p className="text-[12px] text-stone-500">
                     Already paid (card or package credit)? Refunds aren&apos;t automatic — canceling
                     sends a refund request and your club will follow up.
@@ -861,7 +912,7 @@ export default function BookingsPanel({ showContextNote = false }: { showContext
                     Back
                   </button>
                   <button
-                    disabled={busy}
+                    disabled={busy || (manageMode === "cancel" && manage.kind === "event" && (!cancelPlan || cancelPlan.blocked))}
                     onClick={submitManage}
                     className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 ${
                       manageMode === "cancel" ? "bg-red-600 hover:bg-red-700" : "bg-stone-900 hover:bg-stone-700"

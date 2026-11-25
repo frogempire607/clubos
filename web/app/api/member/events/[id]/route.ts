@@ -8,6 +8,7 @@ import { eventFormFields } from "@/lib/eventForm";
 import { eventAllowedPaymentMethods, eventScheduledChargeAt, resolveEventPolicy } from "@/lib/eventPayments";
 import { applyProcessingFee, feePolicyFor } from "@/lib/fees";
 import { mapsDirectionsUrl } from "@/lib/maps";
+import { refundPolicyView } from "@/lib/eventRefundPolicy";
 import type { PaymentMethodKey, PricingKind } from "@/lib/eventDetailsView";
 
 // GET /api/member/events/[id]?memberId=<athlete>
@@ -128,6 +129,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
         registrationClosed: event.registrationOpen === false || (!!deadline && deadline.getTime() <= now.getTime()) || started,
         started,
         cancellationPolicy: event.cancellationPolicyText?.trim() || null,
+        refundPolicy: pricing === "FREE" || pricing === "COVERED" ? null : refundPolicyView(event, club, now),
         questions: eventFormFields(event.registrationForm).map((f) => ({ label: f.label, type: f.type, required: f.required, options: f.options, perEntry: f.perEntry })),
         documents: docs.map((d) => ({
           id: d.id,
